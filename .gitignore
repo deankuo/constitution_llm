@@ -1,0 +1,8 @@
+# Dataset
+/Dataset/
+
+# Unit tests
+test.ipynb
+
+# environment
+.env
