@@ -29,6 +29,8 @@ test*.py
 demo.ipynb
 utils/encoding_fix.py
 *.html
+main_test.py
+
 
 # Checkpoint files
 checkpoint_*.csv
