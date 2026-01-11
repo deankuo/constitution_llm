@@ -27,7 +27,6 @@ __pycache__/
 test.ipynb
 test*.py
 demo.ipynb
-utils/encoding_fix.py
 *.html
 main_test.py
 
