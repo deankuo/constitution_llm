@@ -1,19 +1,19 @@
 #!/bin/bash
 
 # Constitution Analysis Pipeline Shell Script
-# This shell script is for executing the constitution analysis prompt engineering process.
+# Wrapper script for easy execution of the constitution analysis pipeline
 
-# Set script to exit on any error
-set -e
+set -e  # Exit on any error
 
 # Color codes for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+CYAN='\033[0;36m'
+NC='\033[0m'  # No Color
 
-# Function to print colored output
+# Functions for colored output
 print_info() {
     echo -e "${BLUE}[INFO]${NC} $1"
 }
@@ -30,47 +30,167 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-# Function to show usage
+print_header() {
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${CYAN}$1${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+}
+
+# Show usage information
 show_usage() {
-    echo "Constitution Analysis Pipeline"
+    print_header "Constitution Analysis Pipeline"
     echo ""
     echo "Usage: $0 [OPTIONS]"
     echo ""
-    echo "Optional Arguments (all have defaults in Python script):"
-    echo "  -i, --input <path>          Input CSV file (default: ./Dataset/polity_level_data.csv)"
-    echo "  -o, --output <path>         Output CSV file (default: ./Dataset/llm_predictions.csv)"
-    echo "  -u, --user-prompt <text>    Custom user prompt template"
-    echo "  -s, --system-prompt <text>  Custom system prompt"
-    echo "  -m, --models <models>       Model names (space-separated, default: gpt-4.1-nano)"
-    echo "  -k, --api-key <key>         API key (can also use OPENAI_API_KEY env var)"
-    echo "  -b, --batch-size <size>     Batch size for temporary saves (default: 10)"
-    echo "  -d, --delay <seconds>       Delay between API calls (default: 1.0)"
-    echo "  -t, --test <number>         Test mode: process only first N entries"
-    echo "  -h, --help                  Show this help message"
+    echo "Common Options:"
+    echo "  -i, --input <path>           Input CSV file path"
+    echo "                               (default: ./Dataset/polity_level_data.csv)"
+    echo ""
+    echo "  -o, --output <path>          Output CSV file path"
+    echo "                               (default: ./Dataset/llm_predictions.csv)"
+    echo ""
+    echo "  -m, --models <models>        Model specifications (KEY=IDENTIFIER format)"
+    echo "                               Examples:"
+    echo "                                 GPT=gpt-4o"
+    echo "                                 Claude=claude-3-5-sonnet-20241022"
+    echo "                                 Gemini=gemini-2.5-pro"
+    echo "                               (default: Gemini=gemini-2.5-pro)"
+    echo ""
+    echo "  -t, --test <N>               Test mode: process only first N entries"
+    echo "                               Examples: --test 10, --test 5:15"
+    echo ""
+    echo "  --use-search                 Enable web search (requires SERPER_API_KEY)"
+    echo ""
+    echo "Advanced Options:"
+    echo "  -d, --delay <seconds>        Delay between API calls (default: 1.0)"
+    echo "  -b, --batch-size <size>      Batch size for checkpoints (default: 100)"
+    echo "  --temperature <value>        LLM temperature (default: 0)"
+    echo "  --max-tokens <value>         Max tokens for response (default: 4096)"
+    echo "  --max-retries <value>        Max retries for failed calls (default: 3)"
+    echo ""
+    echo "Other Options:"
+    echo "  -h, --help                   Show this help message"
+    echo "  --check-env                  Check environment setup"
     echo ""
     echo "Examples:"
-    echo "  $0                                              # Use all defaults"
-    echo "  $0 -i my_data.csv -o my_results.csv"
-    echo "  $0 -m \"gpt-3.5-turbo gpt-4\" -k your_api_key"
-    echo "  $0 -t 5 -d 2.0                                  # Test with 5 entries, 2s delay"
-    echo "  $0 -s \"You are a historian\" -u \"Analyze: {country}\""
+    echo ""
+    echo "  # Quick test with 5 entries using default model"
+    echo "  $0 --test 5"
+    echo ""
+    echo "  # Use GPT-4 with web search"
+    echo "  $0 -m GPT=gpt-4o --use-search"
+    echo ""
+    echo "  # Compare multiple models"
+    echo "  $0 -m GPT=gpt-4o Claude=claude-3-5-sonnet-20241022 Gemini=gemini-2.5-pro"
+    echo ""
+    echo "  # Custom input/output with specific delay"
+    echo "  $0 -i custom_data.csv -o results.csv --delay 2.0"
+    echo ""
+    echo "  # Full production run with all settings"
+    echo "  $0 -i data.csv -o results.csv -m GPT=gpt-4o -d 1.5 --temperature 0.2"
     echo ""
     echo "Environment Variables:"
     echo "  OPENAI_API_KEY              OpenAI API key"
+    echo "  ANTHROPIC_API_KEY           Anthropic/Claude API key"
+    echo "  GEMINI_API_KEY              Google Gemini API key"
+    echo "  AWS_ACCESS_KEY_ID           AWS Access Key (for Bedrock)"
+    echo "  AWS_SECRET_ACCESS_KEY       AWS Secret Key (for Bedrock)"
+    echo "  SERPER_API_KEY              Serper API key (for web search)"
     echo ""
-    echo "Note: All arguments are optional due to defaults in Python script"
 }
 
-# Initialize variables (empty means use Python script defaults)
+# Check environment setup
+check_environment() {
+    print_header "Environment Check"
+    echo ""
+
+    local all_good=true
+
+    # Check Python
+    if command -v python3 &> /dev/null; then
+        python_version=$(python3 --version 2>&1 | awk '{print $2}')
+        print_success "Python 3 found: version $python_version"
+    else
+        print_error "Python 3 not found"
+        all_good=false
+    fi
+
+    # Check main.py
+    if [ -f "main.py" ]; then
+        print_success "main.py found"
+    else
+        print_error "main.py not found in current directory"
+        all_good=false
+    fi
+
+    # Check requirements.txt
+    if [ -f "requirements.txt" ]; then
+        print_success "requirements.txt found"
+    else
+        print_warning "requirements.txt not found"
+    fi
+
+    # Check .env file
+    if [ -f ".env" ]; then
+        print_success ".env file found"
+    else
+        print_warning ".env file not found (API keys should be set as environment variables)"
+    fi
+
+    # Check API keys
+    echo ""
+    print_info "Checking API keys..."
+
+    if [ -n "$OPENAI_API_KEY" ]; then
+        print_success "OPENAI_API_KEY is set"
+    else
+        print_warning "OPENAI_API_KEY is not set"
+    fi
+
+    if [ -n "$ANTHROPIC_API_KEY" ]; then
+        print_success "ANTHROPIC_API_KEY is set"
+    else
+        print_warning "ANTHROPIC_API_KEY is not set"
+    fi
+
+    if [ -n "$GEMINI_API_KEY" ]; then
+        print_success "GEMINI_API_KEY is set"
+    else
+        print_warning "GEMINI_API_KEY is not set"
+    fi
+
+    if [ -n "$AWS_ACCESS_KEY_ID" ]; then
+        print_success "AWS_ACCESS_KEY_ID is set"
+    else
+        print_warning "AWS_ACCESS_KEY_ID is not set"
+    fi
+
+    if [ -n "$SERPER_API_KEY" ]; then
+        print_success "SERPER_API_KEY is set (web search available)"
+    else
+        print_warning "SERPER_API_KEY is not set (web search unavailable)"
+    fi
+
+    echo ""
+    if [ "$all_good" = true ]; then
+        print_success "Environment check complete!"
+    else
+        print_error "Some environment checks failed. Please fix the issues above."
+        exit 1
+    fi
+}
+
+# Initialize variables
 INPUT_PATH=""
 OUTPUT_PATH=""
-USER_PROMPT=""
-SYSTEM_PROMPT=""
 MODELS=""
-API_KEY=""
-BATCH_SIZE=""
-DELAY=""
 TEST_SIZE=""
+DELAY=""
+BATCH_SIZE=""
+TEMPERATURE=""
+MAX_TOKENS=""
+MAX_RETRIES=""
+USE_SEARCH=""
 PYTHON_SCRIPT="main.py"
 
 # Parse command line arguments
@@ -84,33 +204,45 @@ while [[ $# -gt 0 ]]; do
             OUTPUT_PATH="$2"
             shift 2
             ;;
-        -u|--user-prompt)
-            USER_PROMPT="$2"
-            shift 2
-            ;;
-        -s|--system-prompt)
-            SYSTEM_PROMPT="$2"
-            shift 2
-            ;;
         -m|--models)
-            MODELS="$2"
-            shift 2
+            shift
+            MODELS=""
+            while [[ $# -gt 0 ]] && [[ ! "$1" =~ ^- ]]; do
+                MODELS="$MODELS $1"
+                shift
+            done
             ;;
-        -k|--api-key)
-            API_KEY="$2"
-            shift 2
-            ;;
-        -b|--batch-size)
-            BATCH_SIZE="$2"
+        -t|--test)
+            TEST_SIZE="$2"
             shift 2
             ;;
         -d|--delay)
             DELAY="$2"
             shift 2
             ;;
-        -t|--test)
-            TEST_SIZE="$2"
+        -b|--batch-size)
+            BATCH_SIZE="$2"
             shift 2
+            ;;
+        --temperature)
+            TEMPERATURE="$2"
+            shift 2
+            ;;
+        --max-tokens)
+            MAX_TOKENS="$2"
+            shift 2
+            ;;
+        --max-retries)
+            MAX_RETRIES="$2"
+            shift 2
+            ;;
+        --use-search)
+            USE_SEARCH="--use-search"
+            shift
+            ;;
+        --check-env)
+            check_environment
+            exit 0
             ;;
         -h|--help)
             show_usage
@@ -118,17 +250,17 @@ while [[ $# -gt 0 ]]; do
             ;;
         *)
             print_error "Unknown option: $1"
+            echo ""
             show_usage
             exit 1
             ;;
     esac
 done
 
-# Check if required arguments are provided (now all are optional due to Python defaults)
-# Only check if Python script exists
+# Check if Python script exists
 if [ ! -f "$PYTHON_SCRIPT" ]; then
     print_error "Python script not found: $PYTHON_SCRIPT"
-    print_info "Make sure $PYTHON_SCRIPT is in the current directory"
+    print_info "Make sure you're running this script from the project root directory"
     exit 1
 fi
 
@@ -138,7 +270,7 @@ if [ -n "$INPUT_PATH" ] && [ ! -f "$INPUT_PATH" ]; then
     exit 1
 fi
 
-# Check if output directory exists, create if not (only if output path specified)
+# Create output directory if needed
 if [ -n "$OUTPUT_PATH" ]; then
     OUTPUT_DIR=$(dirname "$OUTPUT_PATH")
     if [ ! -d "$OUTPUT_DIR" ]; then
@@ -147,65 +279,9 @@ if [ -n "$OUTPUT_PATH" ]; then
     fi
 fi
 
-# Check for API key
-if [ -z "$API_KEY" ] && [ -z "$OPENAI_API_KEY" ]; then
-    print_warning "No API key provided. Make sure OPENAI_API_KEY environment variable is set"
-fi
-
-# Print configuration
-print_info "Starting Constitution Analysis Pipeline"
-print_info "Configuration:"
-if [ -n "$INPUT_PATH" ]; then
-    echo "  Input file: $INPUT_PATH"
-else
-    echo "  Input file: Using Python default (./Dataset/polity_level_data.csv)"
-fi
-
-if [ -n "$OUTPUT_PATH" ]; then
-    echo "  Output file: $OUTPUT_PATH"
-else
-    echo "  Output file: Using Python default (./Dataset/llm_predictions.csv)"
-fi
-
-if [ -n "$MODELS" ]; then
-    echo "  Models: $MODELS"
-else
-    echo "  Models: Using Python default (gpt-4.1-nano)"
-fi
-
-if [ -n "$USER_PROMPT" ]; then
-    echo "  User prompt: Custom prompt provided"
-else
-    echo "  User prompt: Using Python default template"
-fi
-
-if [ -n "$SYSTEM_PROMPT" ]; then
-    echo "  System prompt: Custom prompt provided"
-else
-    echo "  System prompt: Using Python default"
-fi
-
-if [ -n "$BATCH_SIZE" ]; then
-    echo "  Batch size: $BATCH_SIZE"
-else
-    echo "  Batch size: Using Python default (10)"
-fi
-
-if [ -n "$DELAY" ]; then
-    echo "  Delay: $DELAY seconds"
-else
-    echo "  Delay: Using Python default (1.0 seconds)"
-fi
-
-if [ -n "$TEST_SIZE" ]; then
-    echo "  Test mode: Processing first $TEST_SIZE entries"
-fi
-echo ""
-
 # Build Python command
-PYTHON_CMD="python $PYTHON_SCRIPT"
+PYTHON_CMD="python3 $PYTHON_SCRIPT"
 
-# Add optional parameters only if they are provided
 if [ -n "$INPUT_PATH" ]; then
     PYTHON_CMD="$PYTHON_CMD --input \"$INPUT_PATH\""
 fi
@@ -214,66 +290,77 @@ if [ -n "$OUTPUT_PATH" ]; then
     PYTHON_CMD="$PYTHON_CMD --output \"$OUTPUT_PATH\""
 fi
 
-if [ -n "$USER_PROMPT" ]; then
-    PYTHON_CMD="$PYTHON_CMD --user-prompt \"$USER_PROMPT\""
-fi
-
-if [ -n "$SYSTEM_PROMPT" ]; then
-    PYTHON_CMD="$PYTHON_CMD --system-prompt \"$SYSTEM_PROMPT\""
-fi
-
 if [ -n "$MODELS" ]; then
-    PYTHON_CMD="$PYTHON_CMD --models $MODELS"
-fi
-
-if [ -n "$API_KEY" ]; then
-    PYTHON_CMD="$PYTHON_CMD --api-key \"$API_KEY\""
-fi
-
-if [ -n "$BATCH_SIZE" ]; then
-    PYTHON_CMD="$PYTHON_CMD --batch-size $BATCH_SIZE"
-fi
-
-if [ -n "$DELAY" ]; then
-    PYTHON_CMD="$PYTHON_CMD --delay $DELAY"
+    PYTHON_CMD="$PYTHON_CMD --models$MODELS"
 fi
 
 if [ -n "$TEST_SIZE" ]; then
     PYTHON_CMD="$PYTHON_CMD --test $TEST_SIZE"
 fi
 
-# Print command for debugging
+if [ -n "$DELAY" ]; then
+    PYTHON_CMD="$PYTHON_CMD --delay $DELAY"
+fi
+
+if [ -n "$BATCH_SIZE" ]; then
+    PYTHON_CMD="$PYTHON_CMD --batch-size $BATCH_SIZE"
+fi
+
+if [ -n "$TEMPERATURE" ]; then
+    PYTHON_CMD="$PYTHON_CMD --temperature $TEMPERATURE"
+fi
+
+if [ -n "$MAX_TOKENS" ]; then
+    PYTHON_CMD="$PYTHON_CMD --max_tokens $MAX_TOKENS"
+fi
+
+if [ -n "$MAX_RETRIES" ]; then
+    PYTHON_CMD="$PYTHON_CMD --max-retries $MAX_RETRIES"
+fi
+
+if [ -n "$USE_SEARCH" ]; then
+    PYTHON_CMD="$PYTHON_CMD $USE_SEARCH"
+fi
+
+# Display configuration
+print_header "Constitution Analysis Pipeline - Starting"
+echo ""
+print_info "Configuration:"
+echo "  Input:        ${INPUT_PATH:-Using default (./Dataset/polity_level_data.csv)}"
+echo "  Output:       ${OUTPUT_PATH:-Using default (./Dataset/llm_predictions.csv)}"
+echo "  Models:       ${MODELS:-Using default (Gemini=gemini-2.5-pro)}"
+echo "  Test mode:    ${TEST_SIZE:-Disabled (processing all data)}"
+echo "  Web search:   ${USE_SEARCH:-Disabled}"
+echo ""
+
+# Execute the Python script
 print_info "Executing command:"
 echo "  $PYTHON_CMD"
 echo ""
 
-# Execute the Python script
 print_info "Starting analysis..."
 start_time=$(date +%s)
 
 if eval $PYTHON_CMD; then
     end_time=$(date +%s)
     duration=$((end_time - start_time))
-    print_success "Analysis completed successfully!"
-    print_info "Total execution time: ${duration} seconds"
-    print_info "Results saved to: $OUTPUT_PATH"
-    
-    # Show basic statistics if output file exists
-    if [ -f "$OUTPUT_PATH" ]; then
+    minutes=$((duration / 60))
+    seconds=$((duration % 60))
+
+    echo ""
+    print_header "Analysis Complete"
+    print_success "Total execution time: ${minutes}m ${seconds}s"
+
+    # Show output file info if it exists
+    if [ -n "$OUTPUT_PATH" ] && [ -f "$OUTPUT_PATH" ]; then
         line_count=$(wc -l < "$OUTPUT_PATH")
-        print_info "Output file contains $((line_count - 1)) data rows (plus header)"
+        print_info "Output file: $OUTPUT_PATH"
+        print_info "Contains $((line_count - 1)) data rows (plus header)"
     fi
+
+    echo ""
+    print_success "Pipeline completed successfully!"
 else
-    print_error "Analysis failed!"
+    print_error "Pipeline failed! Check the error messages above."
     exit 1
 fi
-
-# Clean up temporary files (optional)
-temp_files=$(find . -name "temp_polity_results_*.csv" 2>/dev/null || true)
-if [ -n "$temp_files" ]; then
-    print_info "Cleaning up temporary files..."
-    rm -f temp_polity_results_*.csv
-    print_success "Temporary files removed"
-fi
-
-print_success "Script execution completed!"
