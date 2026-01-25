@@ -1,14 +1,18 @@
 """
 Constitution Analysis Pipeline - Polity Level
 
-This script analyzes historical polities to determine whether they had constitutions
-during their periods of existence. It supports multiple LLM providers:
+This script analyzes historical polities to determine political indicators
+including constitution status, sovereignty, powersharing, assembly, appointment,
+tenure, and exit patterns.
+
+Supports multiple LLM providers:
 - OpenAI (GPT models)
 - Google Gemini
 - AWS Bedrock
 - Anthropic (Claude models)
 
-The script can optionally use web search to enhance the model's knowledge.
+The script can optionally use web search to enhance the model's knowledge,
+and supports verification methods (Self-Consistency, Chain of Verification).
 """
 
 import os
@@ -24,7 +28,8 @@ import pandas as pd
 from dotenv import load_dotenv
 from tqdm import tqdm
 
-from utils.config import (
+# Import from new module structure
+from config import (
     COL_TERRITORY_NAME,
     COL_START_YEAR,
     COL_END_YEAR,
@@ -39,62 +44,46 @@ from utils.config import (
     ANTHROPIC_MODELS,
     BEDROCK_ARN_PREFIX,
     GEMINI_MODELS,
-    OPENAI_MODELS
+    OPENAI_MODELS,
+    PromptMode,
+    VerificationType,
+    ALL_INDICATORS,
+    INDICATORS_WITH_GROUND_TRUTH
 )
-from utils.llm_clients import (
+
+# Backward-compatible imports from models
+from models.llm_clients import (
     query_openai_model,
     query_gemini_model,
     query_anthropic_model,
-    query_aws_bedrock_model
+    query_aws_bedrock_model,
+    detect_provider
 )
-from utils.search_agents import (
+from models.search_agents import (
     run_openai_search_agent,
     run_gemini_search_agent,
     run_bedrock_search_agent,
     run_anthropic_search_agent
 )
-from utils.prompt import SYSTEM_PROMPT, USER_PROMPT_TEMPLATE
+
+# Prompts - backward compatible
+from prompts.constitution import SYSTEM_PROMPT, USER_PROMPT_TEMPLATE
+from prompts.indicators import get_prompt as get_indicator_prompt
+
+# New pipeline imports
+from pipeline.predictor import Predictor, PredictionConfig, create_predictor
+from pipeline.batch_runner import BatchRunner, BatchConfig, load_polity_data
+
+# Utils
+from utils.json_parser import parse_json_response, extract_json_from_response
 
 # Load environment variables from .env file
 load_dotenv()
 
 
-def load_polity_data(file_path: str) -> pd.DataFrame:
-    """
-    Load preprocessed polity data from CSV file.
-
-    Args:
-        file_path: Path to the CSV file containing polity data
-
-    Returns:
-        DataFrame with polity information
-
-    Raises:
-        ValueError: If required columns are missing from the CSV
-        FileNotFoundError: If the file doesn't exist
-    """
-    print(f"Loading polity data from {file_path}...")
-
-    try:
-        df = pd.read_csv(file_path)
-
-        # Validate required columns
-        missing_columns = [col for col in REQUIRED_COLUMNS if col not in df.columns]
-
-        if missing_columns:
-            raise ValueError(f"Missing required columns: {missing_columns}")
-
-        print(f"Data loaded successfully! Total polities: {len(df)}")
-        print(f"Columns: {list(df.columns)}")
-        print(f"Sample data:")
-        print(df.head())
-
-        return df
-
-    except Exception as e:
-        print(f"Error loading data: {e}")
-        raise
-
+# =============================================================================
+# BACKWARD COMPATIBLE FUNCTIONS
+# =============================================================================
 
 def create_prompt(country: str, start_year: int, end_year: int) -> Tuple[str, str]:
     """
@@ -118,89 +107,18 @@ def create_prompt(country: str, start_year: int, end_year: int) -> Tuple[str, st
 
 
 def _extract_json_from_response(response: str) -> str:
-    """
-    Extract JSON object from LLM response that may contain additional text.
-
-    Args:
-        response: Raw LLM response
-
-    Returns:
-        Extracted JSON string or original response if no JSON found
-    """
-    try:
-        start_index = response.find('{')
-        end_index = response.rfind('}')
-
-        if start_index != -1 and end_index != -1:
-            return response[start_index:end_index + 1]
-        return response
-    except Exception:
-        return response
+    """Extract JSON object from LLM response (backward compatible wrapper)."""
+    return extract_json_from_response(response)
 
 
 def parse_llm_response(response: str, max_retries: int, retry_delay: float) -> Dict:
-    """
-    Parse the LLM's JSON response with retry logic.
-
-    Args:
-        response: Raw LLM response, expected to be a JSON string
-        max_retries: Maximum number of retries for parsing
-        retry_delay: Delay in seconds between retries
-
-    Returns:
-        Dictionary containing parsed results or error structure if parsing fails
-    """
-    clean_response = _extract_json_from_response(response)
-
-    print("-" * 60)
-    print(clean_response)
-    print("-" * 60)
-
-    for attempt in range(1, max_retries + 1):
-        try:
-            return json.loads(clean_response)
-        except json.JSONDecodeError as e:
-            print(f"Error decoding JSON: {e}. Attempt {attempt} of {max_retries}.")
-
-            if attempt < max_retries:
-                print(f"Retrying in {retry_delay} seconds")
-                time.sleep(retry_delay)
-
-    # All retries failed
-    print(f"All {max_retries} retries failed. Returning an error structure.")
-    print(f"Final raw response that failed: {response}")
-
-    return {
-        'constitution_status': None,
-        'constitution_name': 'Parsing Error after multiple retries',
-        'constitution_year': None,
-        'explanation': response
-    }
+    """Parse the LLM's JSON response with retry logic (backward compatible)."""
+    return parse_json_response(response, max_retries, retry_delay, verbose=True)
 
 
 def _detect_provider(model_identifier: str) -> str:
-    """
-    Detect the LLM provider based on model identifier.
-
-    Args:
-        model_identifier: Model name or ARN
-
-    Returns:
-        Provider name: 'openai', 'gemini', 'anthropic', or 'bedrock'
-    """
-    if model_identifier.startswith(BEDROCK_ARN_PREFIX):
-        return 'bedrock'
-
-    model_lower = model_identifier.lower()
-
-    if any(pattern in model_lower for pattern in ANTHROPIC_MODELS):
-        return 'anthropic'
-
-    if any(pattern in model_lower for pattern in GEMINI_MODELS):
-        return 'gemini'
-
-    # Default to OpenAI for gpt-, o1-, o3-, and other models
-    return 'openai'
+    """Detect the LLM provider (backward compatible wrapper)."""
+    return detect_provider(model_identifier)
 
 
 def _route_to_model(
@@ -213,23 +131,8 @@ def _route_to_model(
     retry_delay: float,
     use_search: bool
 ) -> Optional[str]:
-    """
-    Route the query to the appropriate model API.
-
-    Args:
-        system_prompt: System prompt for the model
-        user_prompt: User prompt for the model
-        model_identifier: The full model name or ARN
-        api_keys: Dictionary of API keys
-        llm_params: Dictionary of LLM inference parameters
-        max_retries: Maximum number of retries
-        retry_delay: Delay in seconds between retries
-        use_search: Whether to use web search functionality
-
-    Returns:
-        Model response as string, or None if request fails
-    """
-    provider = _detect_provider(model_identifier)
+    """Route the query to the appropriate model API."""
+    provider = detect_provider(model_identifier)
 
     if use_search:
         print(f"INFO: Using WEB SEARCH for {model_identifier} ({provider})")
@@ -296,24 +199,7 @@ def process_single_polity(
     retry_delay: float,
     use_search_flag: bool
 ) -> Optional[Dict]:
-    """
-    Process a single polity by querying a model for constitution information.
-
-    Args:
-        country: Country/polity name
-        start_year: Start year of the polity period
-        end_year: End year of the polity period
-        model_key: Short name for the model (e.g., "GPT", "Claude")
-        model_identifier: Full model name or ARN
-        api_keys: Dictionary of API keys
-        llm_params: Dictionary of LLM inference parameters
-        max_retries: Maximum number of retries for a failed API call
-        retry_delay: Delay in seconds between retries
-        use_search_flag: Whether to enable web search functionality
-
-    Returns:
-        Dictionary with model-specific results only, or None if query fails
-    """
+    """Process a single polity for constitution analysis (backward compatible)."""
     system_prompt, user_prompt = create_prompt(country, start_year, end_year)
 
     response = _route_to_model(
@@ -326,14 +212,12 @@ def process_single_polity(
 
     parsed_result = parse_llm_response(response, max_retries, retry_delay)
 
-    # Create column name suffix from model key
     model_suffix = model_key.lower().replace("-", "_")
-    status = parsed_result.get('constitution_status')
-    explanation = parsed_result.get('explanation', "No explanation provided")
+    status = parsed_result.get('constitution_status') or parsed_result.get('constitution')
+    explanation = parsed_result.get('explanation') or parsed_result.get('reasoning', "No explanation provided")
 
-    # Return only model-specific columns
     result = {
-        f'constitution_{model_suffix}': 1 if status and status.lower() == 'yes' else 0,
+        f'constitution_{model_suffix}': 1 if status and str(status).lower() == 'yes' else 0,
         'constitution_year': parsed_result.get('constitution_year', None),
         f'constitution_name_{model_suffix}': parsed_result.get('document_name', "N/A"),
         f'explanation_{model_suffix}': explanation,
@@ -355,28 +239,10 @@ def process_batch(
     retry_delay: float = DEFAULT_RETRY_DELAY,
     use_search_flag: bool = False
 ) -> pd.DataFrame:
-    """
-    Process polity data in batches using concurrent requests.
-
-    Args:
-        df: Input DataFrame with polity data
-        models_dict: Dictionary mapping model keys to their identifiers
-        batch_size: Number of polities to process before temporary save (deprecated, using 2 checkpoints)
-        delay: Delay between processing each polity (seconds)
-        api_keys: Dictionary of API keys
-        llm_params: Dictionary of LLM inference parameters
-        max_retries: Maximum number of retries for a failed API call
-        retry_delay: Delay in seconds between retries
-        use_search_flag: Whether to enable web search functionality
-
-    Returns:
-        DataFrame containing results from all models
-    """
+    """Process polity data in batches (backward compatible)."""
     results = []
     total_polities = len(df)
     checkpoint_files = []
-
-    # Calculate checkpoint at 50% mark
     checkpoint_at_50_percent = total_polities // 2
 
     print(f"Starting to process {total_polities} polities using models: {list(models_dict.keys())}")
@@ -387,14 +253,11 @@ def process_batch(
         start_year = int(row[COL_START_YEAR])
         end_year = int(row[COL_END_YEAR])
 
-        # Initialize result entry with ALL columns from original row
         entry_result = row.to_dict()
 
-        # Process all models concurrently for this polity
         with concurrent.futures.ThreadPoolExecutor(max_workers=len(models_dict)) as executor:
             future_to_model = {}
 
-            # Submit jobs for each model
             for model_key, model_identifier in models_dict.items():
                 future = executor.submit(
                     process_single_polity,
@@ -405,19 +268,16 @@ def process_batch(
                 )
                 future_to_model[future] = model_key
 
-            # Collect results as they complete
             for future in concurrent.futures.as_completed(future_to_model):
                 model_key = future_to_model[future]
                 try:
                     result = future.result()
                     if result:
-                        # Merge model-specific results
                         entry_result.update(result)
                     else:
                         raise ValueError("Query function returned None")
                 except Exception as exc:
                     print(f"\nERROR processing {country} with model {model_key}: {exc}")
-                    # Populate error information
                     model_suffix = model_key.lower().replace("-", "_")
                     error_msg = f"Failed after retries: {exc}"
                     entry_result[f'constitution_{model_suffix}'] = -1
@@ -428,7 +288,6 @@ def process_batch(
 
         results.append(entry_result)
 
-        # Save checkpoint at 50% mark
         if (idx + 1) == checkpoint_at_50_percent:
             temp_df = pd.DataFrame(results)
             temp_filename = f'checkpoint_50percent_{total_polities}polities.csv'
@@ -436,19 +295,15 @@ def process_batch(
             checkpoint_files.append(temp_filename)
             print(f"\n  Checkpoint saved at 50%: {temp_filename}")
 
-        # Rate limiting delay between polities
         time.sleep(delay)
 
-    # Create final DataFrame
     final_df = pd.DataFrame(results)
 
-    # Save final checkpoint at 100%
     temp_filename = f'checkpoint_100percent_{total_polities}polities.csv'
     final_df.to_csv(temp_filename, index=False)
     checkpoint_files.append(temp_filename)
     print(f"\n  Checkpoint saved at 100%: {temp_filename}")
 
-    # Delete all checkpoint files
     for checkpoint_file in checkpoint_files:
         try:
             if os.path.exists(checkpoint_file):
@@ -461,45 +316,22 @@ def process_batch(
 
 
 def save_results(results_df: pd.DataFrame, output_path: str) -> None:
-    """
-    Save results to CSV file with summary statistics.
-
-    Args:
-        results_df: Results DataFrame
-        output_path: Output file path
-    """
+    """Save results to CSV file."""
     results_df.to_csv(output_path, index=False, encoding='utf-8')
     print(f"Results saved to: {output_path}")
-
-    # Display statistics
     print("\nPolity-Level Result Statistics:")
     print(f"Total polities processed: {len(results_df)}")
-
-    # Show sample results
     print("\nSample results:")
     print(results_df[[COL_TERRITORY_NAME, COL_START_YEAR, COL_END_YEAR]].head())
 
 
 def _parse_test_argument(test_arg: str, df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Parse test argument and slice the DataFrame accordingly.
-
-    Args:
-        test_arg: Test argument string (e.g., '10' or '100:200')
-        df: Input DataFrame
-
-    Returns:
-        Sliced DataFrame for testing
-
-    Raises:
-        ValueError: If the test argument format is invalid
-    """
+    """Parse test argument and slice the DataFrame accordingly."""
     try:
         if ':' in test_arg:
             parts = test_arg.split(':')
             start = int(parts[0]) if parts[0] else None
             end = int(parts[1]) if parts[1] else None
-
             result_df = df.iloc[start:end]
             print(f"Testing mode: Processing polities from index "
                   f"{start if start is not None else 0} to {end if end is not None else 'end'}")
@@ -517,6 +349,10 @@ def _parse_test_argument(test_arg: str, df: pd.DataFrame) -> pd.DataFrame:
         ) from e
 
 
+# =============================================================================
+# ENHANCED CLI
+# =============================================================================
+
 def main():
     """Main function for command line execution."""
     parser = argparse.ArgumentParser(
@@ -524,7 +360,7 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Use default Gemini model
+  # Basic usage with default Gemini model (backward compatible)
   python main.py
 
   # Use multiple models with custom input/output
@@ -536,20 +372,26 @@ Examples:
   # Test mode with first 10 polities
   python main.py --test 10
 
-  # Custom temperature and max tokens
-  python main.py --temperature 0.7 --max_tokens 4096
+  # NEW: Use new pipeline with multiple indicators
+  python main.py --new-pipeline --indicators sovereign assembly powersharing
+
+  # NEW: With self-consistency verification
+  python main.py --new-pipeline --indicators assembly --verify self_consistency --verify-indicators assembly
+
+  # NEW: Single prompt mode (all indicators in one call)
+  python main.py --new-pipeline --mode single --indicators sovereign assembly exit
         """
     )
 
     # Input/Output arguments
     parser.add_argument(
         '--input', '-i',
-        default='./Dataset/polity_level_data.csv',
+        default='./data/plt_polity_data_v2.csv',
         help='Input CSV file path (preprocessed polity data)'
     )
     parser.add_argument(
         '--output', '-o',
-        default='./Dataset/llm_predictions.csv',
+        default='./data/results/llm_predictions.csv',
         help='Output CSV file path'
     )
 
@@ -562,12 +404,12 @@ Examples:
         '--models', '-m',
         nargs='+',
         default=['Gemini=gemini-2.5-pro'],
-        help='Space-separated list of models in KEY=IDENTIFIER format (e.g., "GPT=gpt-4o Claude=claude-3-5-sonnet-20241022")'
+        help='Space-separated list of models in KEY=IDENTIFIER format'
     )
     parser.add_argument(
         '--use-search',
         action='store_true',
-        help='Enable web search functionality for models. Requires a Serper API key.'
+        help='Enable web search functionality for models'
     )
 
     # API configuration
@@ -626,6 +468,62 @@ Examples:
         help='Delay in seconds between retries'
     )
 
+    # ==========================================================================
+    # NEW ARGUMENTS FOR ENHANCED PIPELINE
+    # ==========================================================================
+    parser.add_argument(
+        '--new-pipeline',
+        action='store_true',
+        help='Use the new modular pipeline (enables new features)'
+    )
+    parser.add_argument(
+        '--mode',
+        choices=['single', 'multiple'],
+        default='multiple',
+        help='Prompt mode: single (all indicators in one prompt) or multiple (separate prompts)'
+    )
+    parser.add_argument(
+        '--indicators',
+        nargs='+',
+        default=['constitution'],
+        help=f'Indicators to predict. Options: {ALL_INDICATORS}'
+    )
+    parser.add_argument(
+        '--verify',
+        choices=['none', 'self_consistency', 'cove', 'both'],
+        default='none',
+        help='Verification method to use'
+    )
+    parser.add_argument(
+        '--verify-indicators',
+        nargs='+',
+        default=[],
+        help='Which indicators to apply verification to'
+    )
+    parser.add_argument(
+        '--verifier-model',
+        help='Model to use for verification (for CoVe)'
+    )
+    parser.add_argument(
+        '--n-samples',
+        type=int,
+        default=3,
+        help='Number of samples for self-consistency'
+    )
+    parser.add_argument(
+        '--sc-temperatures',
+        nargs='+',
+        type=float,
+        default=[0.0, 0.5, 1.0],
+        help='Temperature values for self-consistency sampling'
+    )
+    parser.add_argument(
+        '--checkpoint-interval',
+        type=int,
+        default=50,
+        help='Save checkpoint every N polities (new pipeline)'
+    )
+
     args = parser.parse_args()
 
     # Collect API keys
@@ -645,6 +543,72 @@ Examples:
             "Web search is enabled (--use-search), but no Serper API key was provided. "
             "Set the SERPER_API_KEY environment variable."
         )
+
+    # ==========================================================================
+    # NEW PIPELINE PATH
+    # ==========================================================================
+    if args.new_pipeline:
+        print("Using NEW modular pipeline...")
+
+        # Parse model from --models argument (use first one for new pipeline)
+        model_arg = args.models[0]
+        if '=' in model_arg:
+            _, model_identifier = model_arg.split('=', 1)
+        else:
+            model_identifier = model_arg
+
+        # Create prediction config
+        config = PredictionConfig(
+            mode=PromptMode(args.mode),
+            indicators=args.indicators,
+            verify=VerificationType(args.verify),
+            verify_indicators=args.verify_indicators,
+            model=model_identifier,
+            verifier_model=args.verifier_model,
+            temperature=args.temperature,
+            max_tokens=args.max_tokens,
+            top_p=args.top_p,
+            sc_n_samples=args.n_samples,
+            sc_temperatures=args.sc_temperatures
+        )
+
+        # Create predictor
+        predictor = Predictor(config, api_keys)
+
+        # Create batch config
+        batch_config = BatchConfig(
+            checkpoint_interval=args.checkpoint_interval,
+            delay_between_calls=args.delay,
+            max_retries=args.max_retries,
+            retry_delay=args.retry_delay
+        )
+
+        # Load data
+        df = load_polity_data(args.input)
+
+        # Apply test mode if specified
+        if args.test:
+            df = _parse_test_argument(args.test, df)
+
+        # Create runner and run
+        runner = BatchRunner(
+            predictor=predictor,
+            config=batch_config,
+            output_path=args.output
+        )
+
+        results_df = runner.run(df)
+
+        # Print cost summary
+        predictor.cost_tracker.print_summary()
+
+        print("\nNew pipeline processing completed successfully!")
+        return
+
+    # ==========================================================================
+    # LEGACY PIPELINE PATH (backward compatible)
+    # ==========================================================================
+    print("Using LEGACY pipeline (constitution only)...")
 
     # Parse model specifications
     models_dict = {}
@@ -672,11 +636,10 @@ Examples:
         df = _parse_test_argument(args.test, df)
 
     # Apply prompt customization if specified
+    global SYSTEM_PROMPT, USER_PROMPT_TEMPLATE
     if args.system_prompt:
-        global SYSTEM_PROMPT
         SYSTEM_PROMPT = args.system_prompt
     if args.user_prompt:
-        global USER_PROMPT_TEMPLATE
         USER_PROMPT_TEMPLATE = args.user_prompt
 
     # Process data
@@ -692,9 +655,12 @@ Examples:
         use_search_flag=args.use_search
     )
 
+    # Ensure output directory exists
+    os.makedirs(os.path.dirname(args.output) or '.', exist_ok=True)
+
     # Save results
     save_results(results_df, args.output)
-    print("\nPolity-level processing completed successfully!")
+    print("\nLegacy pipeline processing completed successfully!")
 
 
 if __name__ == "__main__":

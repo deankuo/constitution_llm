@@ -1,40 +1,45 @@
 # Constitution Analysis Pipeline
 
-A sophisticated pipeline for analyzing historical polities to determine whether they had constitutions during their periods of existence. The pipeline leverages multiple Large Language Model (LLM) providers to ensure accurate and comprehensive analysis.
+A sophisticated pipeline for analyzing historical polities to predict political indicators. The pipeline leverages multiple Large Language Model (LLM) providers with optional verification mechanisms (Self-Consistency and Chain of Verification).
 
 ## Features
 
-- **Multi-LLM Support**: Seamlessly works with multiple LLM providers
-  - OpenAI (GPT-4, GPT-4o, etc.)
-  - Anthropic (Claude 3.5 Sonnet, etc.)
+- **Multi-LLM Support**: Works with multiple LLM providers
+  - OpenAI (GPT-5, GPT-4o, etc.)
+  - Anthropic (Claude 4.5 Sonnet, etc.)
   - Google Gemini (Gemini 2.5 Pro, etc.)
   - AWS Bedrock (Claude on Bedrock, etc.)
 
-- **Web Search Integration**: Optional web search capability using Serper API for enhanced accuracy
+- **7 Political Indicators**:
+  - **Constitution**: Written document with governance rules and limitations
+  - **Sovereign**: Independent vs. colony/vassal/tributary
+  - **Powersharing**: Single leader vs. multiple leaders with comparable power
+  - **Assembly**: Existence of legislative assembly/parliament
+  - **Appointment**: How executives are selected (3-class)
+  - **Tenure**: Longest leader's tenure: <5y, 5-10y, >10y
+  - **Exit**: Irregular (died/forced) vs. regular (voluntary/term limits)
 
-- **Concurrent Processing**: Process multiple models simultaneously for faster results
+- **Verification Methods**:
+  - **Self-Consistency**: Multiple samples at different temperatures with majority vote (3 samples default)
+  - **Chain of Verification (CoVe)**: Cross-model verification with factual questions (4 questions for constitution)
+  - **Note**: `--verify both` currently runs CoVe only (sequential verification not yet implemented)
 
-- **Robust Error Handling**: Automatic retries, checkpoint system, and comprehensive error logging
+- **Prompt Modes**:
+  - **Single**: All indicators in one prompt
+  - **Multiple**: Separate prompt per indicator (recommended)
 
-- **Flexible Configuration**: Customize temperature, max tokens, delays, and more
-
-- **Batch Processing**: Efficient handling of large datasets with automatic checkpoints
+- **Robust Processing**: Checkpoint system, automatic retries, cost tracking
 
 ## Table of Contents
 
 - [Installation](#installation)
-- [Configuration](#configuration)
-- [Usage](#usage)
-  - [Quick Start](#quick-start)
-  - [Using Shell Script](#using-shell-script)
-  - [Using Python Directly](#using-python-directly)
-  - [Advanced Usage](#advanced-usage)
+- [Quick Start](#quick-start)
 - [Architecture](#architecture)
-- [Input Data Format](#input-data-format)
+- [Usage](#usage)
+- [Configuration](#configuration)
 - [Output Format](#output-format)
-- [Utilities](#utilities)
+- [API Reference](#api-reference)
 - [Troubleshooting](#troubleshooting)
-- [Contributing](#contributing)
 
 ## Installation
 
@@ -58,158 +63,105 @@ pip install -r requirements.txt
 
 ### Step 3: Set Up Environment Variables
 
-Create a `.env` file in the project root directory:
-
-```bash
-# OpenAI API Key (for GPT models)
-OPENAI_API_KEY=your_openai_api_key_here
-
-# Anthropic API Key (for Claude models)
-ANTHROPIC_API_KEY=your_anthropic_api_key_here
-
-# Google Gemini API Key
-GEMINI_API_KEY=your_gemini_api_key_here
-
-# AWS Credentials (for Bedrock models)
-AWS_ACCESS_KEY_ID=your_aws_access_key_here
-AWS_SECRET_ACCESS_KEY=your_aws_secret_key_here
-AWS_SESSION_TOKEN=your_aws_session_token_here  # Optional
-
-# Serper API Key (for web search)
-SERPER_API_KEY=your_serper_api_key_here  # Optional
-```
-
-You can use the `.env.example` file as a template:
+Copy `.env.example` to `.env` and fill in your API keys:
 
 ```bash
 cp .env.example .env
-# Edit .env with your actual API keys
+# Edit .env with your keys
 ```
 
-## Configuration
+Key configurations:
+```bash
+# Required: Choose your LLM provider(s)
+GEMINI_API_KEY=your_gemini_api_key_here
+OPENAI_API_KEY=your_openai_api_key_here  # Optional
+ANTHROPIC_API_KEY=your_anthropic_api_key_here  # Optional
 
-All configuration constants are centralized in `utils/config.py`:
+# AWS Bedrock (for Claude on Bedrock)
+AWS_ACCESS_KEY_ID=your_aws_access_key_here
+AWS_SECRET_ACCESS_KEY=your_aws_secret_key_here
+AWS_REGION=us-east-1
+
+# Bedrock Verifier Model (for CoVe)
+BEDROCK_VERIFIER_MODEL=anthropic.claude-sonnet-4-5-20250929-v1:0
+```
+
+**📖 See [BEDROCK_SETUP.md](BEDROCK_SETUP.md) for detailed AWS Bedrock configuration**
+**📖 See [VERIFIER_MODELS.md](VERIFIER_MODELS.md) for changing verifier models**
+
+## Quick Start
+
+### Using the New Pipeline (Recommended)
+
+```bash
+# Run predictions for 6 indicators (excluding constitution)
+python main.py --new-pipeline \
+  --indicators sovereign powersharing assembly appointment tenure exit \
+  --model gemini-2.5-pro \
+  --mode multiple \
+  --test 5
+
+# Run with Self-Consistency verification
+python main.py --new-pipeline \
+  --indicators assembly appointment \
+  --model gemini-2.5-pro \
+  --verify self_consistency \
+  --verify-indicators assembly \
+  --test 10
+
+# Run with Chain of Verification (CoVe)
+# Note: Verifier model can be set in .env as BEDROCK_VERIFIER_MODEL
+python main.py --new-pipeline \
+  --indicators constitution \
+  --model gemini-2.5-pro \
+  --verify cove \
+  --verify-indicators constitution \
+  --test 5
+
+# Or override verifier model via CLI
+python main.py --new-pipeline \
+  --indicators constitution \
+  --verify cove \
+  --verify-indicators constitution \
+  --verifier-model anthropic.claude-opus-4-5-20250514-v1:0 \
+  --test 5
+```
+
+### Using Python API
 
 ```python
-# LLM Parameters
-DEFAULT_TEMPERATURE = 0  # Temperature for generation
-DEFAULT_MAX_TOKENS = 2048  # Maximum tokens per response
-DEFAULT_TOP_P = 1.0  # Top-p sampling parameter
+from pipeline.predictor import Predictor, PredictionConfig
+from pipeline.batch_runner import BatchRunner, BatchConfig
+from config import PromptMode, VerificationType
+import pandas as pd
+import os
 
-# Processing Parameters
-DEFAULT_BATCH_SIZE = 100  # Checkpoint frequency
-DEFAULT_DELAY = 1.0  # Delay between API calls (seconds)
-DEFAULT_MAX_RETRIES = 3  # Maximum retry attempts
-DEFAULT_RETRY_DELAY = 5  # Delay between retries (seconds)
+# Configure
+config = PredictionConfig(
+    mode=PromptMode.MULTIPLE,
+    indicators=['sovereign', 'powersharing', 'assembly'],
+    verify=VerificationType.NONE,
+    model='gemini-2.5-pro',
+    temperature=0.0
+)
+
+api_keys = {'gemini': os.getenv('GEMINI_API_KEY')}
+
+# Single prediction
+predictor = Predictor(config, api_keys)
+result = predictor.predict("Roman Republic", -509, -27)
+print(result.predictions['sovereign'].prediction)
+print(result.predictions['sovereign'].reasoning)
+
+# Batch processing
+df = pd.read_csv('data/plt_polity_data_v2.csv')
+runner = BatchRunner(
+    predictor,
+    BatchConfig(checkpoint_interval=50),
+    'data/results/output.csv'
+)
+results_df = runner.run(df.head(100))
 ```
-
-## Usage
-
-### Quick Start
-
-The fastest way to test the pipeline:
-
-```bash
-# Make the shell script executable
-chmod +x run.sh
-
-# Run a quick test with 5 polities
-./run.sh --test 5
-```
-
-### Using Shell Script
-
-The `run.sh` script provides a user-friendly interface:
-
-```bash
-# Check your environment setup
-./run.sh --check-env
-
-# Use default settings (Gemini model, all data)
-./run.sh
-
-# Test mode with first 10 polities
-./run.sh --test 10
-
-# Use specific model
-./run.sh -m GPT=gpt-4o
-
-# Use multiple models simultaneously
-./run.sh -m GPT=gpt-4o Claude=claude-3-5-sonnet-20241022 Gemini=gemini-2.5-pro
-
-# Enable web search
-./run.sh -m GPT=gpt-4o --use-search
-
-# Custom input/output paths
-./run.sh -i ./data/input.csv -o ./results/output.csv
-
-# Advanced configuration
-./run.sh -m Claude=claude-3-5-sonnet-20241022 --temperature 0.2 --max-tokens 4096 -d 2.0
-```
-
-### Using Python Directly
-
-For more control, you can run the Python script directly:
-
-```bash
-# Basic usage
-python main.py
-
-# Custom input/output
-python main.py --input data.csv --output results.csv
-
-# Use specific model
-python main.py --models GPT=gpt-4o
-
-# Multiple models
-python main.py --models GPT=gpt-4o Claude=claude-3-5-sonnet-20241022
-
-# Test mode (first 10 polities)
-python main.py --test 10
-
-# Test mode (polities 100-150)
-python main.py --test 100:150
-
-# Enable web search
-python main.py --models GPT=gpt-4o --use-search
-
-# Custom LLM parameters
-python main.py --temperature 0.7 --max_tokens 4096 --top_p 0.95
-
-# Full configuration
-python main.py \
-  --input ./Dataset/polity_level_data.csv \
-  --output ./Dataset/results.csv \
-  --models GPT=gpt-4o Claude=claude-3-5-sonnet-20241022 \
-  --temperature 0.2 \
-  --max_tokens 4096 \
-  --delay 1.5 \
-  --max-retries 5 \
-  --use-search
-```
-
-### Advanced Usage
-
-#### Custom Prompts
-
-You can customize the system and user prompts:
-
-```bash
-python main.py \
-  --system_prompt "You are a constitutional historian..." \
-  --user_prompt "Analyze {country} from {start_year} to {end_year}"
-```
-
-#### Model Naming Convention
-
-Models are specified in `KEY=IDENTIFIER` format:
-
-- **OpenAI**: `GPT=gpt-4o`, `GPT4=gpt-4-turbo`
-- **Anthropic**: `Claude=claude-3-5-sonnet-20241022`
-- **Gemini**: `Gemini=gemini-2.5-pro`, `Gemini15=gemini-1.5-pro`
-- **Bedrock**: `Bedrock=arn:aws:bedrock:us-east-1::foundation-model/...`
-
-The `KEY` becomes part of the output column names (e.g., `constitution_gpt`, `constitution_claude`).
 
 ## Architecture
 
@@ -217,128 +169,286 @@ The `KEY` becomes part of the output column names (e.g., `constitution_gpt`, `co
 
 ```
 constitution_llm/
-├── main.py                      # Main entry point
-├── run.sh                       # Shell wrapper script
-├── requirements.txt             # Python dependencies
-├── .env                         # Environment variables (create this)
-├── .env.example                 # Example environment file
-├── README.md                    # This file
+├── main.py                        # CLI entry point
+├── config.py                      # Global configuration
+│
+├── prompts/
+│   ├── constitution.py            # Constitution prompt (complex, 4 elements)
+│   ├── indicators.py              # 6 other indicator prompts
+│   ├── base_builder.py            # Abstract PromptBuilder
+│   ├── single_builder.py          # Combines all indicators
+│   └── multiple_builder.py        # Separate prompt per indicator
+│
+├── models/
+│   ├── base.py                    # BaseLLM abstract class + ModelResponse
+│   ├── llm_clients.py             # OpenAILLM, GeminiLLM, AnthropicLLM, BedrockLLM
+│   └── search_agents.py           # Web search agents
+│
+├── verification/
+│   ├── base.py                    # BaseVerification abstract class
+│   ├── self_consistency.py        # Temperature sampling + majority vote
+│   └── cove.py                    # Chain of Verification
+│
+├── pipeline/
+│   ├── predictor.py               # Core prediction orchestrator
+│   └── batch_runner.py            # Batch processing + checkpoints
+│
+├── evaluation/
+│   ├── metrics.py                 # Accuracy, F1, per-class metrics
+│   └── analyzer.py                # Result analysis
+│
 ├── utils/
-│   ├── config.py               # Configuration constants
-│   ├── llm_clients.py          # LLM client implementations
-│   ├── search_agents.py        # Web search agents
-│   ├── prompt.py               # Prompt templates
-│   ├── encoding_fix.py         # CSV encoding utilities
-│   └── sanity_check.py         # Data validation utilities
-└── Dataset/
-    ├── polity_level_data.csv   # Input data (you provide)
-    └── llm_predictions.csv     # Output results
+│   ├── json_parser.py             # Robust JSON extraction
+│   ├── cost_tracker.py            # API cost tracking
+│   ├── logger.py                  # Logging utilities
+│   ├── encoding_fix.py            # CSV encoding utilities
+│   └── sanity_check.py            # Data validation
+│
+└── data/
+    ├── plt_polity_data_v2.csv     # Main polity data
+    ├── results/                   # Output directory
+    └── logs/                      # Log files
 ```
 
-### Module Overview
-
-- **main.py**: Orchestrates the entire pipeline, handles data loading, processing, and saving
-- **utils/config.py**: Centralized configuration management
-- **utils/llm_clients.py**: Individual LLM provider implementations (OpenAI, Anthropic, Gemini, Bedrock)
-- **utils/search_agents.py**: Web search-enabled agents for each provider
-- **utils/prompt.py**: System and user prompt templates
-- **utils/encoding_fix.py**: Tools for fixing CSV encoding issues
-- **utils/sanity_check.py**: Data validation and reprocessing utilities
-
-### Processing Flow
+### System Architecture
 
 ```
-1. Load polity data from CSV
-2. For each polity:
-   a. Create prompt with polity information
-   b. Query multiple LLMs concurrently
-   c. Parse and validate responses
-   d. Aggregate results
-3. Save checkpoint at 50% completion
-4. Save final results at 100% completion
-5. Clean up temporary files
+┌────────────────────────────────────────────────────────────────────────────┐
+│                           SYSTEM ARCHITECTURE                              │
+├────────────────────────────────────────────────────────────────────────────┤
+│                                                                            │
+│  ┌─────────────┐     ┌─────────────────────────────────────────────────┐   │
+│  │   Config    │     │              Prompt Layer                       │   │
+│  │  (argparse) │     │  ┌─────────────────┐  ┌─────────────────────┐   │   │
+│  │             │     │  │  Constitution   │  │  Other 6 Indicators │   │   │
+│  │ --mode      │     │  │  (complex)      │  │  (unified template) │   │   │
+│  │ --indicators│────▶│  └─────────────────┘  └─────────────────────┘   │   │
+│  │ --verify    │     │           │                     │               │   │
+│  │ --model     │     │           ▼                     ▼               │   │
+│  └─────────────┘     │  ┌─────────────────────────────────────────┐    │   │
+│                      │  │         Prompt Builder                  │    │   │
+│                      │  │  • SinglePromptBuilder (all in one)     │    │   │
+│                      │  │  • MultiplePromptBuilder (per indicator)│    │   │
+│                      │  └─────────────────────────────────────────┘    │   │
+│                      └─────────────────────────────────────────────────┘   │
+│                                           │                                │
+│                                           ▼                                │
+│                      ┌─────────────────────────────────────────────────┐   │
+│                      │              Model Layer                        │   │
+│                      │  ┌─────────┐ ┌─────────┐ ┌─────────┐            │   │
+│                      │  │ Gemini  │ │ Claude  │ │   GPT   │  ...       │   │
+│                      │  └─────────┘ └─────────┘ └─────────┘            │   │
+│                      │         (Unified BaseLLM Interface)             │   │
+│                      └─────────────────────────────────────────────────┘   │
+│                                           │                                │
+│                                           ▼                                │
+│                      ┌─────────────────────────────────────────────────┐   │
+│                      │           Verification Layer (Optional)         │   │
+│                      │                                                 │   │
+│                      │  ┌───────────────────┐  ┌───────────────────┐   │   │
+│                      │  │ Self-Consistency  │  │       CoVe        │   │   │
+│                      │  │                   │  │                   │   │   │
+│                      │  │ • n_samples       │  │ • Question Gen    │   │   │
+│                      │  │ • temperature     │  │ • Cross-model     │   │   │
+│                      │  │ • majority vote   │  │ • Synthesis       │   │   │
+│                      │  └───────────────────┘  └───────────────────┘   │   │
+│                      │         (Configurable per indicator)            │   │
+│                      └─────────────────────────────────────────────────┘   │
+│                                           │                                │
+│                                           ▼                                │
+│                      ┌─────────────────────────────────────────────────┐   │
+│                      │              Output & Evaluation                │   │
+│                      │  • JSON parsing (robust)                        │   │
+│                      │  • Metrics (F1, accuracy, per-class)            │   │
+│                      │  • Cost tracking                                │   │
+│                      │  • Experiment logging                           │   │
+│                      └─────────────────────────────────────────────────┘   │
+│                                                                            │
+└────────────────────────────────────────────────────────────────────────────┘
 ```
 
-## Input Data Format
+## Usage
 
-The input CSV must contain these required columns:
+### CLI Options
 
-- `territorynamehistorical`: Name of the historical polity
-- `start_year`: Start year of the polity period
-- `end_year`: End year of the polity period
+```bash
+python main.py --help
+```
 
-Example:
+#### New Pipeline Arguments
 
-```csv
-territorynamehistorical,start_year,end_year
-France,1789,1799
-United States,1776,1789
-Ancient Rome,-500,476
+| Argument | Description | Default |
+|----------|-------------|---------|
+| `--new-pipeline` | Use the new modular pipeline | False |
+| `--mode` | Prompt mode: `single` or `multiple` | `multiple` |
+| `--indicators` | Indicators to predict | All 6 (excl. constitution) |
+| `--model` | Primary model | `gemini-2.5-pro` |
+| `--verify` | Verification: `none`, `self_consistency`, `cove`, `both` | `none` |
+| `--verify-indicators` | Which indicators to verify | None |
+| `--verifier-model` | Model for CoVe verification | Bedrock Claude |
+| `--n-samples` | Self-consistency samples | 3 |
+| `--sc-temperatures` | SC temperature list | `0.0,0.5,1.0` |
+
+#### Legacy Arguments (still supported)
+
+| Argument | Description | Default |
+|----------|-------------|---------|
+| `--models` | Legacy model spec (KEY=model) | Gemini |
+| `--use-search` | Enable web search | False |
+| `--temperature` | Generation temperature | 0 |
+| `--max_tokens` | Max tokens per response | 2048 |
+| `--delay` | Delay between API calls | 1.0 |
+
+### Example Commands
+
+```bash
+# Basic prediction with multiple indicators
+python main.py --new-pipeline \
+  --indicators sovereign assembly appointment \
+  --model gemini-2.5-pro \
+  --test 10
+
+# Self-Consistency verification
+python main.py --new-pipeline \
+  --indicators assembly \
+  --model gemini-2.5-pro \
+  --verify self_consistency \
+  --verify-indicators assembly \
+  --n-samples 5 \
+  --sc-temperatures 0.0,0.3,0.5,0.7,1.0 \
+  --test 10
+
+# CoVe verification for constitution
+python main.py --new-pipeline \
+  --indicators constitution \
+  --model gemini-2.5-pro \
+  --verify cove \
+  --verify-indicators constitution \
+  --verifier-model anthropic.claude-sonnet-4-5-20250929-v1:0 \
+  --test 5
+
+# Full batch processing
+python main.py --new-pipeline \
+  --indicators sovereign powersharing assembly appointment tenure exit \
+  --model gemini-2.5-pro \
+  --mode multiple \
+  --input data/plt_polity_data_v2.csv \
+  --output data/results/experiment_001.csv
+```
+
+## Configuration
+
+### config.py
+
+```python
+# Default models
+DEFAULT_PRIMARY_MODEL = "gemini-2.5-pro"
+DEFAULT_VERIFIER_MODEL = "anthropic.claude-sonnet-4-5-20250929-v1:0"
+
+# LLM Parameters
+DEFAULT_TEMPERATURE = 0
+DEFAULT_MAX_TOKENS = 2048
+
+# Processing
+DEFAULT_BATCH_SIZE = 100
+DEFAULT_DELAY = 1.0
+DEFAULT_MAX_RETRIES = 3
+
+# Indicators
+ALL_INDICATORS = [
+    'constitution', 'sovereign', 'powersharing',
+    'assembly', 'appointment', 'tenure', 'exit'
+]
+
+INDICATOR_LABELS = {
+    'constitution': ['1', '0'],
+    'sovereign': ['0', '1'],
+    'powersharing': ['0', '1'],
+    'assembly': ['0', '1'],
+    'appointment': ['0', '1', '2'],
+    'tenure': ['0', '1', '2'],
+    'exit': ['0', '1']
+}
 ```
 
 ## Output Format
 
-The pipeline generates a CSV with the following columns:
+### CSV Columns
 
-### Input Columns (preserved)
-- `territorynamehistorical`
-- `start_year`
-- `end_year`
-- Any other columns from input file
+For each indicator `{ind}`:
+- `{ind}` - Prediction ("0"/"1"/"2")
+- `{ind}_reasoning` - Reasoning text
+- `{ind}_confidence` - Score 1-100
 
-### Generated Columns (per model)
-- `constitution_{model}`: Binary indicator (1=Yes, 0=No, -1=Error)
-- `constitution_year`: Year of earliest constitution
-- `constitution_name_{model}`: Name of the constitutional document
-- `explanation_{model}`: Detailed explanation from the model
-- `explanation_length_{model}`: Length of explanation
-- `confidence_score_{model}`: Confidence score (1-5)
+With verification:
+- `{ind}_verified` - Final prediction after verification
+- `{ind}_verification` - Verification details
 
-Example:
+Additional columns:
+- `total_cost_usd` - Total API cost
+- `total_tokens` - Total tokens used
+
+### Example Output
 
 ```csv
-territorynamehistorical,start_year,end_year,constitution_gpt,constitution_year,constitution_name_gpt,explanation_gpt,explanation_length_gpt,confidence_score_gpt
-France,1789,1799,1,1791,Constitution of 1791,"...",1250,5
+territorynamehistorical,start_year,end_year,sovereign,sovereign_reasoning,sovereign_confidence,assembly,assembly_reasoning,assembly_confidence,total_cost_usd,total_tokens
+Roman Republic,-509,-27,1,"The Roman Republic...",85,1,"The Roman Republic had...",90,0.0125,2500
 ```
 
-## Utilities
+## API Reference
 
-### Encoding Fix Utility
-
-Fix CSV encoding issues:
+### Predictor
 
 ```python
-from utils.encoding_fix import convert_csv_to_utf8
+from pipeline.predictor import Predictor, PredictionConfig
+from config import PromptMode, VerificationType
 
-# Convert single file
-convert_csv_to_utf8(
-    'data_latin1.csv',
-    'data_utf8.csv',
-    source_encoding='latin-1'
+config = PredictionConfig(
+    mode=PromptMode.MULTIPLE,
+    indicators=['sovereign', 'assembly'],
+    verify=VerificationType.SELF_CONSISTENCY,
+    verify_indicators=['assembly'],
+    model='gemini-2.5-pro',
+    temperature=0.0,
+    sc_n_samples=3,
+    sc_temperatures=[0.0, 0.5, 1.0]
 )
 
-# Auto-detect encoding
-convert_csv_to_utf8(
-    'data.csv',
-    'data_utf8.csv',
-    source_encoding='autodetect'
-)
+predictor = Predictor(config, api_keys)
+result = predictor.predict("Roman Republic", -509, -27)
 ```
 
-### Sanity Check Utility
-
-Validate and reprocess results:
+### BatchRunner
 
 ```python
-from utils.sanity_check import sanity_check_and_reprocess
+from pipeline.batch_runner import BatchRunner, BatchConfig
 
-# Check and reprocess failed rows
-sanity_check_and_reprocess(
-    input_csv='results.csv',
-    output_csv='results_fixed.csv',
-    min_confidence=3,
-    min_length=100
+runner = BatchRunner(
+    predictor=predictor,
+    config=BatchConfig(
+        checkpoint_interval=50,
+        delay_between_calls=1.0,
+        output_formats=['csv', 'json']
+    ),
+    output_path='data/results/output.csv'
 )
+
+results_df = runner.run(df)
+```
+
+### Evaluation
+
+```python
+from evaluation.metrics import evaluate_indicator, format_metrics_report
+
+# Evaluate predictions against ground truth
+metrics = evaluate_indicator(
+    predictions=['1', '0', '1', '1'],
+    ground_truth=['1', '0', '0', '1'],
+    indicator='assembly'
+)
+
+print(format_metrics_report(metrics))
 ```
 
 ## Troubleshooting
@@ -347,125 +457,63 @@ sanity_check_and_reprocess(
 
 #### 1. API Key Errors
 
-**Error**: `ERROR: Anthropic API key not provided.`
-
-**Solution**: Ensure your `.env` file contains the required API keys:
-
-```bash
-# Check if .env file exists
-ls -la .env
-
-# Verify API keys are set
-cat .env | grep API_KEY
 ```
+ERROR: Anthropic API key not provided.
+```
+
+Ensure your `.env` file contains the required API keys.
 
 #### 2. Module Import Errors
 
-**Error**: `ModuleNotFoundError: No module named 'anthropic'`
-
-**Solution**: Install missing dependencies:
-
-```bash
-pip install -r requirements.txt
 ```
+ModuleNotFoundError: No module named 'anthropic'
+```
+
+Install dependencies: `pip install -r requirements.txt`
 
 #### 3. Rate Limiting
 
-**Error**: `WARN: Bedrock API throttling detected`
-
-**Solution**: Increase the delay between API calls:
-
-```bash
-./run.sh --delay 2.0
+```
+WARN: Bedrock API throttling detected
 ```
 
-#### 4. Encoding Issues
+Increase delay: `--delay 2.0`
 
-**Error**: `UnicodeDecodeError: 'utf-8' codec can't decode byte...`
+#### 4. JSON Parsing Errors
 
-**Solution**: Use the encoding fix utility:
-
-```python
-python utils/encoding_fix.py
-```
-
-#### 5. Web Search Not Working
-
-**Error**: `Error: Serper API key is not configured.`
-
-**Solution**: Add your Serper API key to `.env`:
-
-```bash
-echo "SERPER_API_KEY=your_key_here" >> .env
-```
+The pipeline includes robust JSON parsing that handles markdown code fences and partial responses. If issues persist, check the raw responses in the logs.
 
 ### Debug Mode
 
-For detailed debugging, you can modify the print statements in the code or use Python's logging module.
+Set environment variable for verbose output:
+```bash
+export CONSTITUTION_DEBUG=1
+python main.py --new-pipeline --test 1
+```
 
-### Getting Help
+## Additional Documentation
 
-If you encounter issues:
+- **[BEDROCK_SETUP.md](BEDROCK_SETUP.md)** - Complete AWS Bedrock configuration guide
+  - How to find Bedrock model ARNs
+  - Environment variable setup
+  - Troubleshooting Bedrock issues
+  - Best practices for public repositories
 
-1. Check the error messages carefully
-2. Review the [Troubleshooting](#troubleshooting) section
-3. Ensure all API keys are correctly configured
-4. Verify input data format matches requirements
-5. Try running with `--test 1` to isolate the issue
+- **[VERIFIER_MODELS.md](VERIFIER_MODELS.md)** - Guide to switching verifier models
+  - Available Bedrock Claude models (Sonnet, Opus, Haiku)
+  - Cost comparisons
+  - Model selection guide
+  - Testing different models
 
-## Model-Specific Notes
-
-### OpenAI (GPT)
-- Supports all GPT models (gpt-4o, gpt-4-turbo, gpt-3.5-turbo, etc.)
-- Web search works via function calling
-- Generally fast with good availability
-
-### Anthropic (Claude)
-- Supports Claude 3.5 Sonnet and other Claude models
-- Excellent reasoning capabilities
-- Web search via tool use
-
-### Google Gemini
-- Supports Gemini 2.5 Pro, 1.5 Pro, etc.
-- Fast and cost-effective
-- Web search via function declarations
-
-### AWS Bedrock
-- Supports Claude on Bedrock and other Bedrock models
-- Requires AWS credentials
-- Good for enterprise use cases
-- May have throttling limits
-
-## Performance Tips
-
-1. **Use concurrent processing**: The pipeline automatically runs multiple models in parallel
-2. **Adjust delay**: Balance between speed and rate limits (`--delay 1.0`)
-3. **Use checkpoints**: The pipeline automatically saves at 50% and 100%
-4. **Test first**: Always test with `--test 5` before running full dataset
-5. **Choose appropriate models**: Different models have different speeds and costs
-
-## Best Practices
-
-1. **Always use version control** for your data and results
-2. **Test with small datasets** before running on large datasets
-3. **Monitor API usage** to avoid unexpected costs
-4. **Keep API keys secure** (never commit `.env` to git)
-5. **Document your experiments** (model versions, parameters used, etc.)
-6. **Validate results** using the sanity check utility
-
-## Contributing
-
-Contributions are welcome! Please:
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+- **[CLAUDE.md](CLAUDE.md)** - Project design document
+  - Architecture overview
+  - Indicator definitions
+  - Research questions
+  - Implementation details
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+MIT License - see LICENSE file for details.
 
 ## Acknowledgments
 
@@ -473,12 +521,3 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - Anthropic for Claude models
 - Google for Gemini models
 - AWS for Bedrock platform
-- Serper for web search API
-
-## Contact
-
-For questions or support, please open an issue on GitHub.
-
----
-
-Made with ❤️ for constitutional history research

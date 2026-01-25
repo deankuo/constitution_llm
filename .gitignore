@@ -4,6 +4,7 @@
 # Dataset directories
 /Dataset/
 /Graph/
+/Data/
 
 # IDE settings
 /.vscode/
@@ -11,6 +12,8 @@
 *.swp
 *.swo
 *~
+CLAUDE.md
+.claude/
 
 # Python cache
 /__pycache__/
@@ -24,20 +27,12 @@ __pycache__/
 *.ipynb
 
 # Test files
-test.ipynb
 test*.py
-demo.ipynb
 *.html
 main_test.py
 
-
 # Checkpoint files
-checkpoint_*.csv
-temp_*.csv
-
-# Output files (optional - uncomment if you don't want to track results)
-# llm_predictions.csv
-# results.csv
+*.csv
 
 # Distribution / packaging
 .Python
@@ -79,18 +74,6 @@ env/
 .Trashes
 .VolumeIcon.icns
 .com.apple.timemachine.donotpresent
-
-# Directories potentially created on remote AFP share
-.AppleDB
-.AppleDesktop
-Network Trash Folder
-Temporary Items
-.apdisk
-
-# Windows
-Thumbs.db
-ehthumbs.db
-Desktop.ini
 
 # Logs
 *.log

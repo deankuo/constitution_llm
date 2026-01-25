@@ -1,0 +1,335 @@
+"""
+API cost tracking utilities for LLM providers.
+
+This module provides cost tracking and estimation for different LLM providers.
+Prices are based on publicly available pricing as of 2024-2025.
+"""
+
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Dict, List, Optional
+import json
+
+
+# Pricing per 1M tokens (input/output) - update as needed
+PRICING = {
+    # OpenAI models (per 1M tokens)
+    'gpt-4o': {'input': 2.50, 'output': 10.00},
+    'gpt-4o-mini': {'input': 0.15, 'output': 0.60},
+    'gpt-4-turbo': {'input': 10.00, 'output': 30.00},
+    'gpt-4': {'input': 30.00, 'output': 60.00},
+    'gpt-3.5-turbo': {'input': 0.50, 'output': 1.50},
+    'o1': {'input': 15.00, 'output': 60.00},
+    'o1-mini': {'input': 3.00, 'output': 12.00},
+    'o3-mini': {'input': 1.10, 'output': 4.40},
+
+    # Anthropic models (per 1M tokens)
+    'claude-3-5-sonnet-20241022': {'input': 3.00, 'output': 15.00},
+    'claude-3-5-haiku-20241022': {'input': 0.80, 'output': 4.00},
+    'claude-3-opus-20240229': {'input': 15.00, 'output': 75.00},
+    'claude-3-sonnet-20240229': {'input': 3.00, 'output': 15.00},
+    'claude-3-haiku-20240307': {'input': 0.25, 'output': 1.25},
+
+    # Google Gemini models (per 1M tokens)
+    'gemini-2.5-pro': {'input': 1.25, 'output': 10.00},
+    'gemini-2.5-flash': {'input': 0.15, 'output': 0.60},
+    'gemini-2.0-flash': {'input': 0.10, 'output': 0.40},
+    'gemini-1.5-pro': {'input': 1.25, 'output': 5.00},
+    'gemini-1.5-flash': {'input': 0.075, 'output': 0.30},
+
+    # AWS Bedrock Claude models (per 1M tokens, cross-region pricing)
+    'anthropic.claude-3-5-sonnet-20241022-v2:0': {'input': 3.00, 'output': 15.00},
+    'anthropic.claude-3-5-haiku-20241022-v1:0': {'input': 1.00, 'output': 5.00},
+    'anthropic.claude-3-opus-20240229-v1:0': {'input': 15.00, 'output': 75.00},
+    'anthropic.claude-3-sonnet-20240229-v1:0': {'input': 3.00, 'output': 15.00},
+    'anthropic.claude-3-haiku-20240307-v1:0': {'input': 0.25, 'output': 1.25},
+    'anthropic.claude-sonnet-4-5-20250929-v1:0': {'input': 3.00, 'output': 15.00},
+    'anthropic.claude-opus-4-5-20250514-v1:0': {'input': 15.00, 'output': 75.00},  # Opus 4.5
+
+    # Bedrock ARN extractions will also match (e.g., global.anthropic.claude-*)
+    'global.anthropic.claude-sonnet-4-5-20250929-v1:0': {'input': 3.00, 'output': 15.00},
+    'global.anthropic.claude-opus-4-5-20250514-v1:0': {'input': 15.00, 'output': 75.00},
+    'us.anthropic.claude-sonnet-4-5-20250929-v1:0': {'input': 3.00, 'output': 15.00},
+    'us.anthropic.claude-opus-4-5-20250514-v1:0': {'input': 15.00, 'output': 75.00},
+}
+
+
+@dataclass
+class UsageRecord:
+    """Record of a single API call's usage."""
+    model: str
+    input_tokens: int
+    output_tokens: int
+    cost_usd: float
+    timestamp: datetime = field(default_factory=datetime.now)
+    polity: Optional[str] = None
+    indicator: Optional[str] = None
+
+
+@dataclass
+class ModelUsage:
+    """Aggregated usage for a single model."""
+    model: str
+    total_input_tokens: int = 0
+    total_output_tokens: int = 0
+    total_cost_usd: float = 0.0
+    call_count: int = 0
+
+
+class CostTracker:
+    """
+    Track API costs across multiple models and calls.
+
+    Example usage:
+        tracker = CostTracker()
+
+        # After each API call
+        tracker.add_usage(
+            model='gpt-4o',
+            input_tokens=1000,
+            output_tokens=500,
+            polity='Roman Republic',
+            indicator='constitution'
+        )
+
+        # Get summary
+        print(tracker.get_summary())
+
+        # Save report
+        tracker.save_report('costs.json')
+    """
+
+    def __init__(self):
+        """Initialize cost tracker."""
+        self.records: List[UsageRecord] = []
+        self.model_usage: Dict[str, ModelUsage] = {}
+        self.start_time = datetime.now()
+
+    def get_price(self, model: str) -> Dict[str, float]:
+        """
+        Get pricing for a model.
+
+        Args:
+            model: Model name, identifier, or ARN
+
+        Returns:
+            Dict with 'input' and 'output' prices per 1M tokens
+        """
+        # Extract model ID from Bedrock ARN if present
+        # Format: arn:aws:bedrock:region:account:inference-profile/model-id
+        if model.startswith('arn:aws:bedrock'):
+            # Extract the model-id part after the last /
+            model = model.split('/')[-1]
+
+        # Direct match
+        if model in PRICING:
+            return PRICING[model]
+
+        # Try to match by prefix (for versioned models)
+        model_lower = model.lower()
+        for known_model, price in PRICING.items():
+            if model_lower.startswith(known_model.lower().split('-')[0]):
+                return price
+
+        # Default fallback pricing (conservative estimate)
+        return {'input': 5.00, 'output': 15.00}
+
+    def calculate_cost(
+        self,
+        model: str,
+        input_tokens: int,
+        output_tokens: int
+    ) -> float:
+        """
+        Calculate cost for a single API call.
+
+        Args:
+            model: Model name
+            input_tokens: Number of input tokens
+            output_tokens: Number of output tokens
+
+        Returns:
+            Cost in USD
+        """
+        prices = self.get_price(model)
+
+        input_cost = (input_tokens / 1_000_000) * prices['input']
+        output_cost = (output_tokens / 1_000_000) * prices['output']
+
+        return input_cost + output_cost
+
+    def add_usage(
+        self,
+        model: str,
+        input_tokens: int,
+        output_tokens: int,
+        polity: Optional[str] = None,
+        indicator: Optional[str] = None
+    ) -> float:
+        """
+        Record usage from an API call.
+
+        Args:
+            model: Model name
+            input_tokens: Number of input tokens
+            output_tokens: Number of output tokens
+            polity: Optional polity name for tracking
+            indicator: Optional indicator name for tracking
+
+        Returns:
+            Cost of this call in USD
+        """
+        cost = self.calculate_cost(model, input_tokens, output_tokens)
+
+        # Create record
+        record = UsageRecord(
+            model=model,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cost_usd=cost,
+            polity=polity,
+            indicator=indicator
+        )
+        self.records.append(record)
+
+        # Update model aggregates
+        if model not in self.model_usage:
+            self.model_usage[model] = ModelUsage(model=model)
+
+        usage = self.model_usage[model]
+        usage.total_input_tokens += input_tokens
+        usage.total_output_tokens += output_tokens
+        usage.total_cost_usd += cost
+        usage.call_count += 1
+
+        return cost
+
+    def get_total_cost(self) -> float:
+        """Get total cost across all models."""
+        return sum(u.total_cost_usd for u in self.model_usage.values())
+
+    def get_model_cost(self, model: str) -> float:
+        """Get total cost for a specific model."""
+        if model in self.model_usage:
+            return self.model_usage[model].total_cost_usd
+        return 0.0
+
+    def get_summary(self) -> Dict:
+        """
+        Get a summary of all usage.
+
+        Returns:
+            Dictionary with usage summary
+        """
+        summary = {
+            'total_cost_usd': self.get_total_cost(),
+            'total_calls': len(self.records),
+            'total_input_tokens': sum(u.total_input_tokens for u in self.model_usage.values()),
+            'total_output_tokens': sum(u.total_output_tokens for u in self.model_usage.values()),
+            'duration_seconds': (datetime.now() - self.start_time).total_seconds(),
+            'models': {}
+        }
+
+        for model, usage in self.model_usage.items():
+            summary['models'][model] = {
+                'calls': usage.call_count,
+                'input_tokens': usage.total_input_tokens,
+                'output_tokens': usage.total_output_tokens,
+                'cost_usd': usage.total_cost_usd
+            }
+
+        return summary
+
+    def get_indicator_costs(self) -> Dict[str, float]:
+        """Get cost breakdown by indicator."""
+        indicator_costs = {}
+        for record in self.records:
+            if record.indicator:
+                if record.indicator not in indicator_costs:
+                    indicator_costs[record.indicator] = 0.0
+                indicator_costs[record.indicator] += record.cost_usd
+        return indicator_costs
+
+    def save_report(self, filepath: str) -> None:
+        """
+        Save detailed cost report to JSON file.
+
+        Args:
+            filepath: Path to output file
+        """
+        report = {
+            'summary': self.get_summary(),
+            'indicator_costs': self.get_indicator_costs(),
+            'records': [
+                {
+                    'model': r.model,
+                    'input_tokens': r.input_tokens,
+                    'output_tokens': r.output_tokens,
+                    'cost_usd': r.cost_usd,
+                    'timestamp': r.timestamp.isoformat(),
+                    'polity': r.polity,
+                    'indicator': r.indicator
+                }
+                for r in self.records
+            ]
+        }
+
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(report, f, indent=2)
+
+    def print_summary(self) -> None:
+        """Print a formatted summary to console."""
+        summary = self.get_summary()
+
+        print("\n" + "=" * 60)
+        print("COST SUMMARY")
+        print("=" * 60)
+        print(f"Total Cost: ${summary['total_cost_usd']:.4f}")
+        print(f"Total API Calls: {summary['total_calls']}")
+        print(f"Total Input Tokens: {summary['total_input_tokens']:,}")
+        print(f"Total Output Tokens: {summary['total_output_tokens']:,}")
+        print(f"Duration: {summary['duration_seconds']:.1f} seconds")
+
+        print("\nCost by Model:")
+        for model, data in summary['models'].items():
+            print(f"  {model}:")
+            print(f"    Calls: {data['calls']}")
+            print(f"    Cost: ${data['cost_usd']:.4f}")
+
+        indicator_costs = self.get_indicator_costs()
+        if indicator_costs:
+            print("\nCost by Indicator:")
+            for indicator, cost in sorted(indicator_costs.items()):
+                print(f"  {indicator}: ${cost:.4f}")
+
+        print("=" * 60 + "\n")
+
+
+def estimate_batch_cost(
+    model: str,
+    num_polities: int,
+    avg_input_tokens: int = 2000,
+    avg_output_tokens: int = 500,
+    num_indicators: int = 1
+) -> float:
+    """
+    Estimate cost for a batch run.
+
+    Args:
+        model: Model name
+        num_polities: Number of polities to process
+        avg_input_tokens: Average input tokens per call
+        avg_output_tokens: Average output tokens per call
+        num_indicators: Number of indicators per polity
+
+    Returns:
+        Estimated cost in USD
+    """
+    tracker = CostTracker()
+    total_calls = num_polities * num_indicators
+
+    return tracker.calculate_cost(
+        model=model,
+        input_tokens=avg_input_tokens * total_calls,
+        output_tokens=avg_output_tokens * total_calls
+    )

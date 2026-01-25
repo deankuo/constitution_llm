@@ -18,7 +18,7 @@ from anthropic import Anthropic
 from google.generativeai.types import FunctionDeclaration, HarmBlockThreshold, HarmCategory, Tool
 from openai import OpenAI
 
-from utils.llm_clients import _create_bedrock_client
+from models.llm_clients import _create_bedrock_client
 
 
 def perform_web_search(query: str, serper_api_key: str) -> str:
