@@ -160,16 +160,27 @@ def validate_indicator_response(
     else:
         result[indicator] = str(result[indicator])
 
-    # Ensure reasoning exists
-    if 'reasoning' not in result:
+    # Ensure reasoning exists (check both 'reasoning' and '{indicator}_reasoning')
+    reasoning_key = f'{indicator}_reasoning'
+    if 'reasoning' in result:
+        result['reasoning'] = result['reasoning']
+    elif reasoning_key in result:
+        result['reasoning'] = result[reasoning_key]
+    else:
         result['reasoning'] = ''
 
-    # Ensure confidence_score exists and is in valid range
-    if 'confidence_score' not in result:
-        result['confidence_score'] = None
+    # Ensure confidence_score exists (check both 'confidence_score' and '{indicator}_confidence_score')
+    confidence_key = f'{indicator}_confidence_score'
+    if 'confidence_score' in result:
+        score_value = result['confidence_score']
+    elif confidence_key in result:
+        score_value = result[confidence_key]
     else:
+        score_value = None
+
+    if score_value is not None:
         try:
-            score = int(result['confidence_score'])
+            score = int(score_value)
             if score < 1:
                 score = 1
             elif score > 100:
@@ -177,6 +188,8 @@ def validate_indicator_response(
             result['confidence_score'] = score
         except (ValueError, TypeError):
             result['confidence_score'] = None
+    else:
+        result['confidence_score'] = None
 
     return result
 

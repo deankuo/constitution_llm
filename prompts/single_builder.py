@@ -91,35 +91,44 @@ class SinglePromptBuilder(BasePromptBuilder):
         """Build a combined system prompt for multiple indicators."""
         prompt = """You are a professional political scientist and historian specializing in comparative politics across different historical periods.
 
-Your task is to analyze a given polity and determine values for multiple political indicators during its period of existence.
+                Your task is to analyze a given polity and determine values for multiple political indicators during its period of existence.
 
-## Indicators to Analyze
+                ## CRITICAL CODING RULE FOR ALL INDICATORS
 
-"""
+                This is POLITY-LEVEL classification. You must report the HIGHEST level achieved at ANY point during the given period.
+
+                - For binary indicators (sovereign, powersharing, assembly, exit): Code as "1" if the condition was met at ANY point, "0" only if NEVER
+                - For multi-class indicators (appointment, tenure): Report the HIGHEST level achieved during the entire period
+
+                ## Indicators to Analyze
+
+                """
+                
+        # Simplified definitions - just the core categories
+        definitions = {
+            'sovereign': '**Sovereign**: Whether the polity had independent foreign policy without subordination to foreign power\n- 0: Colony/vassal/tributary\n- 1: Independent sovereign state',
+            'powersharing': '**Powersharing**: Whether multiple individuals shared executive power\n- 0: Single top leader\n- 1: Two+ leaders with comparable power',
+            'assembly': '**Assembly**: Whether a legislative assembly/parliament existed\n- 0: No assembly\n- 1: Assembly with role in selection/taxation/policy',
+            'appointment': '**Appointment**: How executives were selected\n- 0: Force/hereditary/foreign/military/one-party\n- 1: Royal council/head of state appointment\n- 2: Direct election or assembly selection',
+            'tenure': '**Tenure**: Longest executive tenure during period\n- 0: <5 years\n- 1: 5-10 years\n- 2: >10 years',
+            'exit': '**Exit**: How executives left power\n- 0: Irregular (died/forced)\n- 1: Regular (voluntary/term limits/electoral defeat)'
+        }
+
         for ind in indicators:
-            if ind in INDICATOR_PROMPTS:
-                # Extract the definition section from each indicator's system prompt
-                full_prompt = INDICATOR_PROMPTS[ind]["system"]
-                # Find the definition section
-                if "## Definition" in full_prompt:
-                    start = full_prompt.find("## Definition")
-                    end = full_prompt.find("## ", start + 1)
-                    if end == -1:
-                        end = full_prompt.find("## Output Requirements")
-                    definition = full_prompt[start:end].strip() if end != -1 else full_prompt[start:].strip()
-                    prompt += f"### {ind.upper()}\n\n{definition}\n\n"
+            if ind in definitions:
+                prompt += f"{definitions[ind]}\n\n"
 
-        prompt += """## General Rules
+        prompt += """## Analysis Rules
+            1. **Analyze the ENTIRE period**: Don't just look at the final state
+            2. **Report HIGHEST level**: If any part of the period qualifies, code accordingly
+            3. **Evidence-based**: Base judgments on verifiable historical facts
+            4. **Independent analysis**: Each indicator stands alone
 
-1. **Polity-Level Aggregation**: For all binary indicators, if the condition was met at ANY point during the period, code as "1".
-2. **Multi-class Indicators**: For appointment and tenure, report the HIGHEST level achieved during the period.
-3. **Independence**: Analyze each indicator independently based on its specific criteria.
-4. **Evidence-Based**: Base all judgments on verifiable historical facts.
+            ## Output Requirements
 
-## Output Requirements
-
-Provide a JSON object with fields for EACH indicator:
-"""
+            Provide a JSON object with fields for EACH indicator:
+            """
+            
         for ind in indicators:
             labels = INDICATOR_PROMPTS[ind]["labels"]
             labels_str = " or ".join([f'"{l}"' for l in labels])
@@ -128,12 +137,12 @@ Provide a JSON object with fields for EACH indicator:
             prompt += f'- "{ind}_confidence_score": Integer from 1 to 100 (integer)\n'
 
         prompt += """
-**CRITICAL OUTPUT FORMAT:**
-- Respond with ONLY a JSON object
-- Do NOT include markdown code fences (```json)
-- Do NOT include any text before or after the JSON
-- Your response must start with { and end with }
-"""
+        **CRITICAL OUTPUT FORMAT:**
+        - Respond with ONLY a JSON object
+        - Do NOT include markdown code fences (```json)
+        - Do NOT include any text before or after the JSON
+        - Your response must start with { and end with }
+        """
         return prompt
 
     def _build_combined_user_prompt(
@@ -144,31 +153,29 @@ Provide a JSON object with fields for EACH indicator:
         end_year: int
     ) -> str:
         """Build a combined user prompt for multiple indicators."""
-        indicators_list = ", ".join(indicators)
+        prompt = f"""Analyze these political indicators for the ENTIRE period:
 
-        prompt = f"""Please analyze the following political indicators for this polity:
+        **Polity:** {polity}
+        **Period:** {start_year}-{end_year}
 
-**Polity:** {polity}
-**Period:** {start_year}-{end_year}
+        **CRITICAL**: Report the HIGHEST level achieved at ANY point during {start_year}-{end_year}, not just the final state.
 
-## Indicators to Analyze: {indicators_list}
+        Respond with ONLY a valid JSON object (no markdown, no extra text):
 
-For each indicator, provide:
-1. The classification value
-2. Your reasoning
-3. A confidence score (1-100)
+{{"""
 
-Respond with a single JSON object containing all indicators:
-
-{{
-"""
-        for ind in indicators:
+        # Build example structure
+        for i, ind in enumerate(indicators):
             labels = INDICATOR_PROMPTS[ind]["labels"]
-            labels_str = " or ".join(labels)
-            prompt += f'  "{ind}": "{labels_str}",\n'
-            prompt += f'  "{ind}_reasoning": "your analysis",\n'
-            prompt += f'  "{ind}_confidence_score": 1-100,\n'
+            example_label = labels[0]  # Use first valid label as example
 
-        prompt = prompt.rstrip(",\n") + "\n}"
+            prompt += f'\n  "{ind}": "{example_label}",'
+            prompt += f'\n  "{ind}_reasoning": "Your step-by-step analysis for {ind}",'
+            prompt += f'\n  "{ind}_confidence_score": 85'
+
+            if i < len(indicators) - 1:
+                prompt += ','
+
+        prompt += "\n}"
 
         return prompt

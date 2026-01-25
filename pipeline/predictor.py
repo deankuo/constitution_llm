@@ -227,7 +227,8 @@ class Predictor:
         verification_applied = {}
 
         # Process each prompt
-        for prompt in prompts:
+        for prompt_idx, prompt in enumerate(prompts):
+            print(f"\n📝 Processing prompt {prompt_idx+1}/{len(prompts)}: {prompt.indicators}")
             try:
                 # Call LLM
                 response = self.llm.call(
@@ -277,12 +278,16 @@ class Predictor:
                     total_tokens += ind_prediction.tokens_used
 
             except Exception as e:
-                # Handle errors gracefully
+                # Handle errors gracefully - print error for debugging
+                error_msg = f"Error: {str(e)}"
+                print(f"\n❌ ERROR processing {prompt.indicators}: {error_msg}")
+                print(f"   Prompt metadata: {prompt.metadata}")
+
                 for indicator in prompt.indicators:
                     predictions[indicator] = IndicatorPrediction(
                         indicator=indicator,
                         prediction=None,
-                        reasoning=f"Error: {str(e)}",
+                        reasoning=error_msg,
                         confidence_score=None,
                         model_used=self.config.model
                     )

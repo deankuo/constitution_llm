@@ -176,9 +176,14 @@ class GeminiLLM(BaseLLM):
             )
 
             if not response.parts:
+                # Get detailed feedback
+                feedback = response.prompt_feedback if hasattr(response, 'prompt_feedback') else 'No feedback available'
+                block_reason = getattr(feedback, 'block_reason', 'UNKNOWN') if feedback != 'No feedback available' else 'UNKNOWN'
+
                 raise ModelError(
-                    f"Gemini response was empty or blocked. "
-                    f"Feedback: {response.prompt_feedback}"
+                    f"Gemini response was empty or blocked.\n"
+                    f"Block reason: {block_reason}\n"
+                    f"Full feedback: {feedback}"
                 )
 
             # Extract usage if available
