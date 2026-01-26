@@ -451,6 +451,87 @@ metrics = evaluate_indicator(
 print(format_metrics_report(metrics))
 ```
 
+**📖 See [EVALUATION_GUIDE.md](EVALUATION_GUIDE.md) for complete evaluation guide with filtering, visualization, and polity-level accuracy.**
+
+**Multi-Dataset Comparison:**
+```python
+from evaluation import compare_experiments
+
+# Option 1: Compare using file paths
+datasets = {
+    'Baseline': 'data/results/baseline.csv',
+    'Self-Consistency': 'data/results/sc.csv',
+    'CoVe': 'data/results/cove.csv'
+}
+
+# Option 2: Compare using DataFrames (loaded/filtered in notebook)
+# datasets = {
+#     'Baseline': df_baseline,
+#     'Filtered Europe': df_europe,  # Pre-filtered DataFrame
+#     'CoVe': df_cove
+# }
+
+binary_metrics, multiclass_metrics = compare_experiments(datasets)
+# Generates 2 plots:
+# 1. Binary indicators: 4 subplots (accuracy, precision, recall, f1)
+# 2. Multi-class indicators: 3 metrics (accuracy, f1_macro, f1_weighted)
+```
+
+### Sanity Check and Reprocessing
+
+The `sanity_check.py` utility identifies problematic predictions and automatically reprocesses them.
+
+```bash
+# Check constitution predictions
+python utils/sanity_check.py \
+    -i data/results/predictions.csv \
+    -o data/results/predictions_fixed.csv \
+    --indicator constitution
+
+# Check with confidence threshold
+python utils/sanity_check.py \
+    -i data/results/predictions.csv \
+    -o data/results/predictions_fixed.csv \
+    --indicator sovereign \
+    --min-confidence 50
+```
+
+**Sanity Check Criteria:**
+- Missing confidence scores (NA/null values)
+- Negative confidence (-1 indicates error)
+- Low confidence (below threshold if specified)
+- Null predictions (missing values)
+- Short reasoning (< 100 characters default)
+- Uncodified constitutions (for constitution indicator only)
+
+**Command Options:**
+```bash
+--indicator          # Primary indicator to check (default: constitution)
+--indicators         # List of indicators to reprocess
+--min-confidence     # Minimum confidence threshold (1-100)
+--min-reasoning-length  # Minimum reasoning length (default: 100)
+--mode               # Prompt mode: single or multiple (default: multiple)
+--model              # Model in format Provider=model (default: Gemini=gemini-2.5-pro)
+--verify             # Verification: none, self_consistency, cove, both
+--no-cleanup         # Keep temporary files for debugging
+```
+
+**Important:** Output is saved to the path specified by `--output` (not overwriting the input file unless you specify the same path).
+
+**Example with Verification:**
+```bash
+python utils/sanity_check.py \
+    -i data/results/predictions.csv \
+    -o data/results/predictions_fixed.csv \
+    --indicator constitution \
+    --verify cove \
+    --model Gemini=gemini-2.5-pro
+```
+
+**Column Naming Support:**
+- Automatically detects new format: `{indicator}_prediction`, `{indicator}_confidence`, `{indicator}_reasoning`
+- Backward compatible with legacy format: `constitution_gemini`, `confidence_score_gemini`, `explanation_gemini`
+
 ## Troubleshooting
 
 ### Common Issues

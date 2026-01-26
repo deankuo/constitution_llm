@@ -64,6 +64,9 @@ class IndicatorPrediction:
     model_used: str = ''
     tokens_used: int = 0
     cost_usd: float = 0.0
+    # Constitution-specific fields
+    document_name: Optional[str] = None
+    constitution_year: Optional[int] = None
 
 
 @dataclass
@@ -89,6 +92,11 @@ class PolityPrediction:
             result[f'{ind_name}_prediction'] = ind_pred.prediction
             result[f'{ind_name}_reasoning'] = ind_pred.reasoning
             result[f'{ind_name}_confidence'] = ind_pred.confidence_score
+
+            # Constitution-specific fields
+            if ind_name == 'constitution':
+                result['constitution_document_name'] = ind_pred.document_name
+                result['constitution_year'] = ind_pred.constitution_year
 
             if ind_pred.was_verified:
                 result[f'{ind_name}_verified'] = ind_pred.verified_prediction
@@ -316,11 +324,16 @@ class Predictor:
     ) -> IndicatorPrediction:
         """Process a single indicator from parsed response."""
         # Validate response based on indicator type
+        document_name = None
+        constitution_year = None
+
         if indicator == 'constitution':
             validated = validate_constitution_response(parsed)
             prediction = validated.get('constitution')
             reasoning = validated.get('reasoning', '')
             confidence = validated.get('confidence_score')
+            document_name = validated.get('document_name')
+            constitution_year = validated.get('constitution_year')
             valid_labels = [1, 0]
         else:
             valid_labels = INDICATOR_LABELS.get(indicator, ['0', '1'])
@@ -371,7 +384,9 @@ class Predictor:
             was_verified=was_verified,
             model_used=self.config.model,
             tokens_used=tokens_per_indicator,
-            cost_usd=cost_per_indicator
+            cost_usd=cost_per_indicator,
+            document_name=document_name,
+            constitution_year=constitution_year
         )
 
     def _calculate_cost(self, response: ModelResponse) -> float:

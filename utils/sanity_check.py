@@ -1,10 +1,14 @@
 """
-Sanity check and reprocessing utilities for Gemini LLM predictions.
+Sanity check and reprocessing utilities for LLM predictions.
 
 This module provides functions to:
 1. Identify rows in a dataset that failed sanity checks
 2. Re-run failed rows through the LLM pipeline
 3. Merge reprocessed results back into the original dataset
+
+Supports both legacy column names and new naming convention:
+- Legacy: constitution_gemini, confidence_score_gemini, constitution_name_gemini, explanation_gemini
+- New: {indicator}_prediction, {indicator}_confidence, {indicator}_reasoning
 """
 
 import os
@@ -13,87 +17,154 @@ from typing import List, Optional, Callable
 import warnings
 
 
-# Default sanity check configuration
-DEFAULT_CONFIDENCE_COL = 'confidence_score_gemini'
-DEFAULT_CONSTITUTION_COL = 'constitution_gemini'
-DEFAULT_CONSTITUTION_NAME_COL = 'constitution_name_gemini'
-DEFAULT_LENGTH_COL = 'Length'
+# All available indicators
+ALL_INDICATORS = ['constitution', 'sovereign', 'powersharing', 'assembly', 'appointment', 'tenure', 'exit']
+
+# Default sanity check configuration (new format)
+DEFAULT_INDICATOR = 'constitution'
+DEFAULT_CONFIDENCE_COL = 'constitution_confidence'
+DEFAULT_PREDICTION_COL = 'constitution_prediction'
+DEFAULT_DOCUMENT_NAME_COL = 'constitution_document_name'
+DEFAULT_REASONING_COL = 'constitution_reasoning'
+
+# Legacy column names for backward compatibility
+LEGACY_CONFIDENCE_COL = 'confidence_score_gemini'
+LEGACY_CONSTITUTION_COL = 'constitution_gemini'
+LEGACY_CONSTITUTION_NAME_COL = 'constitution_name_gemini'
+LEGACY_REASONING_COL = 'explanation_gemini'
 
 
 def identify_failed_rows(
     df: pd.DataFrame,
-    confidence_col: str = DEFAULT_CONFIDENCE_COL,
-    length_col: Optional[str] = DEFAULT_LENGTH_COL,
-    constitution_name_col: Optional[str] = DEFAULT_CONSTITUTION_NAME_COL,
-    constitution_col: Optional[str] = DEFAULT_CONSTITUTION_COL,
+    indicator: str = DEFAULT_INDICATOR,
+    confidence_col: Optional[str] = None,
+    prediction_col: Optional[str] = None,
+    reasoning_col: Optional[str] = None,
+    document_name_col: Optional[str] = None,
     min_confidence: Optional[float] = None,
-    min_length: Optional[int] = 100,
+    min_reasoning_length: Optional[int] = 100,
     check_na: bool = True,
     check_negative: bool = True,
     check_uncodified: bool = False,
-    custom_conditions: Optional[List[Callable]] = None
+    check_null_prediction: bool = True,
+    custom_conditions: Optional[List[Callable]] = None,
+    auto_detect_legacy: bool = True
 ) -> pd.DataFrame:
     """
     Identify rows that failed sanity checks based on various criteria.
 
+    Supports both new and legacy column naming conventions.
+
     Args:
         df: Input DataFrame containing LLM predictions
-        confidence_col: Column name for confidence scores
-        length_col: Column name for explanation length (optional)
-        constitution_name_col: Column name for constitution names (optional)
-        constitution_col: Column name for constitution status (optional)
+        indicator: Indicator name (e.g., 'constitution', 'sovereign', 'assembly')
+        confidence_col: Column name for confidence scores (auto-detected if None)
+        prediction_col: Column name for predictions (auto-detected if None)
+        reasoning_col: Column name for reasoning/explanation (auto-detected if None)
+        document_name_col: Column name for constitution document name (auto-detected if None)
         min_confidence: Minimum acceptable confidence score (optional)
-        min_length: Minimum acceptable explanation length (optional)
+        min_reasoning_length: Minimum acceptable reasoning length (optional)
         check_na: Check for missing/NA confidence scores
         check_negative: Check for negative confidence scores (-1.0)
-        check_uncodified: Check for uncodified/customary constitutions
+        check_uncodified: Check for uncodified/customary constitutions (constitution only)
+        check_null_prediction: Check for None/null predictions
         custom_conditions: List of custom condition functions (optional)
+        auto_detect_legacy: Auto-detect legacy column names if new format not found
 
     Returns:
         DataFrame containing only the rows that failed sanity checks
     """
+    # Auto-detect column names
+    if confidence_col is None:
+        # Try new format first
+        new_col = f'{indicator}_confidence'
+        if new_col in df.columns:
+            confidence_col = new_col
+        elif auto_detect_legacy and LEGACY_CONFIDENCE_COL in df.columns:
+            confidence_col = LEGACY_CONFIDENCE_COL
+            print(f"Using legacy column name: {LEGACY_CONFIDENCE_COL}")
+        else:
+            warnings.warn(f"Confidence column not found for indicator '{indicator}'")
+
+    if prediction_col is None:
+        new_col = f'{indicator}_prediction'
+        if new_col in df.columns:
+            prediction_col = new_col
+        elif auto_detect_legacy and indicator == 'constitution' and LEGACY_CONSTITUTION_COL in df.columns:
+            prediction_col = LEGACY_CONSTITUTION_COL
+            print(f"Using legacy column name: {LEGACY_CONSTITUTION_COL}")
+        else:
+            warnings.warn(f"Prediction column not found for indicator '{indicator}'")
+
+    if reasoning_col is None:
+        new_col = f'{indicator}_reasoning'
+        if new_col in df.columns:
+            reasoning_col = new_col
+        elif auto_detect_legacy and LEGACY_REASONING_COL in df.columns:
+            reasoning_col = LEGACY_REASONING_COL
+            print(f"Using legacy column name: {LEGACY_REASONING_COL}")
+
+    if document_name_col is None and indicator == 'constitution':
+        new_col = 'constitution_document_name'
+        if new_col in df.columns:
+            document_name_col = new_col
+        elif auto_detect_legacy and LEGACY_CONSTITUTION_NAME_COL in df.columns:
+            document_name_col = LEGACY_CONSTITUTION_NAME_COL
+            print(f"Using legacy column name: {LEGACY_CONSTITUTION_NAME_COL}")
+
+    print(f"\nSanity checking indicator: {indicator}")
+    print(f"Using columns:")
+    print(f"  - Confidence: {confidence_col}")
+    print(f"  - Prediction: {prediction_col}")
+    print(f"  - Reasoning: {reasoning_col}")
+    if document_name_col:
+        print(f"  - Document name: {document_name_col}")
+    print()
+
     conditions = []
 
     # Condition 1: Missing confidence scores
-    if check_na and confidence_col in df.columns:
+    if check_na and confidence_col and confidence_col in df.columns:
         condition_na = df[confidence_col].isna()
         conditions.append(condition_na)
         print(f"Found {condition_na.sum()} rows with missing confidence scores")
 
     # Condition 2: Negative confidence scores (indicates error)
-    if check_negative and confidence_col in df.columns:
+    if check_negative and confidence_col and confidence_col in df.columns:
         condition_negative = (df[confidence_col] == -1.0)
         conditions.append(condition_negative)
         print(f"Found {condition_negative.sum()} rows with negative confidence scores")
 
     # Condition 3: Low confidence scores
-    if min_confidence is not None and confidence_col in df.columns:
+    if min_confidence is not None and confidence_col and confidence_col in df.columns:
         condition_low_conf = (df[confidence_col] < min_confidence) & (df[confidence_col] >= 0)
         conditions.append(condition_low_conf)
         print(f"Found {condition_low_conf.sum()} rows with confidence < {min_confidence}")
 
-    # Condition 4: Short explanations (may indicate incomplete processing)
-    if min_length is not None and length_col and length_col in df.columns:
-        condition_short = df[length_col] < min_length
-        conditions.append(condition_short)
-        print(f"Found {condition_short.sum()} rows with explanation length < {min_length}")
+    # Condition 4: Null/None predictions
+    if check_null_prediction and prediction_col and prediction_col in df.columns:
+        condition_null_pred = df[prediction_col].isna()
+        conditions.append(condition_null_pred)
+        print(f"Found {condition_null_pred.sum()} rows with null predictions")
 
-    # Condition 5: Uncodified/customary constitutions (optional)
-    if check_uncodified and constitution_name_col and constitution_name_col in df.columns:
+    # Condition 5: Short reasoning (may indicate incomplete processing)
+    if min_reasoning_length is not None and reasoning_col and reasoning_col in df.columns:
+        # Calculate length if not already a column
+        reasoning_lengths = df[reasoning_col].fillna('').astype(str).str.len()
+        condition_short = reasoning_lengths < min_reasoning_length
+        conditions.append(condition_short)
+        print(f"Found {condition_short.sum()} rows with reasoning length < {min_reasoning_length}")
+
+    # Condition 6: Uncodified/customary constitutions (optional, constitution only)
+    if check_uncodified and indicator == 'constitution' and document_name_col and document_name_col in df.columns:
         target_names = ["customary", "uncodified", "Uncodified customary"]
-        condition_uncodified = df[constitution_name_col].str.contains(
+        condition_uncodified = df[document_name_col].fillna('').astype(str).str.contains(
             '|'.join(target_names),
             case=False,
             na=False
         )
         conditions.append(condition_uncodified)
         print(f"Found {condition_uncodified.sum()} rows with uncodified/customary constitutions")
-
-    # Condition 6: Constitution status is -1 (error)
-    if check_negative and constitution_col and constitution_col in df.columns:
-        condition_const_error = (df[constitution_col] == -1.0)
-        conditions.append(condition_const_error)
-        print(f"Found {condition_const_error.sum()} rows with constitution status = -1")
 
     # Add custom conditions
     if custom_conditions:
@@ -230,7 +301,8 @@ def merge_reprocessed_results(
     reprocessed_df: pd.DataFrame,
     key_columns: Optional[List[str]] = None,
     update_columns: Optional[List[str]] = None,
-    keep_failed_if_reprocess_fails: bool = True
+    keep_failed_if_reprocess_fails: bool = True,
+    indicator: Optional[str] = None
 ) -> pd.DataFrame:
     """
     Merge reprocessed results back into the original dataset.
@@ -242,6 +314,7 @@ def merge_reprocessed_results(
                     otherwise ['territorynamehistorical', 'start_year', 'end_year'])
         update_columns: Columns to update from reprocessed data (None = all non-key columns)
         keep_failed_if_reprocess_fails: If True, keep original values when reprocessing fails
+        indicator: Indicator name for checking success (optional)
 
     Returns:
         Merged DataFrame with updated values
@@ -296,6 +369,17 @@ def merge_reprocessed_results(
     updated_count = 0
     failed_count = 0
 
+    # Determine confidence column for checking success
+    confidence_check_col = None
+    if indicator:
+        # Try new format
+        new_conf_col = f'{indicator}_confidence'
+        if new_conf_col in reprocessed_df.columns:
+            confidence_check_col = new_conf_col
+    # Fallback to legacy
+    if confidence_check_col is None and LEGACY_CONFIDENCE_COL in reprocessed_df.columns:
+        confidence_check_col = LEGACY_CONFIDENCE_COL
+
     # Update rows that were reprocessed
     for _, reproc_row in reprocessed_df.iterrows():
         merge_key = reproc_row['_merge_key']
@@ -304,8 +388,8 @@ def merge_reprocessed_results(
         if mask.any():
             # Check if reprocessing was successful
             reprocess_success = True
-            if 'confidence_score_gemini' in reproc_row:
-                if pd.isna(reproc_row['confidence_score_gemini']) or reproc_row['confidence_score_gemini'] == -1.0:
+            if confidence_check_col and confidence_check_col in reproc_row.index:
+                if pd.isna(reproc_row[confidence_check_col]) or reproc_row[confidence_check_col] == -1.0:
                     reprocess_success = False
 
             if reprocess_success or not keep_failed_if_reprocess_fails:
@@ -332,35 +416,37 @@ def merge_reprocessed_results(
 def sanity_check_and_reprocess(
     input_csv: str,
     output_csv: str,
-    temp_failed_csv: str = './Dataset/temp_failed_rows.csv',
-    temp_reprocessed_csv: str = './Dataset/temp_reprocessed_rows.csv',
-    confidence_col: str = DEFAULT_CONFIDENCE_COL,
+    indicator: str = DEFAULT_INDICATOR,
+    temp_failed_csv: str = './data/temp/temp_failed_rows.csv',
+    temp_reprocessed_csv: str = './data/temp/temp_reprocessed_rows.csv',
     min_confidence: Optional[float] = None,
-    min_length: Optional[int] = 100,
-    models: List[str] = ['Gemini=gemini-2.5-pro'],
+    min_reasoning_length: Optional[int] = 100,
+    mode: str = 'multiple',
+    indicators: Optional[List[str]] = None,
+    model: str = 'gemini-2.5-pro',
+    verify: str = 'none',
     temperature: float = 0.0,
-    max_tokens: int = 8192,
-    delay: float = 2.0,
-    use_search: bool = False,
     cleanup_temp_files: bool = True,
     **kwargs
 ) -> pd.DataFrame:
     """
     Complete workflow: sanity check, reprocess, and merge results.
 
+    Supports both legacy and new pipeline configurations.
+
     Args:
         input_csv: Path to input CSV file with predictions
         output_csv: Path to save final merged results
+        indicator: Indicator to check (e.g., 'constitution', 'sovereign')
         temp_failed_csv: Temporary file for failed rows
         temp_reprocessed_csv: Temporary file for reprocessed results
-        confidence_col: Column name for confidence scores
         min_confidence: Minimum acceptable confidence score
-        min_length: Minimum acceptable explanation length
-        models: List of model specifications
+        min_reasoning_length: Minimum acceptable reasoning length
+        mode: Prompt mode ('single' or 'multiple')
+        indicators: List of indicators to reprocess (defaults to the specified indicator)
+        model: Model to use for reprocessing
+        verify: Verification method ('none', 'self_consistency', 'cove', 'both')
         temperature: Temperature for LLM generation
-        max_tokens: Maximum tokens for LLM response
-        delay: Delay between API calls
-        use_search: Whether to use web search
         cleanup_temp_files: Whether to delete temporary files after completion
         **kwargs: Additional arguments passed to identify_failed_rows
 
@@ -381,9 +467,9 @@ def sanity_check_and_reprocess(
     print("Step 2: Identifying failed rows...")
     failed_df = identify_failed_rows(
         df,
-        confidence_col=confidence_col,
+        indicator=indicator,
         min_confidence=min_confidence,
-        min_length=min_length,
+        min_reasoning_length=min_reasoning_length,
         **kwargs
     )
 
@@ -395,23 +481,52 @@ def sanity_check_and_reprocess(
 
     # Step 3: Save failed rows for reprocessing
     print("\nStep 3: Saving failed rows for reprocessing...")
+    # Create temp directory if it doesn't exist
+    temp_dir = os.path.dirname(temp_failed_csv)
+    if temp_dir and not os.path.exists(temp_dir):
+        os.makedirs(temp_dir, exist_ok=True)
     save_for_reprocessing(failed_df, temp_failed_csv)
 
-    # Step 4: Reprocess failed rows
+    # Step 4: Reprocess failed rows using new pipeline
     print("\nStep 4: Reprocessing failed rows...")
-    success = reprocess_with_main(
-        input_csv=temp_failed_csv,
-        output_csv=temp_reprocessed_csv,
-        models=models,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        delay=delay,
-        use_search=use_search
-    )
+    import subprocess
 
-    if not success:
-        print("\nWarning: Reprocessing encountered errors.")
-        print(f"You may need to manually check {temp_failed_csv} and {temp_reprocessed_csv}")
+    # Build command for new pipeline
+    if indicators is None:
+        indicators = [indicator]
+
+    cmd = [
+        'python3', 'main.py',
+        '--new-pipeline',
+        '--input', temp_failed_csv,
+        '--output', temp_reprocessed_csv,
+        '--mode', mode,
+        '--indicators'] + indicators + [
+        '--models', model,
+        '--verify', verify,
+        '--temperature', str(temperature),
+    ]
+
+    print(f"Running reprocessing command:")
+    print(' '.join(cmd))
+    print()
+
+    try:
+        result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+        print(result.stdout)
+        if result.stderr:
+            print("Errors/Warnings:")
+            print(result.stderr)
+
+        # Check if output file was created
+        if not os.path.exists(temp_reprocessed_csv):
+            print(f"\nWarning: Output file {temp_reprocessed_csv} was not created")
+            return df
+
+    except subprocess.CalledProcessError as e:
+        print(f"Error during reprocessing: {e}")
+        print(f"stdout: {e.stdout}")
+        print(f"stderr: {e.stderr}")
         return df
 
     # Step 5: Load reprocessed results
@@ -422,22 +537,45 @@ def sanity_check_and_reprocess(
     # Step 6: Merge results
     print("Step 6: Merging reprocessed results with original dataset...")
 
-    # Determine which columns to update (only LLM output columns)
-    update_cols = [
-        'constitution_gemini',
-        'constitution_year',
-        'constitution_name_gemini',
-        'explanation_gemini',
-        'explanation_length_gemini',
-        'confidence_score_gemini'
-    ]
-    # Filter to only columns that exist in reprocessed data
-    update_cols = [col for col in update_cols if col in reprocessed_df.columns]
+    # Auto-detect which columns to update based on indicators
+    update_cols = []
+    for ind in indicators:
+        # Add prediction, reasoning, confidence columns
+        for suffix in ['_prediction', '_reasoning', '_confidence']:
+            col = f'{ind}{suffix}'
+            if col in reprocessed_df.columns:
+                update_cols.append(col)
+
+        # Add constitution-specific columns
+        if ind == 'constitution':
+            if 'constitution_document_name' in reprocessed_df.columns:
+                update_cols.append('constitution_document_name')
+            if 'constitution_year' in reprocessed_df.columns:
+                update_cols.append('constitution_year')
+
+    # Add cost/token columns if present
+    for col in ['total_cost_usd', 'total_tokens']:
+        if col in reprocessed_df.columns and col not in update_cols:
+            update_cols.append(col)
+
+    # Fallback to legacy columns if no new columns found
+    if not update_cols:
+        legacy_cols = [
+            'constitution_gemini',
+            'constitution_year',
+            'constitution_name_gemini',
+            'explanation_gemini',
+            'confidence_score_gemini'
+        ]
+        update_cols = [col for col in legacy_cols if col in reprocessed_df.columns]
+
+    print(f"Columns to update: {update_cols}")
 
     final_df = merge_reprocessed_results(
         df,
         reprocessed_df,
-        update_columns=update_cols
+        update_columns=update_cols,
+        indicator=indicator
     )
 
     # Step 7: Save final results
@@ -464,16 +602,43 @@ if __name__ == "__main__":
     # Example usage
     import argparse
 
-    parser = argparse.ArgumentParser(description='Sanity check and reprocess LLM predictions')
+    parser = argparse.ArgumentParser(
+        description='Sanity check and reprocess LLM predictions',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Check constitution predictions
+  python sanity_check.py -i data/results/predictions.csv -o data/results/fixed.csv --indicator constitution
+
+  # Check sovereign with minimum confidence threshold
+  python sanity_check.py -i data/results/predictions.csv -o data/results/fixed.csv \\
+      --indicator sovereign --min-confidence 50
+
+  # Check multiple indicators
+  python sanity_check.py -i data/results/predictions.csv -o data/results/fixed.csv \\
+      --indicator constitution --indicators constitution sovereign assembly
+        """
+    )
     parser.add_argument('--input', '-i', required=True, help='Input CSV file')
     parser.add_argument('--output', '-o', required=True, help='Output CSV file')
-    parser.add_argument('--min-confidence', type=float, help='Minimum confidence score')
-    parser.add_argument('--min-length', type=int, default=100, help='Minimum explanation length')
-    parser.add_argument('--models', nargs='+', default=['Gemini=gemini-2.5-pro'], help='Models to use')
-    parser.add_argument('--temperature', type=float, default=0.0, help='Temperature')
-    parser.add_argument('--max-tokens', type=int, default=8192, help='Max tokens')
-    parser.add_argument('--delay', type=float, default=2.0, help='Delay between calls')
-    parser.add_argument('--use-search', action='store_true', help='Use web search')
+    parser.add_argument('--indicator', default='constitution',
+                       choices=ALL_INDICATORS,
+                       help='Primary indicator to check (default: constitution)')
+    parser.add_argument('--indicators', nargs='+',
+                       help='List of indicators to reprocess (default: same as --indicator)')
+    parser.add_argument('--min-confidence', type=float, help='Minimum confidence score (1-100)')
+    parser.add_argument('--min-reasoning-length', type=int, default=100,
+                       help='Minimum reasoning length (default: 100)')
+    parser.add_argument('--mode', choices=['single', 'multiple'], default='multiple',
+                       help='Prompt mode for reprocessing (default: multiple)')
+    parser.add_argument('--model', default='Gemini=gemini-2.5-pro', help='Model to use (default: gemini-2.5-pro)')
+    parser.add_argument('--verify', choices=['none', 'self_consistency', 'cove', 'both'],
+                       default='none', help='Verification method (default: none)')
+    parser.add_argument('--temperature', type=float, default=0.0, help='Temperature (default: 0.0)')
+    parser.add_argument('--max-tokens', type=int, default=8192, help='Max tokens (default: 8192)')
+    parser.add_argument('--top-p', type=float, default=0.95, help='Top-p sampling (default: 0.95)')
+    parser.add_argument('--check-null-prediction', action='store_true', default=True,
+                       help='Check for null predictions (default: True)')
     parser.add_argument('--no-cleanup', action='store_true', help='Keep temporary files')
 
     args = parser.parse_args()
@@ -481,12 +646,14 @@ if __name__ == "__main__":
     sanity_check_and_reprocess(
         input_csv=args.input,
         output_csv=args.output,
+        indicator=args.indicator,
+        indicators=args.indicators,
         min_confidence=args.min_confidence,
-        min_length=args.min_length,
-        models=args.models,
+        min_reasoning_length=args.min_reasoning_length,
+        mode=args.mode,
+        model=args.model,
+        verify=args.verify,
         temperature=args.temperature,
-        max_tokens=args.max_tokens,
-        delay=args.delay,
-        use_search=args.use_search,
+        check_null_prediction=args.check_null_prediction,
         cleanup_temp_files=not args.no_cleanup
     )
