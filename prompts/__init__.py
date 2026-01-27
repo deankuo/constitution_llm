@@ -5,8 +5,9 @@ This package contains:
 - constitution: Constitution indicator prompts (complex)
 - indicators: Other 6 indicators with unified templates
 - base_builder: Abstract prompt builder interface
-- single_builder: Combines all indicators into one prompt
+- single_builder: Combines all indicators into one unified prompt
 - multiple_builder: Generates separate prompt per indicator
+- sequential_builder: All 7 indicators in sequential sections
 """
 
 __version__ = '1.0.0'
@@ -31,3 +32,4 @@ from prompts.indicators import (
 from prompts.base_builder import BasePromptBuilder, PromptOutput
 from prompts.single_builder import SinglePromptBuilder
 from prompts.multiple_builder import MultiplePromptBuilder, create_prompt_builder
+from prompts.sequential_builder import SequentialPromptBuilder

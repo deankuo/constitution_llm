@@ -25,8 +25,9 @@ A sophisticated pipeline for analyzing historical polities to predict political 
   - **Note**: `--verify both` currently runs CoVe only (sequential verification not yet implemented)
 
 - **Prompt Modes**:
-  - **Single**: All indicators in one prompt
+  - **Single**: All indicators in one unified prompt
   - **Multiple**: Separate prompt per indicator (recommended)
+  - **Sequential**: All 7 indicators in one prompt with distinct sequential sections (user-defined or random order)
 
 - **Robust Processing**: Checkpoint system, automatic retries, cost tracking
 
@@ -176,8 +177,9 @@ constitution_llm/
 │   ├── constitution.py            # Constitution prompt (complex, 4 elements)
 │   ├── indicators.py              # 6 other indicator prompts
 │   ├── base_builder.py            # Abstract PromptBuilder
-│   ├── single_builder.py          # Combines all indicators
-│   └── multiple_builder.py        # Separate prompt per indicator
+│   ├── single_builder.py          # Combines all indicators (unified)
+│   ├── multiple_builder.py        # Separate prompt per indicator
+│   └── sequential_builder.py      # All 7 indicators in sequence
 │
 ├── models/
 │   ├── base.py                    # BaseLLM abstract class + ModelResponse
@@ -227,8 +229,9 @@ constitution_llm/
 │  │ --model     │     │           ▼                     ▼               │   │
 │  └─────────────┘     │  ┌─────────────────────────────────────────┐    │   │
 │                      │  │         Prompt Builder                  │    │   │
-│                      │  │  • SinglePromptBuilder (all in one)     │    │   │
-│                      │  │  • MultiplePromptBuilder (per indicator)│    │   │
+│                      │  │  • SinglePromptBuilder (unified)        │    │   │
+│                      │  │  • MultiplePromptBuilder (separate)     │    │   │
+│                      │  │  • SequentialPromptBuilder (sequence)   │    │   │
 │                      │  └─────────────────────────────────────────┘    │   │
 │                      └─────────────────────────────────────────────────┘   │
 │                                           │                                │
@@ -280,7 +283,7 @@ python main.py --help
 | Argument | Description | Default |
 |----------|-------------|---------|
 | `--new-pipeline` | Use the new modular pipeline | False |
-| `--mode` | Prompt mode: `single` or `multiple` | `multiple` |
+| `--mode` | Prompt mode: `single`, `multiple`, or `sequential` | `multiple` |
 | `--indicators` | Indicators to predict | All 6 (excl. constitution) |
 | `--model` | Primary model | `gemini-2.5-pro` |
 | `--verify` | Verification: `none`, `self_consistency`, `cove`, `both` | `none` |
@@ -288,6 +291,8 @@ python main.py --help
 | `--verifier-model` | Model for CoVe verification | Bedrock Claude |
 | `--n-samples` | Self-consistency samples | 3 |
 | `--sc-temperatures` | SC temperature list | `0.0,0.5,1.0` |
+| `--sequence` | Indicator order for sequential mode (space-separated) | None |
+| `--random-sequence` | Randomize order in sequential mode | False |
 
 #### Legacy Arguments (still supported)
 
@@ -307,6 +312,22 @@ python main.py --new-pipeline \
   --indicators sovereign assembly appointment \
   --model gemini-2.5-pro \
   --test 10
+
+# Sequential mode with user-defined order
+python main.py --new-pipeline \
+  --mode sequential \
+  --indicators constitution sovereign assembly powersharing appointment tenure exit \
+  --sequence assembly constitution sovereign exit powersharing tenure appointment \
+  --model gemini-2.5-pro \
+  --test 5
+
+# Sequential mode with random order
+python main.py --new-pipeline \
+  --mode sequential \
+  --indicators constitution sovereign assembly powersharing appointment tenure exit \
+  --random-sequence \
+  --model gemini-2.5-pro \
+  --test 5
 
 # Self-Consistency verification
 python main.py --new-pipeline \
@@ -335,6 +356,53 @@ python main.py --new-pipeline \
   --input data/plt_polity_data_v2.csv \
   --output data/results/experiment_001.csv
 ```
+
+### Understanding Prompt Modes
+
+The pipeline supports three distinct prompt modes, each with different characteristics:
+
+#### 1. Multiple Mode (Default, Recommended)
+- **How it works**: Separate LLM call for each indicator
+- **Pros**: No cross-indicator contamination, independent predictions
+- **Cons**: More API calls, higher cost
+- **Use when**: You want the most accurate predictions and cost is not a primary concern
+- **Example**: 7 indicators = 7 separate LLM calls
+
+#### 2. Single Mode
+- **How it works**: All indicators merged into one unified prompt
+- **Pros**: Fewer API calls, lower cost
+- **Cons**: Potential cross-indicator contamination (predictions may influence each other)
+- **Use when**: You want to reduce costs and are willing to accept potential contamination
+- **Example**: 7 indicators = 1 LLM call with unified definitions
+
+#### 3. Sequential Mode
+- **How it works**: All 7 indicators presented as distinct sequential sections in one prompt
+- **Pros**:
+  - Single API call (cost-efficient)
+  - Each indicator maintains its distinct prompt structure
+  - Can control or randomize the order to test sequence effects
+- **Cons**:
+  - Indicators may still influence each other due to shared context
+  - Longer prompt may affect response quality
+- **Use when**:
+  - You want to study how indicator ordering affects predictions
+  - You want cost efficiency while maintaining distinct indicator definitions
+- **Example**: 7 indicators = 1 LLM call with 7 sequential sections
+
+**Sequential Mode Order Options:**
+```bash
+# Default order (constitution first, then others)
+--mode sequential
+
+# User-specified order
+--mode sequential --sequence assembly sovereign exit constitution powersharing tenure appointment
+
+# Random order (useful for testing sequence effects)
+--mode sequential --random-sequence
+```
+
+**Note**: The `--sequence` argument must include all indicators specified in `--indicators`. The order will affect how the LLM sees and processes each indicator.
+
 
 ## Configuration
 

@@ -121,8 +121,9 @@ class VerificationType(Enum):
 
 class PromptMode(Enum):
     """Prompt modes for indicator prediction."""
-    SINGLE = "single"      # All indicators in one prompt
-    MULTIPLE = "multiple"  # Separate prompt per indicator
+    SINGLE = "single"          # All indicators in one unified prompt
+    MULTIPLE = "multiple"      # Separate prompt per indicator
+    SEQUENTIAL = "sequential"  # All 7 indicators in sequence with distinct sections
 
 
 # Default verification configuration

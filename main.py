@@ -349,10 +349,6 @@ def _parse_test_argument(test_arg: str, df: pd.DataFrame) -> pd.DataFrame:
         ) from e
 
 
-# =============================================================================
-# ENHANCED CLI
-# =============================================================================
-
 def main():
     """Main function for command line execution."""
     parser = argparse.ArgumentParser(
@@ -372,14 +368,20 @@ Examples:
   # Test mode with first 10 polities
   python main.py --test 10
 
-  # NEW: Use new pipeline with multiple indicators
+  # Use new pipeline with multiple indicators
   python main.py --new-pipeline --indicators sovereign assembly powersharing
 
-  # NEW: With self-consistency verification
+  # With self-consistency verification
   python main.py --new-pipeline --indicators assembly --verify self_consistency --verify-indicators assembly
 
-  # NEW: Single prompt mode (all indicators in one call)
+  # Single prompt mode (all indicators in one call)
   python main.py --new-pipeline --mode single --indicators sovereign assembly exit
+
+  # Sequential mode with user-defined order
+  python main.py --new-pipeline --mode sequential --indicators constitution sovereign assembly powersharing appointment tenure exit --sequence assembly constitution sovereign exit powersharing tenure appointment
+
+  # Sequential mode with random order
+  python main.py --new-pipeline --mode sequential --indicators constitution sovereign assembly powersharing appointment tenure exit --random-sequence
         """
     )
 
@@ -468,9 +470,6 @@ Examples:
         help='Delay in seconds between retries'
     )
 
-    # ==========================================================================
-    # NEW ARGUMENTS FOR ENHANCED PIPELINE
-    # ==========================================================================
     parser.add_argument(
         '--new-pipeline',
         action='store_true',
@@ -478,9 +477,9 @@ Examples:
     )
     parser.add_argument(
         '--mode',
-        choices=['single', 'multiple'],
+        choices=['single', 'multiple', 'sequential'],
         default='multiple',
-        help='Prompt mode: single (all indicators in one prompt) or multiple (separate prompts)'
+        help='Prompt mode: single (unified prompt), multiple (separate prompts), or sequential (7 indicators in sequence)'
     )
     parser.add_argument(
         '--indicators',
@@ -523,6 +522,16 @@ Examples:
         default=50,
         help='Save checkpoint every N polities (new pipeline)'
     )
+    parser.add_argument(
+        '--sequence',
+        nargs='+',
+        help='Indicator sequence for sequential mode (space-separated, e.g., "constitution assembly sovereign")'
+    )
+    parser.add_argument(
+        '--random-sequence',
+        action='store_true',
+        help='Randomize indicator order in sequential mode'
+    )
 
     args = parser.parse_args()
 
@@ -544,9 +553,6 @@ Examples:
             "Set the SERPER_API_KEY environment variable."
         )
 
-    # ==========================================================================
-    # NEW PIPELINE PATH
-    # ==========================================================================
     if args.new_pipeline:
         print("Using NEW modular pipeline...")
 
@@ -569,7 +575,9 @@ Examples:
             max_tokens=args.max_tokens,
             top_p=args.top_p,
             sc_n_samples=args.n_samples,
-            sc_temperatures=args.sc_temperatures
+            sc_temperatures=args.sc_temperatures,
+            sequence=args.sequence,
+            random_sequence=args.random_sequence
         )
 
         # Create predictor

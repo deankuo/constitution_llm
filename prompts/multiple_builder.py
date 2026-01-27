@@ -90,23 +90,34 @@ class MultiplePromptBuilder(BasePromptBuilder):
 
 def create_prompt_builder(
     mode: str,
-    indicators: Optional[List[str]] = None
+    indicators: Optional[List[str]] = None,
+    sequence: Optional[List[str]] = None,
+    random_order: bool = False
 ) -> BasePromptBuilder:
     """
     Factory function to create a prompt builder.
 
     Args:
-        mode: Either 'single' or 'multiple'
+        mode: Either 'single', 'multiple', or 'sequential'
         indicators: List of indicators to include
+        sequence: Specific order for sequential mode (optional)
+        random_order: Randomize order in sequential mode (optional)
 
     Returns:
         Appropriate PromptBuilder instance
     """
     from prompts.single_builder import SinglePromptBuilder
+    from prompts.sequential_builder import SequentialPromptBuilder
 
     if mode.lower() == 'single':
         return SinglePromptBuilder(indicators=indicators)
     elif mode.lower() == 'multiple':
         return MultiplePromptBuilder(indicators=indicators)
+    elif mode.lower() == 'sequential':
+        return SequentialPromptBuilder(
+            indicators=indicators,
+            sequence=sequence,
+            random_order=random_order
+        )
     else:
-        raise ValueError(f"Unknown mode: {mode}. Must be 'single' or 'multiple'")
+        raise ValueError(f"Unknown mode: {mode}. Must be 'single', 'multiple', or 'sequential'")

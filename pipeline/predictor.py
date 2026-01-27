@@ -23,6 +23,7 @@ from models.llm_clients import create_llm
 from prompts.base_builder import BasePromptBuilder, PromptOutput
 from prompts.single_builder import SinglePromptBuilder
 from prompts.multiple_builder import MultiplePromptBuilder
+from prompts.sequential_builder import SequentialPromptBuilder
 from verification.base import BaseVerification, VerificationResult, NoVerification
 from verification.self_consistency import SelfConsistencyVerification, SelfConsistencyConfig
 from verification.cove import ChainOfVerification, CoVeConfig
@@ -49,6 +50,9 @@ class PredictionConfig:
     sc_n_samples: int = 3
     sc_temperatures: List[float] = field(default_factory=lambda: [0.0, 0.5, 1.0])
     cove_questions_per_element: int = 1  # Changed from 2 to 1 (4 questions total for constitution)
+    # Sequential mode parameters
+    sequence: Optional[List[str]] = None  # Specific order for sequential mode
+    random_sequence: bool = False  # Randomize order in sequential mode
 
 
 @dataclass
@@ -167,6 +171,12 @@ class Predictor:
         """Create appropriate prompt builder based on config."""
         if self.config.mode == PromptMode.SINGLE:
             return SinglePromptBuilder(indicators=self.config.indicators)
+        elif self.config.mode == PromptMode.SEQUENTIAL:
+            return SequentialPromptBuilder(
+                indicators=self.config.indicators,
+                sequence=self.config.sequence,
+                random_order=self.config.random_sequence
+            )
         else:
             return MultiplePromptBuilder(indicators=self.config.indicators)
 
