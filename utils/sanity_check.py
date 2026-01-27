@@ -12,13 +12,76 @@ Supports both legacy column names and new naming convention:
 """
 
 import os
+import sys
 import pandas as pd
 from typing import List, Optional, Callable
 import warnings
 
+# Import configuration from root config.py
+# Use try/except to handle both package import and direct script execution
+try:
+    from config import DEFAULT_MAX_TOKENS
+except ImportError:
+    # When run as script, add parent directory to path
+    _parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    if _parent_dir not in sys.path:
+        sys.path.insert(0, _parent_dir)
+    from config import DEFAULT_MAX_TOKENS
 
 # All available indicators
 ALL_INDICATORS = ['constitution', 'sovereign', 'powersharing', 'assembly', 'appointment', 'tenure', 'exit']
+
+
+def fix_column_types(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Fix column types to ensure proper data types.
+
+    Pandas reads NA values as float. Convert prediction/confidence columns to
+    nullable integers, keep string columns as strings.
+
+    Args:
+        df: DataFrame with LLM predictions
+
+    Returns:
+        DataFrame with corrected column types
+    """
+    # Columns that should be strings
+    string_cols = ['territorynamehistorical', 'id', 'region']
+
+    # Reasoning and document name columns should be strings
+    for col in df.columns:
+        if 'reasoning' in col or 'document_name' in col:
+            string_cols.append(col)
+
+    # Convert string columns
+    for col in string_cols:
+        if col in df.columns:
+            df[col] = df[col].astype(str)
+
+    # Convert prediction columns to nullable integers (Int64 handles NA properly)
+    for indicator in ALL_INDICATORS:
+        pred_col = f'{indicator}_prediction'
+        if pred_col in df.columns:
+            # Convert to nullable Int64 (capital I)
+            df[pred_col] = pd.to_numeric(df[pred_col], errors='coerce')
+            df[pred_col] = df[pred_col].astype('Int64')  # Nullable integer type
+
+    # Convert confidence columns to nullable integers
+    for indicator in ALL_INDICATORS:
+        conf_col = f'{indicator}_confidence'
+        if conf_col in df.columns:
+            df[conf_col] = pd.to_numeric(df[conf_col], errors='coerce')
+            df[conf_col] = df[conf_col].astype('Int64')  # Nullable integer type
+
+    # Convert year columns to nullable integers
+    year_cols = ['start_year', 'end_year', 'constitution_year']
+    for col in year_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+            df[col] = df[col].astype('Int64')  # Nullable integer type
+
+    return df
+
 
 # Default sanity check configuration (new format)
 DEFAULT_INDICATOR = 'constitution'
@@ -227,7 +290,7 @@ def reprocess_with_main(
     output_csv: str,
     models: List[str] = ['Gemini=gemini-2.5-pro'],
     temperature: float = 0.0,
-    max_tokens: int = 8192,
+    max_tokens: int = DEFAULT_MAX_TOKENS,
     delay: float = 2.0,
     use_search: bool = False,
     main_script_path: str = './main.py',
@@ -454,24 +517,85 @@ def sanity_check_and_reprocess(
         Final DataFrame with reprocessed results merged
     """
     print("="*80)
-    print("STARTING SANITY CHECK AND REPROCESSING WORKFLOW")
+    print(f"STARTING SANITY CHECK AND REPROCESSING WORKFLOW (MODE: {mode.upper()})")
     print("="*80)
     print()
 
     # Step 1: Load original data
     print("Step 1: Loading original dataset...")
     df = pd.read_csv(input_csv)
+    df = fix_column_types(df)
     print(f"Loaded {len(df)} rows from {input_csv}\n")
 
     # Step 2: Identify failed rows
     print("Step 2: Identifying failed rows...")
-    failed_df = identify_failed_rows(
-        df,
-        indicator=indicator,
-        min_confidence=min_confidence,
-        min_reasoning_length=min_reasoning_length,
-        **kwargs
-    )
+
+    # For SINGLE mode: Check ALL indicators and collect unique failed rows
+    if mode == 'single':
+        print("MODE: SINGLE - Checking all indicators for failures...")
+
+        # Determine which indicators to check
+        if indicators is None:
+            # Auto-detect: check all 6 standard indicators
+            check_indicators = ['sovereign', 'powersharing', 'assembly', 'appointment', 'tenure', 'exit']
+            # Also check constitution if columns exist
+            if 'constitution_prediction' in df.columns or 'constitution_confidence' in df.columns:
+                check_indicators.insert(0, 'constitution')
+        else:
+            check_indicators = indicators
+
+        print(f"Checking indicators: {check_indicators}\n")
+
+        # Collect all failed rows across all indicators
+        all_failed_indices = set()
+        indicator_failures = {}
+
+        for ind in check_indicators:
+            # Special handling for constitution - only check prediction and confidence
+            if ind == 'constitution':
+                check_uncodified = False
+            else:
+                check_uncodified = kwargs.get('check_uncodified', False)
+
+            # Identify failed rows for this indicator
+            ind_failed = identify_failed_rows(
+                df,
+                indicator=ind,
+                min_confidence=min_confidence,
+                min_reasoning_length=min_reasoning_length,
+                check_uncodified=check_uncodified,
+                **{k: v for k, v in kwargs.items() if k != 'check_uncodified'}
+            )
+
+            if len(ind_failed) > 0:
+                failed_indices = set(ind_failed.index.tolist())
+                all_failed_indices.update(failed_indices)
+                indicator_failures[ind] = len(failed_indices)
+
+        print(f"\n{'='*80}")
+        print("SINGLE MODE: Summary of failures by indicator")
+        print(f"{'='*80}")
+        for ind, count in indicator_failures.items():
+            print(f"  {ind}: {count} rows")
+        print(f"\nTotal unique rows with at least one failed indicator: {len(all_failed_indices)}")
+        print(f"{'='*80}\n")
+
+        # Get the combined failed dataframe
+        if len(all_failed_indices) > 0:
+            failed_df = df.loc[list(all_failed_indices)].copy()
+        else:
+            failed_df = df.iloc[0:0]  # Empty dataframe
+
+    else:
+        # For MULTIPLE mode: Check only the specified indicator
+        print(f"MODE: MULTIPLE - Checking indicator: {indicator}")
+        failed_df = identify_failed_rows(
+            df,
+            indicator=indicator,
+            min_confidence=min_confidence,
+            min_reasoning_length=min_reasoning_length,
+            **kwargs
+        )
 
     if len(failed_df) == 0:
         print("No failed rows found! Dataset passes all sanity checks.")
@@ -492,8 +616,19 @@ def sanity_check_and_reprocess(
     import subprocess
 
     # Build command for new pipeline
+    # For single mode: reprocess ALL indicators together
+    # For multiple mode: reprocess only specified indicators
     if indicators is None:
-        indicators = [indicator]
+        if mode == 'single':
+            # Reprocess all 6 indicators together (constitution handled separately if present)
+            indicators = ['sovereign', 'powersharing', 'assembly', 'appointment', 'tenure', 'exit']
+            print(f"Single mode: Will reprocess all 6 indicators together: {indicators}")
+        else:
+            # Multiple mode: just the checked indicator
+            indicators = [indicator]
+            print(f"Multiple mode: Will reprocess indicator: {indicator}")
+    else:
+        print(f"Using custom indicators: {indicators}")
 
     cmd = [
         'python3', 'main.py',
@@ -532,6 +667,7 @@ def sanity_check_and_reprocess(
     # Step 5: Load reprocessed results
     print("\nStep 5: Loading reprocessed results...")
     reprocessed_df = pd.read_csv(temp_reprocessed_csv)
+    reprocessed_df = fix_column_types(reprocessed_df)
     print(f"Loaded {len(reprocessed_df)} reprocessed rows\n")
 
     # Step 6: Merge results
@@ -577,6 +713,9 @@ def sanity_check_and_reprocess(
         update_columns=update_cols,
         indicator=indicator
     )
+
+    # Fix column types after merging
+    final_df = fix_column_types(final_df)
 
     # Step 7: Save final results
     print(f"\nStep 7: Saving final results to {output_csv}...")
@@ -635,7 +774,7 @@ Examples:
     parser.add_argument('--verify', choices=['none', 'self_consistency', 'cove', 'both'],
                        default='none', help='Verification method (default: none)')
     parser.add_argument('--temperature', type=float, default=0.0, help='Temperature (default: 0.0)')
-    parser.add_argument('--max-tokens', type=int, default=8192, help='Max tokens (default: 8192)')
+    parser.add_argument('--max-tokens', type=int, default=DEFAULT_MAX_TOKENS, help=f'Max tokens (default: {DEFAULT_MAX_TOKENS})')
     parser.add_argument('--top-p', type=float, default=0.95, help='Top-p sampling (default: 0.95)')
     parser.add_argument('--check-null-prediction', action='store_true', default=True,
                        help='Check for null predictions (default: True)')

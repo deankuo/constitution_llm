@@ -347,7 +347,7 @@ DEFAULT_VERIFIER_MODEL = "anthropic.claude-sonnet-4-5-20250929-v1:0"
 
 # LLM Parameters
 DEFAULT_TEMPERATURE = 0
-DEFAULT_MAX_TOKENS = 2048
+DEFAULT_MAX_TOKENS = 32768  # Increased to handle single prompt mode with multiple indicators
 
 # Processing
 DEFAULT_BATCH_SIZE = 100

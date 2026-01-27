@@ -23,7 +23,7 @@ final_df = sanity_check_and_reprocess(
     min_length=100,  # Minimum explanation length
     models=['Gemini=gemini-2.5-pro'],
     temperature=0.0,
-    max_tokens=8192,
+    # max_tokens uses DEFAULT_MAX_TOKENS (32768) from config.py if not specified
     delay=2.0
 )
 ```

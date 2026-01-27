@@ -171,7 +171,7 @@ class SinglePromptBuilder(BasePromptBuilder):
 
             prompt += f'\n  "{ind}": "{example_label}",'
             prompt += f'\n  "{ind}_reasoning": "Your step-by-step analysis for {ind}",'
-            prompt += f'\n  "{ind}_confidence_score": 85'
+            prompt += f'\n  "{ind}_confidence_score": 30'  # Example confidence score
 
             if i < len(indicators) - 1:
                 prompt += ','

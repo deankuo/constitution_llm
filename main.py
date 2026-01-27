@@ -440,7 +440,7 @@ Examples:
     parser.add_argument(
         '--max_tokens',
         type=int,
-        default=4096,
+        default=DEFAULT_MAX_TOKENS,
         help='Max tokens for model response'
     )
     parser.add_argument(

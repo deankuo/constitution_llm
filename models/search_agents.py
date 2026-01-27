@@ -18,6 +18,7 @@ from anthropic import Anthropic
 from google.generativeai.types import FunctionDeclaration, HarmBlockThreshold, HarmCategory, Tool
 from openai import OpenAI
 
+from config import DEFAULT_MAX_TOKENS
 from models.llm_clients import _create_bedrock_client
 
 
@@ -394,12 +395,17 @@ def run_anthropic_search_agent(
         model: Model name (e.g., 'claude-3-5-sonnet-20241022')
         api_key: Anthropic API key
         serper_api_key: Serper API key for web search
-        llm_params: Dictionary with parameters (unused, kept for API consistency)
+        llm_params: Dictionary with parameters (max_tokens, temperature, etc.)
 
     Returns:
         Model response as string, or None if request fails
     """
     try:
+        # Extract max_tokens from llm_params or use default
+        max_tokens = DEFAULT_MAX_TOKENS
+        if llm_params and 'max_tokens' in llm_params:
+            max_tokens = llm_params['max_tokens']
+
         client = Anthropic(api_key=api_key)
 
         tools = [
@@ -425,7 +431,7 @@ def run_anthropic_search_agent(
             system=system_prompt,
             messages=[{"role": "user", "content": user_prompt}],
             tools=tools,
-            max_tokens=4096
+            max_tokens=max_tokens
         )
 
         if response.stop_reason == "tool_use":
@@ -458,7 +464,7 @@ def run_anthropic_search_agent(
                         }
                     ],
                     tools=tools,
-                    max_tokens=4096
+                    max_tokens=max_tokens
                 )
 
                 text_blocks = [block.text for block in final_response.content if hasattr(block, 'text')]

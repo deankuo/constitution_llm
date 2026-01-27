@@ -10,6 +10,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
+from config import DEFAULT_MAX_TOKENS
+
 
 @dataclass
 class ModelResponse:
@@ -70,7 +72,7 @@ class BaseLLM(ABC):
         api_key: Optional[str] = None,
         model: Optional[str] = None,
         default_temperature: float = 0.0,
-        default_max_tokens: int = 2048
+        default_max_tokens: int = DEFAULT_MAX_TOKENS
     ):
         """
         Initialize the LLM.

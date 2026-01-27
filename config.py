@@ -3,6 +3,10 @@ Configuration module for Constitution Analysis Pipeline.
 
 This module centralizes all configuration constants and default values
 used throughout the application.
+
+IMPORTANT: This module should ONLY import from the standard library and typing.
+Do not import from project modules to avoid circular dependencies.
+All project modules can safely import from this config.
 """
 
 from enum import Enum
@@ -13,7 +17,12 @@ from typing import List
 # =============================================================================
 
 DEFAULT_TEMPERATURE = 0
-DEFAULT_MAX_TOKENS = 2048
+DEFAULT_MAX_TOKENS = 32768  # Increased from 2048 to handle single prompt mode with multiple indicators
+                            # NOTE: Actual model limits vary by provider:
+                            # - GPT-4o: 16,384 max_tokens
+                            # - Gemini 2.5 Pro: 8,192 output tokens (2M input context)
+                            # - Claude Sonnet 4.5: 8,192 max_tokens
+                            # LLM clients should validate/cap this value before API calls
 DEFAULT_TOP_P = 1.0
 
 # =============================================================================
