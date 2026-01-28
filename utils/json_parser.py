@@ -232,16 +232,28 @@ def validate_constitution_response(parsed: Dict[str, Any]) -> Dict[str, Any]:
         except (ValueError, TypeError):
             result['constitution_year'] = None
 
-    # Ensure reasoning/explanation exists
-    if 'reasoning' not in result:
-        result['reasoning'] = result.get('explanation', '')
+    # Ensure reasoning/explanation exists (check multiple field names)
+    if 'reasoning' in result:
+        result['reasoning'] = result['reasoning']
+    elif 'constitution_reasoning' in result:
+        result['reasoning'] = result['constitution_reasoning']
+    elif 'explanation' in result:
+        result['reasoning'] = result['explanation']
+    else:
+        result['reasoning'] = ''
 
     # Ensure confidence_score exists and is in valid range (1-100 for constitution)
-    if 'confidence_score' not in result:
-        result['confidence_score'] = None
+    # Check both 'confidence_score' and 'constitution_confidence_score'
+    if 'confidence_score' in result:
+        score_value = result['confidence_score']
+    elif 'constitution_confidence_score' in result:
+        score_value = result['constitution_confidence_score']
     else:
+        score_value = None
+
+    if score_value is not None:
         try:
-            score = int(result['confidence_score'])
+            score = int(score_value)
             if score < 1:
                 score = 1
             elif score > 100:
@@ -249,5 +261,7 @@ def validate_constitution_response(parsed: Dict[str, Any]) -> Dict[str, Any]:
             result['confidence_score'] = score
         except (ValueError, TypeError):
             result['confidence_score'] = None
+    else:
+        result['confidence_score'] = None
 
     return result

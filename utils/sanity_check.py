@@ -489,6 +489,8 @@ def sanity_check_and_reprocess(
     model: str = 'gemini-2.5-pro',
     verify: str = 'none',
     temperature: float = 0.0,
+    sequence: Optional[List[str]] = None,
+    random_sequence: bool = False,
     cleanup_temp_files: bool = True,
     **kwargs
 ) -> pd.DataFrame:
@@ -505,11 +507,13 @@ def sanity_check_and_reprocess(
         temp_reprocessed_csv: Temporary file for reprocessed results
         min_confidence: Minimum acceptable confidence score
         min_reasoning_length: Minimum acceptable reasoning length
-        mode: Prompt mode ('single' or 'multiple')
+        mode: Prompt mode ('single', 'multiple', or 'sequential')
         indicators: List of indicators to reprocess (defaults to the specified indicator)
         model: Model to use for reprocessing
         verify: Verification method ('none', 'self_consistency', 'cove', 'both')
         temperature: Temperature for LLM generation
+        sequence: Indicator sequence for sequential mode (space-separated list)
+        random_sequence: Randomize indicator order in sequential mode
         cleanup_temp_files: Whether to delete temporary files after completion
         **kwargs: Additional arguments passed to identify_failed_rows
 
@@ -642,6 +646,13 @@ def sanity_check_and_reprocess(
         '--temperature', str(temperature),
     ]
 
+    # Add sequential mode specific arguments
+    if mode == 'sequential':
+        if sequence:
+            cmd.extend(['--sequence'] + sequence)
+        if random_sequence:
+            cmd.append('--random-sequence')
+
     print(f"Running reprocessing command:")
     print(' '.join(cmd))
     print()
@@ -768,8 +779,8 @@ Examples:
     parser.add_argument('--min-confidence', type=float, help='Minimum confidence score (1-100)')
     parser.add_argument('--min-reasoning-length', type=int, default=100,
                        help='Minimum reasoning length (default: 100)')
-    parser.add_argument('--mode', choices=['single', 'multiple'], default='multiple',
-                       help='Prompt mode for reprocessing (default: multiple)')
+    parser.add_argument('--mode', choices=['single', 'multiple', 'sequential'], default='multiple',
+                       help='Prompt mode for reprocessing: single (unified), multiple (separate), sequential (sequence)')
     parser.add_argument('--model', default='Gemini=gemini-2.5-pro', help='Model to use (default: gemini-2.5-pro)')
     parser.add_argument('--verify', choices=['none', 'self_consistency', 'cove', 'both'],
                        default='none', help='Verification method (default: none)')
@@ -778,6 +789,10 @@ Examples:
     parser.add_argument('--top-p', type=float, default=0.95, help='Top-p sampling (default: 0.95)')
     parser.add_argument('--check-null-prediction', action='store_true', default=True,
                        help='Check for null predictions (default: True)')
+    parser.add_argument('--sequence', nargs='+',
+                       help='Indicator sequence for sequential mode (space-separated)')
+    parser.add_argument('--random-sequence', action='store_true',
+                       help='Randomize indicator order in sequential mode')
     parser.add_argument('--no-cleanup', action='store_true', help='Keep temporary files')
 
     args = parser.parse_args()
@@ -793,6 +808,8 @@ Examples:
         model=args.model,
         verify=args.verify,
         temperature=args.temperature,
+        sequence=args.sequence,
+        random_sequence=args.random_sequence,
         check_null_prediction=args.check_null_prediction,
         cleanup_temp_files=not args.no_cleanup
     )

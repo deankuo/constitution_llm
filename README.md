@@ -578,9 +578,11 @@ python utils/sanity_check.py \
 --indicators         # List of indicators to reprocess
 --min-confidence     # Minimum confidence threshold (1-100)
 --min-reasoning-length  # Minimum reasoning length (default: 100)
---mode               # Prompt mode: single or multiple (default: multiple)
+--mode               # Prompt mode: single, multiple, or sequential (default: multiple)
 --model              # Model in format Provider=model (default: Gemini=gemini-2.5-pro)
 --verify             # Verification: none, self_consistency, cove, both
+--sequence           # Indicator sequence for sequential mode (space-separated)
+--random-sequence    # Randomize indicator order in sequential mode
 --no-cleanup         # Keep temporary files for debugging
 ```
 
@@ -593,6 +595,27 @@ python utils/sanity_check.py \
     -o data/results/predictions_fixed.csv \
     --indicator constitution \
     --verify cove \
+    --model Gemini=gemini-2.5-pro
+```
+
+**Example with Sequential Mode:**
+```bash
+# Sequential mode with user-defined order
+python utils/sanity_check.py \
+    -i data/results/predictions.csv \
+    -o data/results/predictions_fixed.csv \
+    --indicators constitution sovereign assembly \
+    --mode sequential \
+    --sequence assembly sovereign constitution \
+    --model Gemini=gemini-2.5-pro
+
+# Sequential mode with random order
+python utils/sanity_check.py \
+    -i data/results/predictions.csv \
+    -o data/results/predictions_fixed.csv \
+    --indicators constitution sovereign assembly \
+    --mode sequential \
+    --random-sequence \
     --model Gemini=gemini-2.5-pro
 ```
 

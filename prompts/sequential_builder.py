@@ -210,14 +210,14 @@ You have analyzed {len(sequence)} indicators above. Now provide a SINGLE JSON ob
                 prompt += f'"constitution": "Yes or No",\n  '
                 prompt += f'"document_name": "name or N/A",\n  '
                 prompt += f'"constitution_year": year or null,\n  '
-                prompt += f'"reasoning": "your constitutional analysis",\n  '
-                prompt += f'"confidence_score": 1-100'
+                prompt += f'"constitution_reasoning": "your constitutional analysis",\n  '
+                prompt += f'"constitution_confidence_score": 1-100'
             else:
                 labels = INDICATOR_PROMPTS[indicator]["labels"]
                 labels_str = " or ".join([f'"{l}"' for l in labels])
                 prompt += f'"{indicator}": {labels_str},\n  '
-                prompt += f'"reasoning": "your {indicator} analysis",\n  '
-                prompt += f'"confidence_score": 1-100'
+                prompt += f'"{indicator}_reasoning": "your {indicator} analysis",\n  '
+                prompt += f'"{indicator}_confidence_score": 1-100'
 
             if i < len(sequence) - 1:
                 prompt += ','
