@@ -68,7 +68,7 @@ from models.search_agents import (
 
 # Prompts - backward compatible
 from prompts.constitution import SYSTEM_PROMPT, USER_PROMPT_TEMPLATE
-from prompts.indicators import get_prompt as get_indicator_prompt
+from prompts.polity_indicators import get_prompt as get_indicator_prompt
 
 # New pipeline imports
 from pipeline.predictor import Predictor, PredictionConfig, create_predictor

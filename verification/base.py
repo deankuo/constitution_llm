@@ -102,6 +102,10 @@ class BaseVerification(ABC):
         user_prompt: str,
         indicator: str,
         valid_labels: List[str],
+        polity: str = None,
+        name: str = None,
+        start_year: int = None,
+        end_year: int = None,
         **kwargs
     ) -> VerificationResult:
         """
@@ -112,6 +116,10 @@ class BaseVerification(ABC):
             user_prompt: User prompt for the model
             indicator: Name of the indicator being predicted
             valid_labels: List of valid label values
+            polity: Name of the polity (for CoVe questions)
+            name: Name of the leader (for CoVe questions)
+            start_year: Start year (for CoVe questions)
+            end_year: End year (for CoVe questions)
             **kwargs: Additional verification-specific parameters
 
         Returns:
@@ -146,6 +154,10 @@ class NoVerification(BaseVerification):
         initial_prediction: Optional[str] = None,
         initial_reasoning: Optional[str] = None,
         initial_confidence: Optional[int] = None,
+        polity: str = None,
+        name: str = None,
+        start_year: int = None,
+        end_year: int = None,
         **kwargs
     ) -> VerificationResult:
         """
@@ -159,6 +171,10 @@ class NoVerification(BaseVerification):
             initial_prediction: The prediction to pass through
             initial_reasoning: The reasoning to pass through
             initial_confidence: The confidence to pass through
+            polity: Polity name (unused)
+            name: Leader name (unused)
+            start_year: Start year (unused)
+            end_year: End year (unused)
 
         Returns:
             VerificationResult with the original prediction unchanged

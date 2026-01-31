@@ -94,6 +94,7 @@ class ChainOfVerification(BaseVerification):
         indicator: str,
         valid_labels: List[str],
         polity: Optional[str] = None,
+        name: Optional[str] = None,
         start_year: Optional[int] = None,
         end_year: Optional[int] = None,
         initial_prediction: Optional[str] = None,
@@ -109,8 +110,9 @@ class ChainOfVerification(BaseVerification):
             indicator: Name of the indicator being predicted
             valid_labels: List of valid label values
             polity: Name of the polity (for question generation)
-            start_year: Start year of the period
-            end_year: End year of the period
+            name: Name of the leader (for question generation)
+            start_year: Start year of the leader's reign
+            end_year: End year of the leader's reign
             initial_prediction: Optional initial prediction to verify
             initial_reasoning: Optional initial reasoning to verify
 
@@ -142,6 +144,7 @@ class ChainOfVerification(BaseVerification):
         questions = self._generate_verification_questions(
             indicator=indicator,
             polity=polity or 'the polity',
+            name=name or 'the leader',
             start_year=start_year or 0,
             end_year=end_year or 0,
             initial_prediction=initial_prediction,
@@ -152,6 +155,7 @@ class ChainOfVerification(BaseVerification):
         answers = self._answer_questions_independently(
             questions=questions,
             polity=polity or 'the polity',
+            name=name or 'the leader',
             start_year=start_year or 0,
             end_year=end_year or 0
         )
@@ -225,6 +229,7 @@ class ChainOfVerification(BaseVerification):
         self,
         indicator: str,
         polity: str,
+        name: str,
         start_year: int,
         end_year: int,
         initial_prediction: str,
@@ -235,20 +240,20 @@ class ChainOfVerification(BaseVerification):
         try:
             if indicator == 'constitution':
                 from prompts.constitution import get_cove_questions
-                questions_dict = get_cove_questions(polity, start_year, end_year)
+                questions_dict = get_cove_questions(polity, name, start_year, end_year)
                 # Flatten all questions
                 questions = []
                 for element_questions in questions_dict.values():
                     questions.extend(element_questions[:self.config.questions_per_element])
             else:
                 from prompts.indicators import get_cove_questions
-                questions = get_cove_questions(indicator, polity, start_year, end_year)
+                questions = get_cove_questions(indicator, polity, name, start_year, end_year)
         except Exception:
             # Fallback to generic questions
             period = f"{start_year}-{end_year}"
             questions = [
-                f"What do historical sources say about {indicator} in {polity} during {period}?",
-                f"What evidence exists regarding {indicator} status of {polity} during {period}?"
+                f"What do historical sources say about {indicator} for {name} of {polity} during {period}?",
+                f"What evidence exists regarding {indicator} status during {name}'s reign of {polity} ({period})?"
             ]
 
         return questions
@@ -257,6 +262,7 @@ class ChainOfVerification(BaseVerification):
         self,
         questions: List[str],
         polity: str,
+        name: str,
         start_year: int,
         end_year: int
     ) -> List[Dict[str, str]]:
@@ -287,6 +293,7 @@ Keep answers concise but informative."""
                     model=self.verifier_llm.model,
                     input_tokens=response.input_tokens,
                     output_tokens=response.output_tokens,
+                    cached_tokens=response.cached_tokens,
                     polity=polity,
                     indicator='verification_question'
                 )
@@ -368,6 +375,7 @@ Respond with a JSON object:
                 model=self.llm.model,
                 input_tokens=response.input_tokens,
                 output_tokens=response.output_tokens,
+                cached_tokens=response.cached_tokens,
                 indicator='verification_synthesis'
             )
 

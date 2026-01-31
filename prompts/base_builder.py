@@ -71,16 +71,18 @@ class BasePromptBuilder(ABC):
     def build(
         self,
         polity: str,
+        name: str,
         start_year: int,
         end_year: int
     ) -> List[PromptOutput]:
         """
-        Build prompts for the specified polity.
+        Build prompts for the specified leader.
 
         Args:
             polity: Name of the polity
-            start_year: Start year of the period
-            end_year: End year of the period
+            name: Name of the leader
+            start_year: Start year of the leader's reign
+            end_year: End year of the leader's reign
 
         Returns:
             List of PromptOutput objects

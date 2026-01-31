@@ -83,6 +83,10 @@ class SelfConsistencyVerification(BaseVerification):
         indicator: str,
         valid_labels: List[str],
         initial_prediction: Optional[str] = None,
+        polity: str = None,
+        name: str = None,
+        start_year: int = None,
+        end_year: int = None,
         **kwargs
     ) -> VerificationResult:
         """
@@ -94,6 +98,10 @@ class SelfConsistencyVerification(BaseVerification):
             indicator: Name of the indicator being predicted
             valid_labels: List of valid label values
             initial_prediction: Optional initial prediction (will be included in sampling)
+            polity: Polity name (for consistency with base class)
+            name: Leader name (for consistency with base class)
+            start_year: Start year (for consistency with base class)
+            end_year: End year (for consistency with base class)
 
         Returns:
             VerificationResult with majority prediction and agreement ratio
@@ -143,6 +151,7 @@ class SelfConsistencyVerification(BaseVerification):
                     model=self.llm.model,
                     input_tokens=response.input_tokens,
                     output_tokens=response.output_tokens,
+                    cached_tokens=response.cached_tokens,
                     indicator=f'self_consistency_sample_{i+1}'
                 )
 

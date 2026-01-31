@@ -22,7 +22,7 @@ from prompts.constitution import (
 )
 
 from prompts.indicators import (
-    INDICATOR_PROMPTS,
+    INDICATOR_CONFIGS,
     get_prompt,
     get_all_indicators,
     get_indicator_labels,

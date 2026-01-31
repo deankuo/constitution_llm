@@ -52,9 +52,10 @@ TOP_SEARCH_RESULTS = 5
 # =============================================================================
 
 COL_TERRITORY_NAME = 'territorynamehistorical'
+COL_LEADER_NAME = 'name'
 COL_START_YEAR = 'start_year'
 COL_END_YEAR = 'end_year'
-REQUIRED_COLUMNS = [COL_TERRITORY_NAME, COL_START_YEAR, COL_END_YEAR]
+REQUIRED_COLUMNS = [COL_TERRITORY_NAME, COL_LEADER_NAME, COL_START_YEAR, COL_END_YEAR]
 
 # =============================================================================
 # Model Provider Identifiers
@@ -192,6 +193,7 @@ __all__ = [
 
     # Data Column Names
     'COL_TERRITORY_NAME',
+    'COL_LEADER_NAME',
     'COL_START_YEAR',
     'COL_END_YEAR',
     'REQUIRED_COLUMNS',

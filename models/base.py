@@ -40,9 +40,14 @@ class ModelResponse:
         return self.usage.get('output_tokens', 0)
 
     @property
+    def cached_tokens(self) -> int:
+        """Get cached token count (for models with context caching)."""
+        return self.usage.get('cached_tokens', 0)
+
+    @property
     def total_tokens(self) -> int:
-        """Get total token count."""
-        return self.input_tokens + self.output_tokens
+        """Get total token count (including cached)."""
+        return self.input_tokens + self.output_tokens + self.cached_tokens
 
     @property
     def cost_usd(self) -> float:

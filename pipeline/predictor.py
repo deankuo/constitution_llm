@@ -70,7 +70,7 @@ class IndicatorPrediction:
     cost_usd: float = 0.0
     # Constitution-specific fields
     document_name: Optional[str] = None
-    constitution_year: Optional[int] = None
+    constitution_year: Optional[str] = None  # String to handle "N/A" or "1789; 1791"
 
 
 @dataclass
@@ -221,22 +221,24 @@ class Predictor:
     def predict(
         self,
         polity: str,
+        name: str,
         start_year: int,
         end_year: int
     ) -> PolityPrediction:
         """
-        Predict political indicators for a polity.
+        Predict political indicators for a leader.
 
         Args:
             polity: Name of the polity
-            start_year: Start year of the period
-            end_year: End year of the period
+            name: Name of the leader
+            start_year: Start year of the leader's reign
+            end_year: End year of the leader's reign
 
         Returns:
             PolityPrediction with all indicator predictions
         """
         # Build prompts
-        prompts = self.prompt_builder.build(polity, start_year, end_year)
+        prompts = self.prompt_builder.build(polity, name, start_year, end_year)
 
         # Track results
         predictions = {}
@@ -262,6 +264,7 @@ class Predictor:
                     model=self.config.model,
                     input_tokens=response.input_tokens,
                     output_tokens=response.output_tokens,
+                    cached_tokens=response.cached_tokens,
                     polity=polity
                 )
 
@@ -370,6 +373,7 @@ class Predictor:
                     initial_prediction=prediction,
                     initial_reasoning=reasoning,
                     polity=polity,
+                    name=name,
                     start_year=start_year,
                     end_year=end_year
                 )

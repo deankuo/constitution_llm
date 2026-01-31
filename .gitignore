@@ -26,10 +26,15 @@ __pycache__/
 .ipynb_checkpoints/
 *.ipynb
 
+# Graph
+*.png
+
 # Test files
 test*.py
 *.html
 main_test.py
+debug*
+note.md
 
 # Checkpoint files
 *.csv

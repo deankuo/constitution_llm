@@ -224,13 +224,19 @@ def validate_constitution_response(parsed: Dict[str, Any]) -> Dict[str, Any]:
         result['document_name'] = 'N/A'
 
     # Ensure constitution_year exists
+    # Keep as string to preserve "N/A" or semicolon-separated years like "1789; 1791"
     if 'constitution_year' not in result:
         result['constitution_year'] = None
+    elif result['constitution_year'] is None:
+        result['constitution_year'] = None
     else:
-        try:
-            result['constitution_year'] = int(result['constitution_year'])
-        except (ValueError, TypeError):
+        # Convert to string and clean up
+        year_str = str(result['constitution_year']).strip()
+        # Handle "null" string or empty string
+        if year_str.lower() in ['null', 'none', '']:
             result['constitution_year'] = None
+        else:
+            result['constitution_year'] = year_str
 
     # Ensure reasoning/explanation exists (check multiple field names)
     if 'reasoning' in result:

@@ -9,8 +9,8 @@ but requires more API calls.
 from typing import List, Optional
 
 from prompts.base_builder import BasePromptBuilder, PromptOutput
-from prompts.constitution import SYSTEM_PROMPT as CONSTITUTION_SYSTEM, USER_PROMPT_TEMPLATE as CONSTITUTION_USER
-from prompts.indicators import INDICATOR_PROMPTS, get_prompt
+from prompts.constitution import get_prompt as get_constitution_prompt
+from prompts.indicators import get_prompt as get_indicator_prompt
 
 
 class MultiplePromptBuilder(BasePromptBuilder):
@@ -40,6 +40,7 @@ class MultiplePromptBuilder(BasePromptBuilder):
     def build(
         self,
         polity: str,
+        name: str,
         start_year: int,
         end_year: int
     ) -> List[PromptOutput]:
@@ -48,8 +49,9 @@ class MultiplePromptBuilder(BasePromptBuilder):
 
         Args:
             polity: Name of the polity
-            start_year: Start year of the period
-            end_year: End year of the period
+            name: Name of the leader
+            start_year: Start year of the leader's reign
+            end_year: End year of the leader's reign
 
         Returns:
             List of PromptOutput objects, one per indicator
@@ -59,22 +61,24 @@ class MultiplePromptBuilder(BasePromptBuilder):
         for indicator in self.indicators:
             if indicator == 'constitution':
                 # Use the special constitution prompt
-                user_prompt = CONSTITUTION_USER.format(
-                    country=polity,
+                system_prompt, user_prompt = get_constitution_prompt(
+                    polity=polity,
+                    name=name,
                     start_year=start_year,
                     end_year=end_year
                 )
                 prompts.append(PromptOutput(
-                    system_prompt=CONSTITUTION_SYSTEM,
+                    system_prompt=system_prompt,
                     user_prompt=user_prompt,
                     indicators=['constitution'],
                     metadata={'mode': 'multiple', 'type': 'constitution'}
                 ))
             else:
                 # Use the standard indicator prompts
-                system_prompt, user_prompt = get_prompt(
+                system_prompt, user_prompt = get_indicator_prompt(
                     indicator=indicator,
                     polity=polity,
+                    name=name,
                     start_year=start_year,
                     end_year=end_year
                 )

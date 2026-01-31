@@ -16,7 +16,7 @@ from typing import Callable, Dict, List, Optional, Any
 import pandas as pd
 from tqdm import tqdm
 
-from config import COL_TERRITORY_NAME, COL_START_YEAR, COL_END_YEAR, REQUIRED_COLUMNS
+from config import COL_TERRITORY_NAME, COL_LEADER_NAME, COL_START_YEAR, COL_END_YEAR, REQUIRED_COLUMNS
 from pipeline.predictor import Predictor, PolityPrediction, PredictionConfig
 from utils.cost_tracker import CostTracker
 from utils.logger import ExperimentLogger
@@ -196,14 +196,16 @@ class BatchRunner:
     def _process_single_polity(self, row: pd.Series, idx: int) -> Dict:
         """Process a single polity and return result dict."""
         polity = row[COL_TERRITORY_NAME]
+        name = row[COL_LEADER_NAME]
         start_year = int(row[COL_START_YEAR])
         end_year = int(row[COL_END_YEAR])
 
         # Get prediction (cost tracking is handled internally by predictor)
-        prediction = self.predictor.predict(polity, start_year, end_year)
+        prediction = self.predictor.predict(polity, name, start_year, end_year)
 
         # Convert to dict and merge with original row data
         result = row.to_dict()
+        result['leader_name'] = name  # Explicitly include leader name in output
         result.update(prediction.to_dict())
 
         return result

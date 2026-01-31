@@ -90,6 +90,7 @@ class OpenAILLM(BaseLLM):
             usage = {
                 'input_tokens': response.usage.prompt_tokens if response.usage else 0,
                 'output_tokens': response.usage.completion_tokens if response.usage else 0,
+                'cached_tokens': getattr(response.usage, 'prompt_tokens_details', {}).get('cached_tokens', 0) if response.usage else 0,
             }
 
             return ModelResponse(
@@ -189,9 +190,12 @@ class GeminiLLM(BaseLLM):
             # Extract usage if available
             usage = {}
             if hasattr(response, 'usage_metadata') and response.usage_metadata:
+                metadata = response.usage_metadata
                 usage = {
-                    'input_tokens': response.usage_metadata.prompt_token_count or 0,
-                    'output_tokens': response.usage_metadata.candidates_token_count or 0,
+                    'input_tokens': metadata.prompt_token_count or 0,
+                    'output_tokens': metadata.candidates_token_count or 0,
+                    'cached_tokens': metadata.cached_content_token_count or 0,
+                    'total_tokens': metadata.total_token_count or 0,
                 }
 
             return ModelResponse(
@@ -263,9 +267,15 @@ class AnthropicLLM(BaseLLM):
             else:
                 content = ""
 
+            # Anthropic returns cache_read_input_tokens when using prompt caching
+            cached_tokens = 0
+            if response.usage:
+                cached_tokens = getattr(response.usage, 'cache_read_input_tokens', 0)
+
             usage = {
                 'input_tokens': response.usage.input_tokens if response.usage else 0,
                 'output_tokens': response.usage.output_tokens if response.usage else 0,
+                'cached_tokens': cached_tokens,
             }
 
             return ModelResponse(
@@ -355,11 +365,13 @@ class BedrockLLM(BaseLLM):
                 content = response["output"]["message"]["content"][0]["text"]
 
                 # Extract usage from response
+                # Bedrock returns cacheReadInputTokens for cached content
                 usage = {}
                 if "usage" in response:
                     usage = {
                         'input_tokens': response["usage"].get("inputTokens", 0),
                         'output_tokens': response["usage"].get("outputTokens", 0),
+                        'cached_tokens': response["usage"].get("cacheReadInputTokens", 0),
                     }
 
                 return ModelResponse(

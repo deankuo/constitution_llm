@@ -18,8 +18,8 @@ import random
 from typing import List, Optional
 
 from prompts.base_builder import BasePromptBuilder, PromptOutput
-from prompts.constitution import SYSTEM_PROMPT as CONSTITUTION_SYSTEM, USER_PROMPT_TEMPLATE as CONSTITUTION_USER
-from prompts.indicators import get_prompt as get_indicator_prompt, INDICATOR_PROMPTS
+from prompts.constitution import get_prompt as get_constitution_prompt
+from prompts.indicators import get_prompt as get_indicator_prompt, INDICATOR_CONFIGS
 
 
 class SequentialPromptBuilder(BasePromptBuilder):
@@ -105,6 +105,7 @@ class SequentialPromptBuilder(BasePromptBuilder):
     def build(
         self,
         polity: str,
+        name: str,
         start_year: int,
         end_year: int
     ) -> List[PromptOutput]:
@@ -113,14 +114,15 @@ class SequentialPromptBuilder(BasePromptBuilder):
 
         Args:
             polity: Name of the polity
-            start_year: Start year of the period
-            end_year: End year of the period
+            name: Name of the leader
+            start_year: Start year of the leader's reign
+            end_year: End year of the leader's reign
 
         Returns:
             List containing a single PromptOutput with all indicators in sequence
         """
-        system_prompt = self._build_sequential_system_prompt(self.sequence, polity, start_year, end_year)
-        user_prompt = self._build_sequential_user_prompt(self.sequence, polity, start_year, end_year)
+        system_prompt = self._build_sequential_system_prompt(self.sequence, polity, name, start_year, end_year)
+        user_prompt = self._build_sequential_user_prompt(self.sequence, polity, name, start_year, end_year)
 
         return [PromptOutput(
             system_prompt=system_prompt,
@@ -137,6 +139,7 @@ class SequentialPromptBuilder(BasePromptBuilder):
         self,
         sequence: List[str],
         polity: str,
+        name: str,
         start_year: int,
         end_year: int
     ) -> str:
@@ -145,16 +148,17 @@ class SequentialPromptBuilder(BasePromptBuilder):
 
         Args:
             sequence: Ordered list of indicators
-            polity: Polity name (needed for constitution prompt)
-            start_year: Start year (needed for constitution prompt)
-            end_year: End year (needed for constitution prompt)
+            polity: Polity name
+            name: Leader name
+            start_year: Start year of the leader's reign
+            end_year: End year of the leader's reign
 
         Returns:
             Combined system prompt with all indicators in sequence
         """
         prompt = f"""You are a professional political scientist and historian specializing in comparative politics across different historical periods.
 
-Your task is to analyze the polity "{polity}" ({start_year} to {end_year}) across {len(sequence)} political indicators.
+Your task is to analyze the leader "{name}" of "{polity}" ({start_year} to {end_year}) across {len(sequence)} political indicators.
 
 You will analyze each indicator sequentially. Each indicator has its own definition and coding rules provided below.
 
@@ -171,10 +175,11 @@ You MUST provide predictions for ALL {len(sequence)} indicators in a SINGLE JSON
 
             if indicator == 'constitution':
                 # Use constitution's system prompt
-                prompt += CONSTITUTION_SYSTEM
+                system_prompt, _ = get_constitution_prompt(polity, name, start_year, end_year)
+                prompt += system_prompt
             else:
                 # Use indicator's system prompt from indicators.py
-                system_prompt, _ = get_indicator_prompt(indicator, polity, start_year, end_year)
+                system_prompt, _ = get_indicator_prompt(indicator, polity, name, start_year, end_year)
                 prompt += system_prompt
 
             prompt += "\n\n═══════════════════════════════════════════════════════════════════════\n\n"
@@ -213,7 +218,7 @@ You have analyzed {len(sequence)} indicators above. Now provide a SINGLE JSON ob
                 prompt += f'"constitution_reasoning": "your constitutional analysis",\n  '
                 prompt += f'"constitution_confidence_score": 1-100'
             else:
-                labels = INDICATOR_PROMPTS[indicator]["labels"]
+                labels = INDICATOR_CONFIGS[indicator].labels
                 labels_str = " or ".join([f'"{l}"' for l in labels])
                 prompt += f'"{indicator}": {labels_str},\n  '
                 prompt += f'"{indicator}_reasoning": "your {indicator} analysis",\n  '
@@ -241,6 +246,7 @@ You have analyzed {len(sequence)} indicators above. Now provide a SINGLE JSON ob
         self,
         sequence: List[str],
         polity: str,
+        name: str,
         start_year: int,
         end_year: int
     ) -> str:
@@ -250,16 +256,18 @@ You have analyzed {len(sequence)} indicators above. Now provide a SINGLE JSON ob
         Args:
             sequence: Ordered list of indicators
             polity: Name of the polity
-            start_year: Start year
-            end_year: End year
+            name: Name of the leader
+            start_year: Start year of the leader's reign
+            end_year: End year of the leader's reign
 
         Returns:
             User prompt text
         """
-        prompt = f"""Please analyze the following polity across {len(sequence)} political indicators:
+        prompt = f"""Please analyze the following leader's reign across {len(sequence)} political indicators:
 
 **Polity:** {polity}
-**Period:** {start_year} to {end_year}
+**Leader:** {name}
+**Reign Period:** {start_year} to {end_year}
 
 You will analyze these indicators in sequence:
 """
@@ -275,15 +283,11 @@ You will analyze these indicators in sequence:
 
             if indicator == 'constitution':
                 # Use constitution's user prompt
-                user_prompt = CONSTITUTION_USER.format(
-                    country=polity,
-                    start_year=start_year,
-                    end_year=end_year
-                )
+                _, user_prompt = get_constitution_prompt(polity, name, start_year, end_year)
                 prompt += user_prompt
             else:
                 # Use indicator's user prompt from indicators.py
-                _, user_prompt = get_indicator_prompt(indicator, polity, start_year, end_year)
+                _, user_prompt = get_indicator_prompt(indicator, polity, name, start_year, end_year)
                 prompt += user_prompt
 
             prompt += f"\n\n{'='*70}\n\n"
