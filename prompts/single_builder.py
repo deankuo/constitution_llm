@@ -90,7 +90,7 @@ class SinglePromptBuilder(BasePromptBuilder):
         polity: str,
         name: str,
         start_year: int,
-        end_year: int
+        end_year: Optional[int]
     ) -> List[PromptOutput]:
         """
         Build a single combined prompt for all indicators.
@@ -99,7 +99,7 @@ class SinglePromptBuilder(BasePromptBuilder):
             polity: Name of the polity
             name: Name of the leader
             start_year: Start year of the leader's reign
-            end_year: End year of the leader's reign
+            end_year: End year of the leader's reign (None if unknown/unavailable)
 
         Returns:
             List containing a single PromptOutput (or two if constitution is included)
@@ -183,14 +183,17 @@ Provide a JSON object with fields for EACH indicator:
         polity: str,
         name: str,
         start_year: int,
-        end_year: int
+        end_year: Optional[int]
     ) -> str:
         """Build a combined user prompt for multiple indicators."""
+        # Format reign period (show "unknown" if end year is missing)
+        reign_period = f"{start_year}-{end_year if end_year is not None else 'unknown'}"
+
         prompt = f"""Analyze these political indicators for the following leader's reign:
 
 **Polity:** {polity}
 **Leader:** {name}
-**Reign Period:** {start_year}-{end_year}
+**Reign Period:** {reign_period}
 
 Respond with ONLY a valid JSON object (no markdown, no extra text):
 

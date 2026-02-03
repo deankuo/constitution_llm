@@ -223,7 +223,7 @@ class Predictor:
         polity: str,
         name: str,
         start_year: int,
-        end_year: int
+        end_year: Optional[int]
     ) -> PolityPrediction:
         """
         Predict political indicators for a leader.
@@ -232,7 +232,7 @@ class Predictor:
             polity: Name of the polity
             name: Name of the leader
             start_year: Start year of the leader's reign
-            end_year: End year of the leader's reign
+            end_year: End year of the leader's reign (None if unknown/unavailable in data)
 
         Returns:
             PolityPrediction with all indicator predictions

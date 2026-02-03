@@ -42,7 +42,7 @@ class MultiplePromptBuilder(BasePromptBuilder):
         polity: str,
         name: str,
         start_year: int,
-        end_year: int
+        end_year: Optional[int]
     ) -> List[PromptOutput]:
         """
         Build separate prompts for each indicator.
@@ -51,7 +51,7 @@ class MultiplePromptBuilder(BasePromptBuilder):
             polity: Name of the polity
             name: Name of the leader
             start_year: Start year of the leader's reign
-            end_year: End year of the leader's reign
+            end_year: End year of the leader's reign (None if unknown/unavailable)
 
         Returns:
             List of PromptOutput objects, one per indicator

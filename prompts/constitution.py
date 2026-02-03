@@ -12,7 +12,7 @@ The Constitution indicator is special:
 Key Change: Now supports LEADER-LEVEL analysis with 'name' parameter.
 """
 
-from typing import Tuple, Dict, List
+from typing import Tuple, Dict, List, Optional
 
 
 # =============================================================================
@@ -136,7 +136,7 @@ USER_PROMPT_TEMPLATE = """Please analyze the constitutional status of the follow
 
 **Polity:** {polity}
 **Leader:** {name}
-**Reign Period:** {start_year}-{end_year}
+**Reign Period:** {reign_period}
 
 ## Analysis Instructions
 
@@ -173,7 +173,7 @@ def get_prompt(
     polity: str,
     name: str,
     start_year: int,
-    end_year: int
+    end_year: Optional[int]
 ) -> Tuple[str, str]:
     """
     Get system and user prompts for constitution analysis (leader-level).
@@ -182,16 +182,18 @@ def get_prompt(
         polity: Name of the polity
         name: Name of the leader
         start_year: Start year of the leader's reign
-        end_year: End year of the leader's reign
+        end_year: End year of the leader's reign (None if unknown/unavailable in data)
 
     Returns:
         Tuple of (system_prompt, user_prompt)
     """
+    # Format reign period (show "unknown" if end year is missing in data)
+    reign_period = f"{start_year}-{end_year if end_year is not None else 'unknown'}"
+
     user_prompt = USER_PROMPT_TEMPLATE.format(
         polity=polity,
         name=name,
-        start_year=start_year,
-        end_year=end_year
+        reign_period=reign_period
     )
 
     return SYSTEM_PROMPT, user_prompt

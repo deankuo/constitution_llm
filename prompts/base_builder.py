@@ -73,7 +73,7 @@ class BasePromptBuilder(ABC):
         polity: str,
         name: str,
         start_year: int,
-        end_year: int
+        end_year: Optional[int]
     ) -> List[PromptOutput]:
         """
         Build prompts for the specified leader.
@@ -82,12 +82,28 @@ class BasePromptBuilder(ABC):
             polity: Name of the polity
             name: Name of the leader
             start_year: Start year of the leader's reign
-            end_year: End year of the leader's reign
+            end_year: End year of the leader's reign (None if unknown/unavailable in data)
 
         Returns:
             List of PromptOutput objects
         """
         pass
+
+    @staticmethod
+    def format_year_range(start_year: int, end_year: Optional[int]) -> str:
+        """
+        Format year range for prompts, handling missing end_year.
+
+        Args:
+            start_year: Start year
+            end_year: End year (None if unknown/unavailable)
+
+        Returns:
+            Formatted string like "1990-2000" or "2020-unknown"
+        """
+        if end_year is None:
+            return f"{start_year}-unknown"
+        return f"{start_year}-{end_year}"
 
     @staticmethod
     def get_available_indicators() -> List[str]:

@@ -50,7 +50,7 @@ USER_PROMPT_TEMPLATE = """Please analyze the {indicator_display} of the followin
 
 **Polity:** {polity}
 **Leader:** {name}
-**Reign Period:** {start_year}-{end_year}
+**Reign Period:** {reign_period}
 
 {task_instruction}
 
@@ -434,43 +434,46 @@ def build_user_prompt(
     polity: str,
     name: str,
     start_year: int,
-    end_year: int
+    end_year: Optional[int]
 ) -> str:
     """
     Build user prompt for an indicator with leader-level information.
-    
+
     Args:
         indicator: Name of the indicator
         polity: Name of the polity
         name: Name of the leader
         start_year: Start year of the leader's reign
-        end_year: End year of the leader's reign
-        
+        end_year: End year of the leader's reign (None if unknown/unavailable)
+
     Returns:
         Complete user prompt string
     """
     if indicator not in INDICATOR_CONFIGS:
         raise ValueError(f"Unknown indicator: {indicator}. Must be one of {list(INDICATOR_CONFIGS.keys())}")
-    
+
     config = INDICATOR_CONFIGS[indicator]
-    
+
+    # Format reign period (show "unknown" if end year is missing)
+    reign_period = f"{start_year}-{end_year if end_year is not None else 'unknown'}"
+
     # Format label display for JSON example
     if len(config.labels) == 2:
         label_format = f"{config.labels[0]} or {config.labels[1]}"
     else:
         label_format = ", ".join(config.labels[:-1]) + f", or {config.labels[-1]}"
-    
+
     # Handle tenure's special coding rule reminder with years
     coding_rule = config.coding_rule_reminder
     if indicator == "tenure":
-        coding_rule = coding_rule.format(start_year=start_year, end_year=end_year)
-    
+        year_range = f"{start_year} to {end_year if end_year is not None else 'unknown'}"
+        coding_rule = coding_rule.format(start_year=start_year, end_year=year_range)
+
     return USER_PROMPT_TEMPLATE.format(
         indicator_display=config.display_name,
         polity=polity,
         name=name,
-        start_year=start_year,
-        end_year=end_year,
+        reign_period=reign_period,
         task_instruction=config.task_instruction,
         coding_rule_reminder=coding_rule,
         indicator=config.name,
@@ -487,18 +490,18 @@ def get_prompt(
     polity: str,
     name: str,
     start_year: int,
-    end_year: int
+    end_year: Optional[int]
 ) -> Tuple[str, str]:
     """
     Get system and user prompts for a specific indicator (leader-level).
-    
+
     Args:
         indicator: One of sovereign, powersharing, assembly, appointment, tenure, exit
         polity: Name of the polity
         name: Name of the leader
         start_year: Start year of the leader's reign
-        end_year: End year of the leader's reign
-        
+        end_year: End year of the leader's reign (None if unknown/unavailable in data)
+
     Returns:
         Tuple of (system_prompt, user_prompt)
     """
@@ -569,26 +572,29 @@ def get_cove_questions(
     polity: str,
     name: str,
     start_year: int,
-    end_year: int
+    end_year: Optional[int]
 ) -> List[str]:
     """
     Get Chain of Verification questions for an indicator (leader-level).
-    
+
     Args:
         indicator: Name of the indicator
         polity: Name of the polity
         name: Name of the leader
         start_year: Start year of the leader's reign
-        end_year: End year of the leader's reign
-        
+        end_year: End year of the leader's reign (None if unknown/unavailable)
+
     Returns:
         List of formatted questions
     """
     if indicator not in COVE_QUESTION_TEMPLATES:
         raise ValueError(f"No CoVe questions defined for indicator: {indicator}")
-    
+
+    # Format reign period for questions
+    reign_period = f"{start_year}-{end_year if end_year is not None else 'unknown'}"
+
     return [
-        q.format(polity=polity, name=name, start_year=start_year, end_year=end_year)
+        q.format(polity=polity, name=name, start_year=start_year, end_year=reign_period)
         for q in COVE_QUESTION_TEMPLATES[indicator]
     ]
 
@@ -601,25 +607,25 @@ def get_all_prompts_for_leader(
     polity: str,
     name: str,
     start_year: int,
-    end_year: int,
+    end_year: Optional[int],
     indicators: Optional[List[str]] = None
 ) -> Dict[str, Tuple[str, str]]:
     """
     Get prompts for all (or specified) indicators for a single leader.
-    
+
     Args:
         polity: Name of the polity
         name: Name of the leader
         start_year: Start year of the leader's reign
-        end_year: End year of the leader's reign
+        end_year: End year of the leader's reign (None if unknown/unavailable)
         indicators: Optional list of indicators to include (default: all)
-        
+
     Returns:
         Dictionary mapping indicator name to (system_prompt, user_prompt) tuple
     """
     if indicators is None:
         indicators = get_all_indicators()
-    
+
     return {
         ind: get_prompt(ind, polity, name, start_year, end_year)
         for ind in indicators

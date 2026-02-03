@@ -107,7 +107,7 @@ class SequentialPromptBuilder(BasePromptBuilder):
         polity: str,
         name: str,
         start_year: int,
-        end_year: int
+        end_year: Optional[int]
     ) -> List[PromptOutput]:
         """
         Build a single sequential prompt with all indicators.
@@ -116,7 +116,7 @@ class SequentialPromptBuilder(BasePromptBuilder):
             polity: Name of the polity
             name: Name of the leader
             start_year: Start year of the leader's reign
-            end_year: End year of the leader's reign
+            end_year: End year of the leader's reign (None if unknown/unavailable)
 
         Returns:
             List containing a single PromptOutput with all indicators in sequence
@@ -141,7 +141,7 @@ class SequentialPromptBuilder(BasePromptBuilder):
         polity: str,
         name: str,
         start_year: int,
-        end_year: int
+        end_year: Optional[int]
     ) -> str:
         """
         Build a sequential system prompt by concatenating existing prompts.
@@ -151,7 +151,7 @@ class SequentialPromptBuilder(BasePromptBuilder):
             polity: Polity name
             name: Leader name
             start_year: Start year of the leader's reign
-            end_year: End year of the leader's reign
+            end_year: End year of the leader's reign (None if unknown/unavailable)
 
         Returns:
             Combined system prompt with all indicators in sequence
@@ -248,7 +248,7 @@ You have analyzed {len(sequence)} indicators above. Now provide a SINGLE JSON ob
         polity: str,
         name: str,
         start_year: int,
-        end_year: int
+        end_year: Optional[int]
     ) -> str:
         """
         Build user prompt for sequential analysis.

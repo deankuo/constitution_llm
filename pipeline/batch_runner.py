@@ -195,10 +195,27 @@ class BatchRunner:
 
     def _process_single_polity(self, row: pd.Series, idx: int) -> Dict:
         """Process a single polity and return result dict."""
+        # Handle missing polity name
         polity = row[COL_TERRITORY_NAME]
+        if pd.isna(polity):
+            polity = "Unknown Polity"
+
+        # Handle missing leader name
         name = row[COL_LEADER_NAME]
+        if pd.isna(name):
+            name = "Unknown Leader"
+
+        # Handle missing start_year
+        if pd.isna(row[COL_START_YEAR]):
+            raise ValueError(f"Missing required field: {COL_START_YEAR} for {polity}")
         start_year = int(row[COL_START_YEAR])
-        end_year = int(row[COL_END_YEAR])
+
+        # Handle NaN end_year for current leaders still in office
+        # Pass None to prompts so they can indicate "present" or "ongoing"
+        if pd.isna(row[COL_END_YEAR]):
+            end_year = None
+        else:
+            end_year = int(row[COL_END_YEAR])
 
         # Get prediction (cost tracking is handled internally by predictor)
         prediction = self.predictor.predict(polity, name, start_year, end_year)
@@ -215,9 +232,14 @@ class BatchRunner:
         result = row.to_dict()
 
         for indicator in self.predictor.config.indicators:
-            result[indicator] = None
+            result[f'{indicator}_prediction'] = None
             result[f'{indicator}_reasoning'] = f'Error: {error_msg}'
             result[f'{indicator}_confidence'] = None
+
+            # Add constitution-specific error columns
+            if indicator == 'constitution':
+                result['constitution_document_name'] = None
+                result['constitution_year'] = None
 
         return result
 

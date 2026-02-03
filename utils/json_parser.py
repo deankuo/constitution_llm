@@ -140,7 +140,9 @@ def validate_indicator_response(
         valid_labels: List of valid label values (e.g., ['0', '1'] or ['0', '1', '2'])
 
     Returns:
-        Validated response with defaults filled in if needed
+        Validated response with defaults filled in if needed.
+        Predictions are returned as float (0.0, 1.0, 2.0) to match ground truth format
+        and properly handle NaN values.
     """
     result = parsed.copy()
 
@@ -152,13 +154,18 @@ def validate_indicator_response(
         try:
             val = str(int(float(result[indicator])))
             if val in valid_labels:
-                result[indicator] = val
+                # Convert to float to match ground truth format (0.0, 1.0, 2.0)
+                result[indicator] = float(val)
             else:
                 result[indicator] = None
         except (ValueError, TypeError):
             result[indicator] = None
     else:
-        result[indicator] = str(result[indicator])
+        # Convert to float to match ground truth format (0.0, 1.0, 2.0)
+        try:
+            result[indicator] = float(result[indicator])
+        except (ValueError, TypeError):
+            result[indicator] = None
 
     # Ensure reasoning exists (check both 'reasoning' and '{indicator}_reasoning')
     reasoning_key = f'{indicator}_reasoning'
@@ -202,7 +209,9 @@ def validate_constitution_response(parsed: Dict[str, Any]) -> Dict[str, Any]:
         parsed: Parsed JSON response
 
     Returns:
-        Validated response with defaults filled in if needed
+        Validated response with defaults filled in if needed.
+        Constitution prediction is returned as float (0.0 or 1.0) to match ground truth
+        format and properly handle NaN values.
     """
     result = parsed.copy()
 
@@ -211,9 +220,9 @@ def validate_constitution_response(parsed: Dict[str, Any]) -> Dict[str, Any]:
     if constitution_value:
         constitution_value = str(constitution_value).strip().lower()
         if constitution_value in ['yes', '1', 'true']:
-            result['constitution'] = '1'
+            result['constitution'] = 1.0  # Float instead of string
         elif constitution_value in ['no', '0', 'false']:
-            result['constitution'] = '0'
+            result['constitution'] = 0.0  # Float instead of string
         else:
             result['constitution'] = None
     else:
