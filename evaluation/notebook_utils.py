@@ -146,7 +146,7 @@ def calculate_polity_accuracy(
     df['polity_correct_predictions'] = correct_counts
     df['polity_total_indicators'] = total_counts
     df['polity_accuracy'] = df.apply(
-        lambda row: row['polity_correct_predictions'] / row['polity_total_indicators']
+        lambda row: round(row['polity_correct_predictions'] / row['polity_total_indicators'], 3)
         if row['polity_total_indicators'] > 0 else np.nan,
         axis=1
     )
@@ -201,11 +201,11 @@ def evaluate_indicator(
     is_multiclass = len(unique_labels) > 2
 
     # Calculate metrics
-    accuracy = accuracy_score(y_true, y_pred)
+    accuracy = round(accuracy_score(y_true, y_pred), 3)
 
     if is_multiclass:
-        f1_macro = f1_score(y_true, y_pred, average='macro', zero_division=0)
-        f1_weighted = f1_score(y_true, y_pred, average='weighted', zero_division=0)
+        f1_macro = round(f1_score(y_true, y_pred, average='macro', zero_division=0), 3)
+        f1_weighted = round(f1_score(y_true, y_pred, average='weighted', zero_division=0), 3)
         metrics = {
             'indicator': indicator,
             'accuracy': accuracy,
@@ -215,7 +215,7 @@ def evaluate_indicator(
             'n_classes': len(unique_labels)
         }
     else:
-        f1 = f1_score(y_true, y_pred, pos_label=unique_labels[-1], zero_division=0)
+        f1 = round(f1_score(y_true, y_pred, pos_label=unique_labels[-1], zero_division=0), 3)
         metrics = {
             'indicator': indicator,
             'accuracy': accuracy,
@@ -230,13 +230,13 @@ def evaluate_indicator(
     print(f"{'='*60}")
     print(f"Samples: {metrics['n_samples']}")
     print(f"Classes: {metrics['n_classes']} ({', '.join(unique_labels)})")
-    print(f"Accuracy: {accuracy:.4f}")
+    print(f"Accuracy: {accuracy:.3f}")
 
     if is_multiclass:
-        print(f"F1 (macro): {f1_macro:.4f}")
-        print(f"F1 (weighted): {f1_weighted:.4f}")
+        print(f"F1 (macro): {f1_macro:.3f}")
+        print(f"F1 (weighted): {f1_weighted:.3f}")
     else:
-        print(f"F1 Score: {f1:.4f}")
+        print(f"F1 Score: {f1:.3f}")
 
     # Confusion matrix
     if show_confusion_matrix:
@@ -348,7 +348,7 @@ def plot_accuracy_comparison(
             if valid_mask.sum() > 0:
                 y_true = df.loc[valid_mask, indicator].astype(str)
                 y_pred = df.loc[valid_mask, pred_col].astype(str)
-                acc = accuracy_score(y_true, y_pred)
+                acc = round(accuracy_score(y_true, y_pred), 3)
                 accuracies.append(acc)
                 labels.append(indicator)
 
@@ -436,7 +436,7 @@ def quick_eval(
         print("\n📊 Calculating polity-level accuracy...")
         df = calculate_polity_accuracy(df, indicators)
         mean_polity_acc = df['polity_accuracy'].mean()
-        print(f"   Mean polity accuracy: {mean_polity_acc:.4f}")
+        print(f"   Mean polity accuracy: {mean_polity_acc:.3f}")
 
     # Evaluate indicators
     print("\n" + "="*60)
@@ -490,22 +490,22 @@ def compute_metrics_for_dataset(
 
     metrics = {
         'indicator': indicator,
-        'accuracy': accuracy_score(y_true, y_pred),
+        'accuracy': round(accuracy_score(y_true, y_pred), 3),
         'n_samples': len(y_true)
     }
 
     if is_binary:
         # Binary classification
         pos_label = unique_labels[-1]  # Usually '1'
-        metrics['f1'] = f1_score(y_true, y_pred, pos_label=pos_label, zero_division=0)
+        metrics['f1'] = round(f1_score(y_true, y_pred, pos_label=pos_label, zero_division=0), 3)
 
         if include_precision_recall:
-            metrics['precision'] = precision_score(y_true, y_pred, pos_label=pos_label, zero_division=0)
-            metrics['recall'] = recall_score(y_true, y_pred, pos_label=pos_label, zero_division=0)
+            metrics['precision'] = round(precision_score(y_true, y_pred, pos_label=pos_label, zero_division=0), 3)
+            metrics['recall'] = round(recall_score(y_true, y_pred, pos_label=pos_label, zero_division=0), 3)
     else:
         # Multi-class
-        metrics['f1_macro'] = f1_score(y_true, y_pred, average='macro', zero_division=0)
-        metrics['f1_weighted'] = f1_score(y_true, y_pred, average='weighted', zero_division=0)
+        metrics['f1_macro'] = round(f1_score(y_true, y_pred, average='macro', zero_division=0), 3)
+        metrics['f1_weighted'] = round(f1_score(y_true, y_pred, average='weighted', zero_division=0), 3)
 
     return metrics
 
@@ -685,7 +685,7 @@ def plot_binary_comparison(
                     ax.text(
                         j + offset,
                         value + 0.02,
-                        f'{value:.2f}',
+                        f'{value:.3f}',
                         ha='center',
                         va='bottom',
                         fontsize=8
@@ -770,7 +770,7 @@ def plot_multiclass_comparison(
                     ax.text(
                         j + offset,
                         value + 0.02,
-                        f'{value:.2f}',
+                        f'{value:.3f}',
                         ha='center',
                         va='bottom',
                         fontsize=8

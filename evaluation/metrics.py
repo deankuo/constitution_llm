@@ -60,7 +60,7 @@ def calculate_accuracy(
         return 0.0
 
     correct = sum(1 for p, g in zip(predictions, ground_truth) if str(p) == str(g))
-    return correct / len(predictions)
+    return round(correct / len(predictions), 3)
 
 
 def calculate_confusion_matrix(
@@ -127,7 +127,7 @@ def calculate_precision_recall_f1(
     else:
         f1 = 0.0
 
-    return precision, recall, f1
+    return round(precision, 3), round(recall, 3), round(f1, 3)
 
 
 def evaluate_indicator(
@@ -193,9 +193,9 @@ def evaluate_indicator(
 
         per_class[label] = ClassMetrics(
             label=label,
-            precision=precision,
-            recall=recall,
-            f1=f1,
+            precision=round(precision, 3),
+            recall=round(recall, 3),
+            f1=round(f1, 3),
             support=support
         )
 
@@ -211,10 +211,10 @@ def evaluate_indicator(
 
     return IndicatorMetrics(
         indicator=indicator,
-        accuracy=accuracy,
-        macro_precision=macro_precision,
-        macro_recall=macro_recall,
-        macro_f1=macro_f1,
+        accuracy=round(accuracy, 3),
+        macro_precision=round(macro_precision, 3),
+        macro_recall=round(macro_recall, 3),
+        macro_f1=round(macro_f1, 3),
         per_class=per_class,
         confusion_matrix=conf_matrix,
         total_samples=len(predictions),
@@ -247,7 +247,7 @@ def calculate_agreement(
         if str(p1) == str(p2)
     )
 
-    return agreements / len(predictions_1)
+    return round(agreements / len(predictions_1), 3)
 
 
 def calculate_cohens_kappa(
@@ -297,7 +297,7 @@ def calculate_cohens_kappa(
         return 1.0 if observed == 1.0 else 0.0
 
     kappa = (observed - expected) / (1 - expected)
-    return kappa
+    return round(kappa, 3)
 
 
 def format_metrics_report(metrics: IndicatorMetrics) -> str:
@@ -317,19 +317,19 @@ def format_metrics_report(metrics: IndicatorMetrics) -> str:
         f"Samples: {metrics.valid_samples} valid / {metrics.total_samples} total",
         f"",
         f"Overall Metrics:",
-        f"  Accuracy:         {metrics.accuracy:.4f}",
-        f"  Macro Precision:  {metrics.macro_precision:.4f}",
-        f"  Macro Recall:     {metrics.macro_recall:.4f}",
-        f"  Macro F1:         {metrics.macro_f1:.4f}",
+        f"  Accuracy:         {metrics.accuracy:.3f}",
+        f"  Macro Precision:  {metrics.macro_precision:.3f}",
+        f"  Macro Recall:     {metrics.macro_recall:.3f}",
+        f"  Macro F1:         {metrics.macro_f1:.3f}",
         f"",
         f"Per-Class Metrics:",
     ]
 
     for label, class_metrics in sorted(metrics.per_class.items()):
         lines.append(f"  Class '{label}' (n={class_metrics.support}):")
-        lines.append(f"    Precision: {class_metrics.precision:.4f}")
-        lines.append(f"    Recall:    {class_metrics.recall:.4f}")
-        lines.append(f"    F1:        {class_metrics.f1:.4f}")
+        lines.append(f"    Precision: {class_metrics.precision:.3f}")
+        lines.append(f"    Recall:    {class_metrics.recall:.3f}")
+        lines.append(f"    F1:        {class_metrics.f1:.3f}")
 
     lines.append(f"")
     lines.append(f"Confusion Matrix (rows=true, cols=pred):")

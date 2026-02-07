@@ -35,6 +35,12 @@ test*.py
 main_test.py
 debug*
 note.md
+EVALUATION_GUIDE.md
+MIGRATION_GUIDE.md
+IMPLEMENTATION_SUMMARY.md
+FIX_CONSTITUTION_YEAR.md
+MISSING_VALUES.md
+
 
 # Checkpoint files
 *.csv
