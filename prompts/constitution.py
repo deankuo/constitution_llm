@@ -115,7 +115,7 @@ Step 6 **Assess Confidence Based on Historical Evidence**
 Provide a JSON object with exactly these fields:
 - "constitution": Must be exactly "Yes" or "No" (string)
 - "document_name": Official name(s) of the constitutional document(s), or "N/A" if none. If multiple documents, separate with semicolons (e.g., "Document A; Document B")
-- "constitution_year": Year(s) of adoption of constitutional document(s), or "N/A" if none. If multiple years, separate with semicolons (e.g., "1789; 1791")
+- "constitution_year": Year(s) of adoption as exact integers only, or "N/A" if none. Do NOT use approximations like "c.", "circa", or "approximately". If multiple years, separate with semicolons (e.g., "1789; 1791"). The year must fall within or before the leader's reign period.
 - "reasoning": Your step-by-step reasoning following the analysis process (string)
 - "confidence_score": Integer from 1 to 100 based on evidence quality
 
@@ -159,7 +159,7 @@ Work through each step systematically:
 
 Respond with a single JSON object (no markdown, no extra text):
 
-{{"constitution": "Yes or No", "document_name": "name(s) or N/A (semicolon-separated if multiple)", "constitution_year": "year(s) or N/A (semicolon-separated if multiple)", "reasoning": "step-by-step reasoning", "confidence_score": 1-100}}
+{{"constitution": "Yes or No", "document_name": "name(s) or N/A (semicolon-separated if multiple)", "constitution_year": "exact integer year(s) or N/A (semicolon-separated if multiple, no 'c.' or 'circa')", "reasoning": "step-by-step reasoning", "confidence_score": 1-100}}
 
 ## Now provide your analysis:
 """

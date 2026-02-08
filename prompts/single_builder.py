@@ -73,17 +73,18 @@ class SinglePromptBuilder(BasePromptBuilder):
         # Returns single PromptOutput covering all 3 indicators
     """
 
-    def __init__(self, indicators: Optional[List[str]] = None):
+    def __init__(self, indicators: Optional[List[str]] = None, reasoning: bool = True):
         """
         Initialize the single prompt builder.
 
         Args:
             indicators: List of indicators to include. If None, uses all non-constitution indicators.
+            reasoning: Whether to include reasoning in prompts for non-constitution indicators (default True).
         """
         # Default to all indicators except constitution (which has special handling)
         if indicators is None:
             indicators = ['sovereign', 'powersharing', 'assembly', 'appointment', 'tenure', 'exit']
-        super().__init__(indicators)
+        super().__init__(indicators, reasoning)
 
     def build(
         self,
@@ -165,7 +166,8 @@ Provide a JSON object with fields for EACH indicator:
                 labels = INDICATOR_CONFIGS[ind].labels
                 labels_str = " or ".join([f'"{l}"' for l in labels])
                 prompt += f'- "{ind}": Must be exactly {labels_str} (string)\n'
-                prompt += f'- "{ind}_reasoning": Your analysis for this indicator (string)\n'
+                if self.reasoning:
+                    prompt += f'- "{ind}_reasoning": Your analysis for this indicator (string)\n'
                 prompt += f'- "{ind}_confidence_score": Integer from 1 to 100 (integer)\n'
 
         prompt += """
@@ -206,7 +208,8 @@ Respond with ONLY a valid JSON object (no markdown, no extra text):
                 example_label = labels[0]  # Use first valid label as example
 
                 prompt += f'\n  "{ind}": "{example_label}",'
-                prompt += f'\n  "{ind}_reasoning": "Your step-by-step analysis for {ind}",'
+                if self.reasoning:
+                    prompt += f'\n  "{ind}_reasoning": "Your step-by-step analysis for {ind}",'
                 prompt += f'\n  "{ind}_confidence_score": 30'  # Example confidence score
 
                 if i < len(indicators) - 1:

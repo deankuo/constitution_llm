@@ -56,7 +56,8 @@ class SequentialPromptBuilder(BasePromptBuilder):
         self,
         indicators: Optional[List[str]] = None,
         sequence: Optional[List[str]] = None,
-        random_order: bool = False
+        random_order: bool = False,
+        reasoning: bool = True
     ):
         """
         Initialize the sequential prompt builder.
@@ -65,6 +66,7 @@ class SequentialPromptBuilder(BasePromptBuilder):
             indicators: List of indicators to include. If None, uses all 7 indicators.
             sequence: Specific order of indicators. If provided, must include all indicators.
             random_order: If True, randomize the order of indicators.
+            reasoning: Whether to include reasoning for non-constitution indicators (default True).
 
         Raises:
             ValueError: If sequence doesn't match indicators or contains invalid indicators.
@@ -73,7 +75,7 @@ class SequentialPromptBuilder(BasePromptBuilder):
         if indicators is None:
             indicators = ['constitution', 'sovereign', 'powersharing', 'assembly', 'appointment', 'tenure', 'exit']
 
-        super().__init__(indicators)
+        super().__init__(indicators, reasoning)
 
         # Validate and set sequence
         if sequence is not None and random_order:
@@ -174,12 +176,12 @@ You MUST provide predictions for ALL {len(sequence)} indicators in a SINGLE JSON
             prompt += f"## INDICATOR {i}/{len(sequence)}: {indicator.upper()}\n\n"
 
             if indicator == 'constitution':
-                # Use constitution's system prompt
+                # Use constitution's system prompt (always includes reasoning)
                 system_prompt, _ = get_constitution_prompt(polity, name, start_year, end_year)
                 prompt += system_prompt
             else:
                 # Use indicator's system prompt from indicators.py
-                system_prompt, _ = get_indicator_prompt(indicator, polity, name, start_year, end_year)
+                system_prompt, _ = get_indicator_prompt(indicator, polity, name, start_year, end_year, reasoning=self.reasoning)
                 prompt += system_prompt
 
             prompt += "\n\n═══════════════════════════════════════════════════════════════════════\n\n"
@@ -214,14 +216,15 @@ You have analyzed {len(sequence)} indicators above. Now provide a SINGLE JSON ob
             if indicator == 'constitution':
                 prompt += f'"constitution": "Yes or No",\n  '
                 prompt += f'"document_name": "name or N/A",\n  '
-                prompt += f'"constitution_year": year or null,\n  '
+                prompt += f'"constitution_year": "exact integer year(s) or N/A (no circa/c.)",\n  '
                 prompt += f'"constitution_reasoning": "your constitutional analysis",\n  '
                 prompt += f'"constitution_confidence_score": 1-100'
             else:
                 labels = INDICATOR_CONFIGS[indicator].labels
                 labels_str = " or ".join([f'"{l}"' for l in labels])
                 prompt += f'"{indicator}": {labels_str},\n  '
-                prompt += f'"{indicator}_reasoning": "your {indicator} analysis",\n  '
+                if self.reasoning:
+                    prompt += f'"{indicator}_reasoning": "your {indicator} analysis",\n  '
                 prompt += f'"{indicator}_confidence_score": 1-100'
 
             if i < len(sequence) - 1:
@@ -282,12 +285,12 @@ You will analyze these indicators in sequence:
             prompt += f"### INDICATOR {i}/{len(sequence)}: {indicator.upper()}\n\n"
 
             if indicator == 'constitution':
-                # Use constitution's user prompt
+                # Use constitution's user prompt (always includes reasoning)
                 _, user_prompt = get_constitution_prompt(polity, name, start_year, end_year)
                 prompt += user_prompt
             else:
                 # Use indicator's user prompt from indicators.py
-                _, user_prompt = get_indicator_prompt(indicator, polity, name, start_year, end_year)
+                _, user_prompt = get_indicator_prompt(indicator, polity, name, start_year, end_year, reasoning=self.reasoning)
                 prompt += user_prompt
 
             prompt += f"\n\n{'='*70}\n\n"

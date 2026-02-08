@@ -53,6 +53,8 @@ class PredictionConfig:
     # Sequential mode parameters
     sequence: Optional[List[str]] = None  # Specific order for sequential mode
     random_sequence: bool = False  # Randomize order in sequential mode
+    # Reasoning control
+    reasoning: bool = True  # Include reasoning for non-constitution indicators
 
 
 @dataclass
@@ -83,6 +85,7 @@ class PolityPrediction:
     total_cost_usd: float = 0.0
     total_tokens: int = 0
     verification_applied: Dict[str, str] = field(default_factory=dict)
+    reasoning: bool = True  # Whether reasoning columns should be included in output
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for DataFrame row."""
@@ -94,7 +97,12 @@ class PolityPrediction:
 
         for ind_name, ind_pred in self.predictions.items():
             result[f'{ind_name}_prediction'] = ind_pred.prediction
-            result[f'{ind_name}_reasoning'] = ind_pred.reasoning
+
+            # Include reasoning column for constitution always;
+            # for other indicators only when reasoning is enabled
+            if ind_name == 'constitution' or self.reasoning:
+                result[f'{ind_name}_reasoning'] = ind_pred.reasoning
+
             result[f'{ind_name}_confidence'] = ind_pred.confidence_score
 
             # Constitution-specific fields
@@ -170,15 +178,16 @@ class Predictor:
     def _create_prompt_builder(self) -> BasePromptBuilder:
         """Create appropriate prompt builder based on config."""
         if self.config.mode == PromptMode.SINGLE:
-            return SinglePromptBuilder(indicators=self.config.indicators)
+            return SinglePromptBuilder(indicators=self.config.indicators, reasoning=self.config.reasoning)
         elif self.config.mode == PromptMode.SEQUENTIAL:
             return SequentialPromptBuilder(
                 indicators=self.config.indicators,
                 sequence=self.config.sequence,
-                random_order=self.config.random_sequence
+                random_order=self.config.random_sequence,
+                reasoning=self.config.reasoning
             )
         else:
-            return MultiplePromptBuilder(indicators=self.config.indicators)
+            return MultiplePromptBuilder(indicators=self.config.indicators, reasoning=self.config.reasoning)
 
     def _create_verifiers(self) -> Dict[str, BaseVerification]:
         """Create verifier instances for configured indicators."""
@@ -320,7 +329,8 @@ class Predictor:
             predictions=predictions,
             total_cost_usd=total_cost,
             total_tokens=total_tokens,
-            verification_applied=verification_applied
+            verification_applied=verification_applied,
+            reasoning=self.config.reasoning
         )
 
     def _process_indicator(

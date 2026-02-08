@@ -47,14 +47,16 @@ class BasePromptBuilder(ABC):
             response = llm.call(prompt.system_prompt, prompt.user_prompt)
     """
 
-    def __init__(self, indicators: Optional[List[str]] = None):
+    def __init__(self, indicators: Optional[List[str]] = None, reasoning: bool = True):
         """
         Initialize the prompt builder.
 
         Args:
             indicators: List of indicators to include. If None, uses all available.
+            reasoning: Whether to include reasoning in prompts for non-constitution indicators (default True).
         """
         self.indicators = indicators or self.get_available_indicators()
+        self.reasoning = reasoning
         self._validate_indicators()
 
     def _validate_indicators(self) -> None:

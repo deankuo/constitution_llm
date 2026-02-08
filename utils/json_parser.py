@@ -201,6 +201,42 @@ def validate_indicator_response(
     return result
 
 
+def _clean_constitution_year(year_str: str) -> str:
+    """
+    Clean constitution year string by stripping approximation prefixes.
+
+    Handles patterns like "c. 1240", "circa 1240", "approximately 1240",
+    "ca. 1240", "~1240", and semicolon-separated multiples.
+
+    Args:
+        year_str: Raw year string from LLM
+
+    Returns:
+        Cleaned year string with only integer years (semicolon-separated if multiple)
+    """
+    # Split by semicolons for multiple years
+    parts = [p.strip() for p in year_str.split(';')]
+    cleaned_parts = []
+
+    for part in parts:
+        if not part:
+            continue
+        # Strip common approximation prefixes
+        cleaned = part.strip()
+        cleaned = re.sub(r'^(?:c\.?\s*|circa\s+|approx(?:imately)?\.?\s*|ca\.?\s*|~\s*)', '', cleaned, flags=re.IGNORECASE)
+        cleaned = cleaned.strip()
+
+        # Try to extract a valid integer year
+        year_match = re.search(r'-?\d+', cleaned)
+        if year_match:
+            cleaned_parts.append(year_match.group())
+        else:
+            # If no number found, keep original (may be "N/A" or other valid text)
+            cleaned_parts.append(part.strip())
+
+    return '; '.join(cleaned_parts) if cleaned_parts else year_str
+
+
 def validate_constitution_response(parsed: Dict[str, Any]) -> Dict[str, Any]:
     """
     Validate that the parsed response contains expected fields for constitution.
@@ -242,10 +278,11 @@ def validate_constitution_response(parsed: Dict[str, Any]) -> Dict[str, Any]:
         # Convert to string and clean up
         year_str = str(result['constitution_year']).strip()
         # Handle "null" string or empty string
-        if year_str.lower() in ['null', 'none', '']:
+        if year_str.lower() in ['null', 'none', '', 'n/a']:
             result['constitution_year'] = None
         else:
-            result['constitution_year'] = year_str
+            # Clean approximation prefixes (e.g., "c. 1240", "circa 1240", "approx. 1240")
+            result['constitution_year'] = _clean_constitution_year(year_str)
 
     # Ensure reasoning/explanation exists (check multiple field names)
     if 'reasoning' in result:

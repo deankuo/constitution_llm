@@ -492,6 +492,7 @@ def sanity_check_and_reprocess(
     sequence: Optional[List[str]] = None,
     random_sequence: bool = False,
     cleanup_temp_files: bool = True,
+    reasoning: bool = True,
     **kwargs
 ) -> pd.DataFrame:
     """
@@ -515,11 +516,16 @@ def sanity_check_and_reprocess(
         sequence: Indicator sequence for sequential mode (space-separated list)
         random_sequence: Randomize indicator order in sequential mode
         cleanup_temp_files: Whether to delete temporary files after completion
+        reasoning: Whether reasoning is included in predictions (default True).
+                   When False, skips reasoning-length checks.
         **kwargs: Additional arguments passed to identify_failed_rows
 
     Returns:
         Final DataFrame with reprocessed results merged
     """
+    # When reasoning is disabled, skip reasoning-length checks
+    if not reasoning:
+        min_reasoning_length = None
     print("="*80)
     print(f"STARTING SANITY CHECK AND REPROCESSING WORKFLOW (MODE: {mode.upper()})")
     print("="*80)
@@ -652,6 +658,10 @@ def sanity_check_and_reprocess(
             cmd.extend(['--sequence'] + sequence)
         if random_sequence:
             cmd.append('--random-sequence')
+
+    # Pass reasoning flag
+    if not reasoning:
+        cmd.extend(['--reasoning', 'False'])
 
     print(f"Running reprocessing command:")
     print(' '.join(cmd))
@@ -794,6 +804,8 @@ Examples:
     parser.add_argument('--random-sequence', action='store_true',
                        help='Randomize indicator order in sequential mode')
     parser.add_argument('--no-cleanup', action='store_true', help='Keep temporary files')
+    parser.add_argument('--reasoning', type=lambda x: x.lower() == 'true', default=True,
+                       help='Whether reasoning is included in predictions (default: True). When False, skips reasoning-length checks.')
 
     args = parser.parse_args()
 
@@ -811,5 +823,6 @@ Examples:
         sequence=args.sequence,
         random_sequence=args.random_sequence,
         check_null_prediction=args.check_null_prediction,
-        cleanup_temp_files=not args.no_cleanup
+        cleanup_temp_files=not args.no_cleanup,
+        reasoning=args.reasoning
     )

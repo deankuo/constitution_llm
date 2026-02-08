@@ -532,6 +532,12 @@ Examples:
         action='store_true',
         help='Randomize indicator order in sequential mode'
     )
+    parser.add_argument(
+        '--reasoning',
+        type=lambda x: x.lower() == 'true',
+        default=True,
+        help='Include reasoning in predictions for 6 indicators (default: True). Set to False for prediction-only output. Constitution always includes reasoning.'
+    )
 
     args = parser.parse_args()
 
@@ -577,7 +583,8 @@ Examples:
             sc_n_samples=args.n_samples,
             sc_temperatures=args.sc_temperatures,
             sequence=args.sequence,
-            random_sequence=args.random_sequence
+            random_sequence=args.random_sequence,
+            reasoning=args.reasoning
         )
 
         # Create predictor

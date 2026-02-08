@@ -28,14 +28,15 @@ class MultiplePromptBuilder(BasePromptBuilder):
         # Returns 3 PromptOutput objects, one per indicator
     """
 
-    def __init__(self, indicators: Optional[List[str]] = None):
+    def __init__(self, indicators: Optional[List[str]] = None, reasoning: bool = True):
         """
         Initialize the multiple prompt builder.
 
         Args:
             indicators: List of indicators to include. If None, uses all available.
+            reasoning: Whether to include reasoning in prompts for non-constitution indicators (default True).
         """
-        super().__init__(indicators)
+        super().__init__(indicators, reasoning)
 
     def build(
         self,
@@ -80,7 +81,8 @@ class MultiplePromptBuilder(BasePromptBuilder):
                     polity=polity,
                     name=name,
                     start_year=start_year,
-                    end_year=end_year
+                    end_year=end_year,
+                    reasoning=self.reasoning
                 )
                 prompts.append(PromptOutput(
                     system_prompt=system_prompt,
@@ -96,7 +98,8 @@ def create_prompt_builder(
     mode: str,
     indicators: Optional[List[str]] = None,
     sequence: Optional[List[str]] = None,
-    random_order: bool = False
+    random_order: bool = False,
+    reasoning: bool = True
 ) -> BasePromptBuilder:
     """
     Factory function to create a prompt builder.
@@ -106,6 +109,7 @@ def create_prompt_builder(
         indicators: List of indicators to include
         sequence: Specific order for sequential mode (optional)
         random_order: Randomize order in sequential mode (optional)
+        reasoning: Whether to include reasoning for non-constitution indicators (default True)
 
     Returns:
         Appropriate PromptBuilder instance
@@ -114,14 +118,15 @@ def create_prompt_builder(
     from prompts.sequential_builder import SequentialPromptBuilder
 
     if mode.lower() == 'single':
-        return SinglePromptBuilder(indicators=indicators)
+        return SinglePromptBuilder(indicators=indicators, reasoning=reasoning)
     elif mode.lower() == 'multiple':
-        return MultiplePromptBuilder(indicators=indicators)
+        return MultiplePromptBuilder(indicators=indicators, reasoning=reasoning)
     elif mode.lower() == 'sequential':
         return SequentialPromptBuilder(
             indicators=indicators,
             sequence=sequence,
-            random_order=random_order
+            random_order=random_order,
+            reasoning=reasoning
         )
     else:
         raise ValueError(f"Unknown mode: {mode}. Must be 'single', 'multiple', or 'sequential'")

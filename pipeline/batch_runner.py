@@ -230,10 +230,14 @@ class BatchRunner:
     def _create_error_result(self, row: pd.Series, error_msg: str) -> Dict:
         """Create result dict for failed prediction."""
         result = row.to_dict()
+        include_reasoning = self.predictor.config.reasoning
 
         for indicator in self.predictor.config.indicators:
             result[f'{indicator}_prediction'] = None
-            result[f'{indicator}_reasoning'] = f'Error: {error_msg}'
+            # Include reasoning column for constitution always;
+            # for other indicators only when reasoning is enabled
+            if indicator == 'constitution' or include_reasoning:
+                result[f'{indicator}_reasoning'] = f'Error: {error_msg}'
             result[f'{indicator}_confidence'] = None
 
             # Add constitution-specific error columns
