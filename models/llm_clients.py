@@ -91,6 +91,7 @@ class OpenAILLM(BaseLLM):
                 'input_tokens': response.usage.prompt_tokens if response.usage else 0,
                 'output_tokens': response.usage.completion_tokens if response.usage else 0,
                 'cached_tokens': getattr(response.usage, 'prompt_tokens_details', {}).get('cached_tokens', 0) if response.usage else 0,
+                'thinking_tokens': 0,
             }
 
             return ModelResponse(
@@ -191,11 +192,17 @@ class GeminiLLM(BaseLLM):
             usage = {}
             if hasattr(response, 'usage_metadata') and response.usage_metadata:
                 metadata = response.usage_metadata
+                # CRITICAL: For thinking models (e.g., Gemini 2.5 Pro), thinking tokens
+                # are billed as output but NOT included in candidates_token_count.
+                # They must be added together to get the true billable output token count.
+                # Cost calculation happens in CostTracker.calculate_cost() using this sum.
+                thinking_tokens = getattr(metadata, 'thoughts_token_count', 0) or 0
                 usage = {
                     'input_tokens': metadata.prompt_token_count or 0,
-                    'output_tokens': metadata.candidates_token_count or 0,
+                    'output_tokens': (metadata.candidates_token_count or 0) + thinking_tokens,
                     'cached_tokens': metadata.cached_content_token_count or 0,
                     'total_tokens': metadata.total_token_count or 0,
+                    'thinking_tokens': thinking_tokens,
                 }
 
             return ModelResponse(
@@ -276,6 +283,7 @@ class AnthropicLLM(BaseLLM):
                 'input_tokens': response.usage.input_tokens if response.usage else 0,
                 'output_tokens': response.usage.output_tokens if response.usage else 0,
                 'cached_tokens': cached_tokens,
+                'thinking_tokens': 0,
             }
 
             return ModelResponse(
@@ -372,6 +380,7 @@ class BedrockLLM(BaseLLM):
                         'input_tokens': response["usage"].get("inputTokens", 0),
                         'output_tokens': response["usage"].get("outputTokens", 0),
                         'cached_tokens': response["usage"].get("cacheReadInputTokens", 0),
+                        'thinking_tokens': 0,
                     }
 
                 return ModelResponse(

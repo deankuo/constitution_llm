@@ -232,8 +232,10 @@ You have analyzed {len(sequence)} indicators above. Now provide a SINGLE JSON ob
 
         prompt += "\n}"
 
-        prompt += """
+        if not self.reasoning:
+            prompt += "\n**DO NOT include any reasoning or analysis fields for the 6 non-constitution indicators. Only include prediction and confidence_score fields.**\n"
 
+        prompt += """
 **CRITICAL REQUIREMENTS:**
 - Respond with ONLY a JSON object
 - Do NOT include markdown code fences (```json)

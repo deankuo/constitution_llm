@@ -45,6 +45,11 @@ class ModelResponse:
         return self.usage.get('cached_tokens', 0)
 
     @property
+    def thinking_tokens(self) -> int:
+        """Get thinking token count (for thinking models like Gemini 2.5 Pro)."""
+        return self.usage.get('thinking_tokens', 0)
+
+    @property
     def total_tokens(self) -> int:
         """Get total token count (including cached)."""
         return self.input_tokens + self.output_tokens + self.cached_tokens

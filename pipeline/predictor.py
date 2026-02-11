@@ -274,6 +274,7 @@ class Predictor:
                     input_tokens=response.input_tokens,
                     output_tokens=response.output_tokens,
                     cached_tokens=response.cached_tokens,
+                    thinking_tokens=response.thinking_tokens,
                     polity=polity
                 )
 

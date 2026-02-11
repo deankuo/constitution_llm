@@ -201,6 +201,16 @@ class ChainOfVerification(BaseVerification):
                 temperature=0.0
             )
 
+            # Track initial prediction cost
+            self.cost_tracker.add_usage(
+                model=self.llm.model,
+                input_tokens=response.input_tokens,
+                output_tokens=response.output_tokens,
+                cached_tokens=response.cached_tokens,
+                thinking_tokens=response.thinking_tokens,
+                indicator='cove_initial_prediction'
+            )
+
             self.steps.append(CoVeStep(
                 step_name='initial_prediction',
                 model_used=str(self.llm.model),
@@ -294,6 +304,7 @@ Keep answers concise but informative."""
                     input_tokens=response.input_tokens,
                     output_tokens=response.output_tokens,
                     cached_tokens=response.cached_tokens,
+                    thinking_tokens=response.thinking_tokens,
                     polity=polity,
                     indicator='verification_question'
                 )
@@ -376,6 +387,7 @@ Respond with a JSON object:
                 input_tokens=response.input_tokens,
                 output_tokens=response.output_tokens,
                 cached_tokens=response.cached_tokens,
+                thinking_tokens=response.thinking_tokens,
                 indicator='verification_synthesis'
             )
 

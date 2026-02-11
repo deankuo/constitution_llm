@@ -170,6 +170,11 @@ Provide a JSON object with fields for EACH indicator:
                     prompt += f'- "{ind}_reasoning": Your analysis for this indicator (string)\n'
                 prompt += f'- "{ind}_confidence_score": Integer from 1 to 100 (integer)\n'
 
+        if not self.reasoning:
+            prompt += """
+**DO NOT include any reasoning, analysis, or explanation fields in the JSON.**
+"""
+
         prompt += """
 **CRITICAL OUTPUT FORMAT:**
 - Respond with ONLY a JSON object
@@ -191,11 +196,13 @@ Provide a JSON object with fields for EACH indicator:
         # Format reign period (show "unknown" if end year is missing)
         reign_period = f"{start_year}-{end_year if end_year is not None else 'unknown'}"
 
+        no_reasoning_note = "\n\n**Do NOT include reasoning or explanation fields. Output ONLY predictions and confidence scores.**" if not self.reasoning else ""
+
         prompt = f"""Analyze these political indicators for the following leader's reign:
 
 **Polity:** {polity}
 **Leader:** {name}
-**Reign Period:** {reign_period}
+**Reign Period:** {reign_period}{no_reasoning_note}
 
 Respond with ONLY a valid JSON object (no markdown, no extra text):
 

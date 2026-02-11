@@ -63,12 +63,13 @@ class UsageRecord:
     """Record of a single API call's usage."""
     model: str
     input_tokens: int
-    output_tokens: int
+    output_tokens: int  # Includes thinking tokens for thinking models
     cost_usd: float
     timestamp: datetime = field(default_factory=datetime.now)
     polity: Optional[str] = None
     indicator: Optional[str] = None
     cached_tokens: int = 0
+    thinking_tokens: int = 0  # Thinking tokens (included in output_tokens for billing)
 
 
 @dataclass
@@ -76,8 +77,9 @@ class ModelUsage:
     """Aggregated usage for a single model."""
     model: str
     total_input_tokens: int = 0
-    total_output_tokens: int = 0
+    total_output_tokens: int = 0  # Includes thinking tokens for thinking models
     total_cached_tokens: int = 0
+    total_thinking_tokens: int = 0  # Thinking tokens (included in output_tokens for billing)
     total_cost_usd: float = 0.0
     call_count: int = 0
 
@@ -174,7 +176,8 @@ class CostTracker:
         output_tokens: int,
         polity: Optional[str] = None,
         indicator: Optional[str] = None,
-        cached_tokens: int = 0
+        cached_tokens: int = 0,
+        thinking_tokens: int = 0
     ) -> float:
         """
         Record usage from an API call.
@@ -182,10 +185,11 @@ class CostTracker:
         Args:
             model: Model name
             input_tokens: Number of input tokens (non-cached)
-            output_tokens: Number of output tokens
+            output_tokens: Number of output tokens (includes thinking tokens for thinking models)
             polity: Optional polity name for tracking
             indicator: Optional indicator name for tracking
             cached_tokens: Number of cached input tokens
+            thinking_tokens: Number of thinking tokens (subset of output_tokens, for tracking)
 
         Returns:
             Cost of this call in USD
@@ -200,7 +204,8 @@ class CostTracker:
             cost_usd=cost,
             polity=polity,
             indicator=indicator,
-            cached_tokens=cached_tokens
+            cached_tokens=cached_tokens,
+            thinking_tokens=thinking_tokens
         )
         self.records.append(record)
 
@@ -212,6 +217,7 @@ class CostTracker:
         usage.total_input_tokens += input_tokens
         usage.total_output_tokens += output_tokens
         usage.total_cached_tokens += cached_tokens
+        usage.total_thinking_tokens += thinking_tokens
         usage.total_cost_usd += cost
         usage.call_count += 1
 
@@ -240,6 +246,7 @@ class CostTracker:
             'total_input_tokens': sum(u.total_input_tokens for u in self.model_usage.values()),
             'total_output_tokens': sum(u.total_output_tokens for u in self.model_usage.values()),
             'total_cached_tokens': sum(u.total_cached_tokens for u in self.model_usage.values()),
+            'total_thinking_tokens': sum(u.total_thinking_tokens for u in self.model_usage.values()),
             'duration_seconds': (datetime.now() - self.start_time).total_seconds(),
             'models': {}
         }
@@ -250,6 +257,7 @@ class CostTracker:
                 'input_tokens': usage.total_input_tokens,
                 'output_tokens': usage.total_output_tokens,
                 'cached_tokens': usage.total_cached_tokens,
+                'thinking_tokens': usage.total_thinking_tokens,
                 'cost_usd': usage.total_cost_usd
             }
 
@@ -280,6 +288,7 @@ class CostTracker:
                     'model': r.model,
                     'input_tokens': r.input_tokens,
                     'output_tokens': r.output_tokens,
+                    'thinking_tokens': r.thinking_tokens,
                     'cached_tokens': r.cached_tokens,
                     'cost_usd': r.cost_usd,
                     'timestamp': r.timestamp.isoformat(),
@@ -304,6 +313,10 @@ class CostTracker:
         print(f"Total API Calls: {summary['total_calls']}")
         print(f"Total Input Tokens: {summary['total_input_tokens']:,}")
         print(f"Total Output Tokens: {summary['total_output_tokens']:,}")
+        if summary['total_thinking_tokens'] > 0:
+            non_thinking = summary['total_output_tokens'] - summary['total_thinking_tokens']
+            print(f"  - Regular Output: {non_thinking:,}")
+            print(f"  - Thinking Tokens: {summary['total_thinking_tokens']:,}")
         print(f"Total Cached Tokens: {summary['total_cached_tokens']:,}")
         print(f"Duration: {summary['duration_seconds']:.1f} seconds")
 
@@ -313,6 +326,10 @@ class CostTracker:
             print(f"    Calls: {data['calls']}")
             print(f"    Input: {data['input_tokens']:,} tokens")
             print(f"    Output: {data['output_tokens']:,} tokens")
+            if data['thinking_tokens'] > 0:
+                non_thinking = data['output_tokens'] - data['thinking_tokens']
+                print(f"      - Regular Output: {non_thinking:,} tokens")
+                print(f"      - Thinking: {data['thinking_tokens']:,} tokens")
             print(f"    Cached: {data['cached_tokens']:,} tokens")
             print(f"    Cost: ${data['cost_usd']:.4f}")
 

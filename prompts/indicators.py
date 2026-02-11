@@ -44,14 +44,17 @@ Provide a JSON object with exactly these fields:
 OUTPUT_FORMAT_TEMPLATE_NO_REASONING = """
 ## Output Requirements
 
-Provide a JSON object with exactly these fields:
+Provide a JSON object with ONLY these two fields:
 - "{indicator}": Must be exactly {valid_labels} (string)
 - "confidence_score": Integer from 1 to 100 based on evidence quality
+
+**DO NOT include a "reasoning" field or any explanation. Output ONLY the two fields above.**
 
 **CRITICAL OUTPUT FORMAT:**
 - Respond with ONLY a JSON object
 - Do NOT include markdown code fences (```json)
 - Do NOT include any text before or after the JSON
+- Do NOT include reasoning, analysis, or explanation in the JSON
 - Your response must start with {{ and end with }}
 """
 
@@ -74,7 +77,7 @@ Respond with a single JSON object:
 {{"{indicator}": "{label_format}", "reasoning": "your analysis", "confidence_score": 1-100}}
 """
 
-USER_PROMPT_TEMPLATE_NO_REASONING = """Please analyze the {indicator_display} of the following leader's reign:
+USER_PROMPT_TEMPLATE_NO_REASONING = """Analyze the {indicator_display} of the following leader's reign:
 
 **Polity:** {polity}
 **Leader:** {name}
@@ -83,6 +86,8 @@ USER_PROMPT_TEMPLATE_NO_REASONING = """Please analyze the {indicator_display} of
 {task_instruction}
 
 {coding_rule_reminder}
+
+**Do NOT include reasoning or explanation. Output ONLY the prediction and confidence score.**
 
 Respond with a single JSON object:
 {{"{indicator}": "{label_format}", "confidence_score": 1-100}}
