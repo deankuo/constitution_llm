@@ -84,11 +84,10 @@ AWS_SECRET_ACCESS_KEY=your_aws_secret_key_here
 AWS_REGION=us-east-1
 
 # Bedrock Verifier Model (for CoVe)
-BEDROCK_VERIFIER_MODEL=anthropic.claude-sonnet-4-5-20250929-v1:0
+BEDROCK_VERIFIER_MODEL=us.anthropic.claude-sonnet-4-5-20250929-v1:0
 ```
 
-**📖 See [BEDROCK_SETUP.md](BEDROCK_SETUP.md) for detailed AWS Bedrock configuration**
-**📖 See [VERIFIER_MODELS.md](VERIFIER_MODELS.md) for changing verifier models**
+**📖 See [docs/BEDROCK_SETUP.md](docs/BEDROCK_SETUP.md) for detailed AWS Bedrock configuration**
 
 ## Quick Start
 
@@ -98,14 +97,14 @@ BEDROCK_VERIFIER_MODEL=anthropic.claude-sonnet-4-5-20250929-v1:0
 # Run predictions for 6 indicators (excluding constitution)
 python main.py --new-pipeline \
   --indicators sovereign powersharing assembly appointment tenure exit \
-  --model gemini-2.5-pro \
+  --models gemini-2.5-pro \
   --mode multiple \
   --test 5
 
 # Run with Self-Consistency verification
 python main.py --new-pipeline \
   --indicators assembly appointment \
-  --model gemini-2.5-pro \
+  --models gemini-2.5-pro \
   --verify self_consistency \
   --verify-indicators assembly \
   --test 10
@@ -114,7 +113,7 @@ python main.py --new-pipeline \
 # Note: Verifier model can be set in .env as BEDROCK_VERIFIER_MODEL
 python main.py --new-pipeline \
   --indicators constitution \
-  --model gemini-2.5-pro \
+  --models gemini-2.5-pro \
   --verify cove \
   --verify-indicators constitution \
   --test 5
@@ -122,6 +121,7 @@ python main.py --new-pipeline \
 # Or override verifier model via CLI
 python main.py --new-pipeline \
   --indicators constitution \
+  --models gemini-2.5-pro \
   --verify cove \
   --verify-indicators constitution \
   --verifier-model anthropic.claude-opus-4-5-20250514-v1:0 \
@@ -148,14 +148,14 @@ config = PredictionConfig(
 
 api_keys = {'gemini': os.getenv('GEMINI_API_KEY')}
 
-# Single prediction
+# Single prediction (leader-level: polity, name, start_year, end_year)
 predictor = Predictor(config, api_keys)
-result = predictor.predict("Roman Republic", -509, -27)
+result = predictor.predict("Roman Republic", "Julius Caesar", -49, -44)
 print(result.predictions['sovereign'].prediction)
 print(result.predictions['sovereign'].reasoning)
 
 # Batch processing
-df = pd.read_csv('data/plt_polity_data_v2.csv')
+df = pd.read_csv('data/plt_leaders_data.csv')
 runner = BatchRunner(
     predictor,
     BatchConfig(checkpoint_interval=50),
@@ -170,14 +170,17 @@ results_df = runner.run(df.head(100))
 
 ```
 constitution_llm/
-├── main.py                        # CLI entry point
-├── config.py                      # Global configuration
+├── main.py                        # CLI entry point (legacy + new pipeline)
+├── main_test.py                   # Test script for new pipeline
+├── config.py                      # Global configuration, enums
 │
 ├── prompts/
-│   ├── constitution.py            # Constitution prompt (complex, 4 elements)
-│   ├── indicators.py              # 6 other indicator prompts
-│   ├── base_builder.py            # Abstract PromptBuilder
-│   ├── single_builder.py          # Combines all indicators (unified)
+│   ├── base_builder.py            # BasePromptBuilder ABC + PromptOutput
+│   ├── constitution.py            # Constitution prompt (leader-level, 4 elements)
+│   ├── polity_constitution.py     # Legacy polity-level constitution prompt
+│   ├── indicators.py              # 6 other indicator prompts (leader-level)
+│   ├── polity_indicators.py       # Legacy polity-level indicator prompts
+│   ├── single_builder.py          # Combines indicators (unified prompt)
 │   ├── multiple_builder.py        # Separate prompt per indicator
 │   └── sequential_builder.py      # All 7 indicators in sequence
 │
@@ -187,29 +190,41 @@ constitution_llm/
 │   └── search_agents.py           # Web search agents
 │
 ├── verification/
-│   ├── base.py                    # BaseVerification abstract class
+│   ├── base.py                    # BaseVerification ABC + VerificationResult
 │   ├── self_consistency.py        # Temperature sampling + majority vote
-│   └── cove.py                    # Chain of Verification
+│   └── cove.py                    # Chain of Verification (cross-model)
 │
 ├── pipeline/
 │   ├── predictor.py               # Core prediction orchestrator
 │   └── batch_runner.py            # Batch processing + checkpoints
 │
 ├── evaluation/
-│   ├── metrics.py                 # Accuracy, F1, per-class metrics
-│   └── analyzer.py                # Result analysis
+│   ├── metrics.py                 # Accuracy, F1, Cohen's kappa
+│   ├── analyzer.py                # ResultAnalyzer class
+│   └── notebook_utils.py          # Jupyter notebook helpers
 │
 ├── utils/
-│   ├── json_parser.py             # Robust JSON extraction
-│   ├── cost_tracker.py            # API cost tracking
+│   ├── json_parser.py             # Robust JSON extraction + validation
+│   ├── cost_tracker.py            # API cost tracking per model/indicator
 │   ├── logger.py                  # Logging utilities
+│   ├── data_cleaner.py            # Data cleaning utilities
 │   ├── encoding_fix.py            # CSV encoding utilities
-│   └── sanity_check.py            # Data validation
+│   └── sanity_check.py            # Failed row identification + reprocessing
+│
+├── tests/
+│   └── test_leader_level.py       # Leader-level prompt tests
+│
+├── docs/
+│   ├── BEDROCK_SETUP.md           # AWS Bedrock configuration guide
+│   ├── EVALUATION_GUIDE.md        # Evaluation methodology guide
+│   └── ...                        # Other documentation
 │
 └── data/
-    ├── plt_polity_data_v2.csv     # Main polity data
+    ├── Original_Data/             # Raw datasets
+    ├── plt_leaders_data.csv       # Leader-level input data
+    ├── plt_polity_data_v2.csv     # Polity-level input data
     ├── results/                   # Output directory
-    └── logs/                      # Log files
+    └── logs/                      # Cost tracking logs
 ```
 
 ### System Architecture
@@ -285,7 +300,7 @@ python main.py --help
 | `--new-pipeline` | Use the new modular pipeline | False |
 | `--mode` | Prompt mode: `single`, `multiple`, or `sequential` | `multiple` |
 | `--indicators` | Indicators to predict | All 6 (excl. constitution) |
-| `--model` | Primary model | `gemini-2.5-pro` |
+| `--models` | Primary model (first value used) | `Gemini=gemini-2.5-pro` |
 | `--verify` | Verification: `none`, `self_consistency`, `cove`, `both` | `none` |
 | `--verify-indicators` | Which indicators to verify | None |
 | `--verifier-model` | Model for CoVe verification | Bedrock Claude |
@@ -310,7 +325,7 @@ python main.py --help
 # Basic prediction with multiple indicators
 python main.py --new-pipeline \
   --indicators sovereign assembly appointment \
-  --model gemini-2.5-pro \
+  --models gemini-2.5-pro \
   --test 10
 
 # Sequential mode with user-defined order
@@ -318,7 +333,7 @@ python main.py --new-pipeline \
   --mode sequential \
   --indicators constitution sovereign assembly powersharing appointment tenure exit \
   --sequence assembly constitution sovereign exit powersharing tenure appointment \
-  --model gemini-2.5-pro \
+  --models gemini-2.5-pro \
   --test 5
 
 # Sequential mode with random order
@@ -326,13 +341,13 @@ python main.py --new-pipeline \
   --mode sequential \
   --indicators constitution sovereign assembly powersharing appointment tenure exit \
   --random-sequence \
-  --model gemini-2.5-pro \
+  --models gemini-2.5-pro \
   --test 5
 
 # Self-Consistency verification
 python main.py --new-pipeline \
   --indicators assembly \
-  --model gemini-2.5-pro \
+  --models gemini-2.5-pro \
   --verify self_consistency \
   --verify-indicators assembly \
   --n-samples 5 \
@@ -342,7 +357,7 @@ python main.py --new-pipeline \
 # CoVe verification for constitution
 python main.py --new-pipeline \
   --indicators constitution \
-  --model gemini-2.5-pro \
+  --models gemini-2.5-pro \
   --verify cove \
   --verify-indicators constitution \
   --verifier-model anthropic.claude-sonnet-4-5-20250929-v1:0 \
@@ -351,7 +366,7 @@ python main.py --new-pipeline \
 # Full batch processing
 python main.py --new-pipeline \
   --indicators sovereign powersharing assembly appointment tenure exit \
-  --model gemini-2.5-pro \
+  --models gemini-2.5-pro \
   --mode multiple \
   --input data/plt_polity_data_v2.csv \
   --output data/results/experiment_001.csv
@@ -411,7 +426,7 @@ The pipeline supports three distinct prompt modes, each with different character
 ```python
 # Default models
 DEFAULT_PRIMARY_MODEL = "gemini-2.5-pro"
-DEFAULT_VERIFIER_MODEL = "anthropic.claude-sonnet-4-5-20250929-v1:0"
+DEFAULT_VERIFIER_MODEL = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"  # From BEDROCK_VERIFIER_MODEL env
 
 # LLM Parameters
 DEFAULT_TEMPERATURE = 0
@@ -483,7 +498,7 @@ config = PredictionConfig(
 )
 
 predictor = Predictor(config, api_keys)
-result = predictor.predict("Roman Republic", -509, -27)
+result = predictor.predict("Roman Republic", "Julius Caesar", -49, -44)
 ```
 
 ### BatchRunner
@@ -519,7 +534,7 @@ metrics = evaluate_indicator(
 print(format_metrics_report(metrics))
 ```
 
-**📖 See [EVALUATION_GUIDE.md](EVALUATION_GUIDE.md) for complete evaluation guide with filtering, visualization, and polity-level accuracy.**
+**📖 See [docs/EVALUATION_GUIDE.md](docs/EVALUATION_GUIDE.md) for complete evaluation guide with filtering, visualization, and polity-level accuracy.**
 
 **Multi-Dataset Comparison:**
 ```python
@@ -665,17 +680,16 @@ python main.py --new-pipeline --test 1
 
 ## Additional Documentation
 
-- **[BEDROCK_SETUP.md](BEDROCK_SETUP.md)** - Complete AWS Bedrock configuration guide
+- **[docs/BEDROCK_SETUP.md](docs/BEDROCK_SETUP.md)** - Complete AWS Bedrock configuration guide
   - How to find Bedrock model ARNs
   - Environment variable setup
   - Troubleshooting Bedrock issues
   - Best practices for public repositories
 
-- **[VERIFIER_MODELS.md](VERIFIER_MODELS.md)** - Guide to switching verifier models
-  - Available Bedrock Claude models (Sonnet, Opus, Haiku)
-  - Cost comparisons
-  - Model selection guide
-  - Testing different models
+- **[docs/EVALUATION_GUIDE.md](docs/EVALUATION_GUIDE.md)** - Evaluation methodology guide
+  - Metrics (accuracy, F1, Cohen's kappa)
+  - Filtering and visualization
+  - Multi-dataset comparison
 
 - **[CLAUDE.md](CLAUDE.md)** - Project design document
   - Architecture overview

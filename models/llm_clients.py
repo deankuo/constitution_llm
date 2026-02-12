@@ -487,7 +487,15 @@ def detect_provider(model_identifier: str) -> str:
 
     # Check for Bedrock model ID format (anthropic.*, amazon.*, etc.)
     # Bedrock models have the format: provider.model-name-version
-    if model_lower.startswith('anthropic.') or model_lower.startswith('amazon.') or model_lower.startswith('meta.') or model_lower.startswith('cohere.') or model_lower.startswith('ai21.') or model_lower.startswith('mistral.'):
+    # Also handle regional prefixes: us.anthropic.*, global.anthropic.*, etc.
+    bedrock_prefixes = (
+        'anthropic.', 'amazon.', 'meta.', 'cohere.', 'ai21.', 'mistral.',
+        'us.anthropic.', 'us.amazon.', 'us.meta.',
+        'global.anthropic.', 'global.amazon.', 'global.meta.',
+        'eu.anthropic.', 'eu.amazon.', 'eu.meta.',
+        'ap.anthropic.', 'ap.amazon.', 'ap.meta.',
+    )
+    if model_lower.startswith(bedrock_prefixes):
         return 'bedrock'
 
     # Check for direct Anthropic API (claude- without the anthropic. prefix)
