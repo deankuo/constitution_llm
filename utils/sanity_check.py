@@ -484,6 +484,7 @@ def sanity_check_and_reprocess(
     temp_reprocessed_csv: str = './data/temp/temp_reprocessed_rows.csv',
     min_confidence: Optional[float] = None,
     min_reasoning_length: Optional[int] = 100,
+    pipeline: str = 'leader',
     mode: str = 'multiple',
     indicators: Optional[List[str]] = None,
     model: str = 'gemini-2.5-pro',
@@ -508,7 +509,10 @@ def sanity_check_and_reprocess(
         temp_reprocessed_csv: Temporary file for reprocessed results
         min_confidence: Minimum acceptable confidence score
         min_reasoning_length: Minimum acceptable reasoning length
-        mode: Prompt mode ('single', 'multiple', or 'sequential')
+        pipeline: Which pipeline to use for reprocessing ('leader' or 'polity').
+                  'leader' — new modular pipeline (requires name column, supports all 7 indicators).
+                  'polity' — legacy pipeline (constitution only, no name column required).
+        mode: Prompt mode ('single', 'multiple', or 'sequential') — leader pipeline only
         indicators: List of indicators to reprocess (defaults to the specified indicator)
         model: Model to use for reprocessing
         verify: Verification method ('none', 'self_consistency', 'cove', 'both')
@@ -621,47 +625,60 @@ def sanity_check_and_reprocess(
         os.makedirs(temp_dir, exist_ok=True)
     save_for_reprocessing(failed_df, temp_failed_csv)
 
-    # Step 4: Reprocess failed rows using new pipeline
+    # Step 4: Reprocess failed rows
     print("\nStep 4: Reprocessing failed rows...")
     import subprocess
 
-    # Build command for new pipeline
-    # For single mode: reprocess ALL indicators together
-    # For multiple mode: reprocess only specified indicators
-    if indicators is None:
-        if mode == 'single':
-            # Reprocess all 6 indicators together (constitution handled separately if present)
-            indicators = ['sovereign', 'powersharing', 'assembly', 'appointment', 'tenure', 'exit']
-            print(f"Single mode: Will reprocess all 6 indicators together: {indicators}")
-        else:
-            # Multiple mode: just the checked indicator
-            indicators = [indicator]
-            print(f"Multiple mode: Will reprocess indicator: {indicator}")
+    # Build reprocessing command based on pipeline level
+    if pipeline == 'polity':
+        # Polity pipeline: legacy, constitution only
+        print("Using POLITY pipeline for reprocessing (constitution only).")
+        cmd = [
+            'python3', 'main.py',
+            '--pipeline', 'polity',
+            '--input', temp_failed_csv,
+            '--output', temp_reprocessed_csv,
+            '--models', model,
+            '--verify', verify,
+            '--temperature', str(temperature),
+        ]
+        print(f"Reprocessing indicator: constitution (polity pipeline)")
     else:
-        print(f"Using custom indicators: {indicators}")
+        # Leader pipeline: modular, supports all 7 indicators
+        # For single mode: reprocess ALL indicators together
+        # For multiple mode: reprocess only specified indicators
+        if indicators is None:
+            if mode == 'single':
+                indicators = ['sovereign', 'powersharing', 'assembly', 'appointment', 'tenure', 'exit']
+                print(f"Single mode: Will reprocess all 6 indicators together: {indicators}")
+            else:
+                indicators = [indicator]
+                print(f"Multiple mode: Will reprocess indicator: {indicator}")
+        else:
+            print(f"Using custom indicators: {indicators}")
 
-    cmd = [
-        'python3', 'main.py',
-        '--new-pipeline',
-        '--input', temp_failed_csv,
-        '--output', temp_reprocessed_csv,
-        '--mode', mode,
-        '--indicators'] + indicators + [
-        '--models', model,
-        '--verify', verify,
-        '--temperature', str(temperature),
-    ]
+        cmd = [
+            'python3', 'main.py',
+            '--pipeline', 'leader',
+            '--input', temp_failed_csv,
+            '--output', temp_reprocessed_csv,
+            '--mode', mode,
+            '--indicators'] + indicators + [
+            '--models', model,
+            '--verify', verify,
+            '--temperature', str(temperature),
+        ]
 
-    # Add sequential mode specific arguments
-    if mode == 'sequential':
-        if sequence:
-            cmd.extend(['--sequence'] + sequence)
-        if random_sequence:
-            cmd.append('--random-sequence')
+        # Sequential mode specific arguments
+        if mode == 'sequential':
+            if sequence:
+                cmd.extend(['--sequence'] + sequence)
+            if random_sequence:
+                cmd.append('--random-sequence')
 
-    # Pass reasoning flag
-    if not reasoning:
-        cmd.extend(['--reasoning', 'False'])
+        # Pass reasoning flag
+        if not reasoning:
+            cmd.extend(['--reasoning', 'False'])
 
     print(f"Running reprocessing command:")
     print(' '.join(cmd))
@@ -789,8 +806,14 @@ Examples:
     parser.add_argument('--min-confidence', type=float, help='Minimum confidence score (1-100)')
     parser.add_argument('--min-reasoning-length', type=int, default=100,
                        help='Minimum reasoning length (default: 100)')
+    parser.add_argument('--pipeline', choices=['leader', 'polity'], default='leader',
+                       help=(
+                           'Pipeline to use for reprocessing (default: leader). '
+                           'leader — new modular pipeline, supports all 7 indicators, requires name column. '
+                           'polity — legacy pipeline, constitution only, no name column required.'
+                       ))
     parser.add_argument('--mode', choices=['single', 'multiple', 'sequential'], default='multiple',
-                       help='Prompt mode for reprocessing: single (unified), multiple (separate), sequential (sequence)')
+                       help='Prompt mode for reprocessing (leader pipeline only): single, multiple, or sequential')
     parser.add_argument('--model', default='Gemini=gemini-2.5-pro', help='Model to use (default: gemini-2.5-pro)')
     parser.add_argument('--verify', choices=['none', 'self_consistency', 'cove', 'both'],
                        default='none', help='Verification method (default: none)')
@@ -816,6 +839,7 @@ Examples:
         indicators=args.indicators,
         min_confidence=args.min_confidence,
         min_reasoning_length=args.min_reasoning_length,
+        pipeline=args.pipeline,
         mode=args.mode,
         model=args.model,
         verify=args.verify,

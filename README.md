@@ -91,18 +91,18 @@ BEDROCK_VERIFIER_MODEL=us.anthropic.claude-sonnet-4-5-20250929-v1:0
 
 ## Quick Start
 
-### Using the New Pipeline (Recommended)
+### Leader Pipeline (New, All 7 Indicators)
 
 ```bash
 # Run predictions for 6 indicators (excluding constitution)
-python main.py --new-pipeline \
+python main.py --pipeline leader \
   --indicators sovereign powersharing assembly appointment tenure exit \
   --models gemini-2.5-pro \
   --mode multiple \
   --test 5
 
 # Run with Self-Consistency verification
-python main.py --new-pipeline \
+python main.py --pipeline leader \
   --indicators assembly appointment \
   --models gemini-2.5-pro \
   --verify self_consistency \
@@ -111,7 +111,7 @@ python main.py --new-pipeline \
 
 # Run with Chain of Verification (CoVe)
 # Note: Verifier model can be set in .env as BEDROCK_VERIFIER_MODEL
-python main.py --new-pipeline \
+python main.py --pipeline leader \
   --indicators constitution \
   --models gemini-2.5-pro \
   --verify cove \
@@ -119,13 +119,32 @@ python main.py --new-pipeline \
   --test 5
 
 # Or override verifier model via CLI
-python main.py --new-pipeline \
+python main.py --pipeline leader \
   --indicators constitution \
   --models gemini-2.5-pro \
   --verify cove \
   --verify-indicators constitution \
   --verifier-model anthropic.claude-opus-4-5-20250514-v1:0 \
   --test 5
+```
+
+### Polity Pipeline (Legacy, Constitution Only)
+
+```bash
+# Basic polity-level constitution prediction
+python main.py --pipeline polity --test 5
+
+# With Self-Consistency verification
+python main.py --pipeline polity \
+  --verify self_consistency \
+  --models Gemini=gemini-2.5-pro \
+  --test 5
+
+# Multiple models in parallel
+python main.py --pipeline polity \
+  -m GPT=gpt-4o Gemini=gemini-2.5-pro \
+  -i data/plt_polity_data_v2.csv \
+  -o data/results/polity_results.csv
 ```
 
 ### Using Python API
@@ -293,43 +312,53 @@ constitution_llm/
 python main.py --help
 ```
 
-#### New Pipeline Arguments
+#### Pipeline Selection
 
 | Argument | Description | Default |
 |----------|-------------|---------|
-| `--new-pipeline` | Use the new modular pipeline | False |
+| `--pipeline` | `leader` (new, all 7 indicators) or `polity` (legacy, constitution only) | `polity` |
+
+#### Leader Pipeline Arguments
+
+| Argument | Description | Default |
+|----------|-------------|---------|
 | `--mode` | Prompt mode: `single`, `multiple`, or `sequential` | `multiple` |
-| `--indicators` | Indicators to predict | All 6 (excl. constitution) |
-| `--models` | Primary model (first value used) | `Gemini=gemini-2.5-pro` |
+| `--indicators` | Indicators to predict | `['constitution']` |
+| `--models` | Model identifier (first value used) | `Gemini=gemini-2.5-pro` |
 | `--verify` | Verification: `none`, `self_consistency`, `cove`, `both` | `none` |
-| `--verify-indicators` | Which indicators to verify | None |
+| `--verify-indicators` | Which indicators to apply verification to | None |
 | `--verifier-model` | Model for CoVe verification | Bedrock Claude |
 | `--n-samples` | Self-consistency samples | 3 |
-| `--sc-temperatures` | SC temperature list | `0.0,0.5,1.0` |
+| `--sc-temperatures` | SC temperature list | `0.0 0.5 1.0` |
 | `--sequence` | Indicator order for sequential mode (space-separated) | None |
 | `--random-sequence` | Randomize order in sequential mode | False |
+| `--reasoning` | Include reasoning columns (True/False) | `True` |
 
-#### Legacy Arguments (still supported)
+#### Polity Pipeline Arguments (constitution only, supports multiple models)
 
 | Argument | Description | Default |
 |----------|-------------|---------|
-| `--models` | Legacy model spec (KEY=model) | Gemini |
+| `--models` | One or more models in `KEY=model` format | `Gemini=gemini-2.5-pro` |
+| `--verify` | Verification: `none`, `self_consistency`, `cove`, `both` | `none` |
+| `--verifier-model` | Model for CoVe verification | None |
 | `--use-search` | Enable web search | False |
 | `--temperature` | Generation temperature | 0 |
-| `--max_tokens` | Max tokens per response | 2048 |
+| `--max_tokens` | Max tokens per response | 32768 |
 | `--delay` | Delay between API calls | 1.0 |
 
 ### Example Commands
 
 ```bash
-# Basic prediction with multiple indicators
-python main.py --new-pipeline \
+# --- LEADER PIPELINE (leader-level, all 7 indicators) ---
+
+# Basic multi-indicator prediction
+python main.py --pipeline leader \
   --indicators sovereign assembly appointment \
   --models gemini-2.5-pro \
   --test 10
 
 # Sequential mode with user-defined order
-python main.py --new-pipeline \
+python main.py --pipeline leader \
   --mode sequential \
   --indicators constitution sovereign assembly powersharing appointment tenure exit \
   --sequence assembly constitution sovereign exit powersharing tenure appointment \
@@ -337,7 +366,7 @@ python main.py --new-pipeline \
   --test 5
 
 # Sequential mode with random order
-python main.py --new-pipeline \
+python main.py --pipeline leader \
   --mode sequential \
   --indicators constitution sovereign assembly powersharing appointment tenure exit \
   --random-sequence \
@@ -345,17 +374,17 @@ python main.py --new-pipeline \
   --test 5
 
 # Self-Consistency verification
-python main.py --new-pipeline \
+python main.py --pipeline leader \
   --indicators assembly \
   --models gemini-2.5-pro \
   --verify self_consistency \
   --verify-indicators assembly \
   --n-samples 5 \
-  --sc-temperatures 0.0,0.3,0.5,0.7,1.0 \
+  --sc-temperatures 0.0 0.3 0.5 0.7 1.0 \
   --test 10
 
 # CoVe verification for constitution
-python main.py --new-pipeline \
+python main.py --pipeline leader \
   --indicators constitution \
   --models gemini-2.5-pro \
   --verify cove \
@@ -363,13 +392,35 @@ python main.py --new-pipeline \
   --verifier-model anthropic.claude-sonnet-4-5-20250929-v1:0 \
   --test 5
 
-# Full batch processing
-python main.py --new-pipeline \
+# Full batch (all 7 indicators)
+python main.py --pipeline leader \
   --indicators sovereign powersharing assembly appointment tenure exit \
   --models gemini-2.5-pro \
   --mode multiple \
-  --input data/plt_polity_data_v2.csv \
+  --input data/plt_leaders_data.csv \
   --output data/results/experiment_001.csv
+
+# --- POLITY PIPELINE (polity-level, constitution only) ---
+
+# Basic polity-level constitution run
+python main.py --pipeline polity \
+  --models Gemini=gemini-2.5-pro \
+  --input data/plt_polity_data_v2.csv \
+  --output data/results/polity_001.csv
+
+# With self-consistency verification
+python main.py --pipeline polity \
+  --models Gemini=gemini-2.5-pro \
+  --verify self_consistency \
+  --n-samples 3 \
+  --test 10
+
+# With CoVe verification
+python main.py --pipeline polity \
+  --models Gemini=gemini-2.5-pro \
+  --verify cove \
+  --verifier-model us.anthropic.claude-sonnet-4-5-20250929-v1:0 \
+  --test 5
 ```
 
 ### Understanding Prompt Modes
@@ -589,15 +640,17 @@ python utils/sanity_check.py \
 
 **Command Options:**
 ```bash
+--pipeline           # leader (default) or polity — which pipeline to use for reprocessing
 --indicator          # Primary indicator to check (default: constitution)
---indicators         # List of indicators to reprocess
+--indicators         # List of indicators to reprocess (leader pipeline only)
 --min-confidence     # Minimum confidence threshold (1-100)
 --min-reasoning-length  # Minimum reasoning length (default: 100)
---mode               # Prompt mode: single, multiple, or sequential (default: multiple)
---model              # Model in format Provider=model (default: Gemini=gemini-2.5-pro)
+--mode               # Prompt mode: single, multiple, or sequential (leader only, default: multiple)
+--model              # Model identifier (default: gemini-2.5-pro)
 --verify             # Verification: none, self_consistency, cove, both
---sequence           # Indicator sequence for sequential mode (space-separated)
---random-sequence    # Randomize indicator order in sequential mode
+--verifier-model     # Model for CoVe verification
+--sequence           # Indicator sequence for sequential mode (space-separated, leader only)
+--random-sequence    # Randomize indicator order in sequential mode (leader only)
 --no-cleanup         # Keep temporary files for debugging
 ```
 
@@ -675,7 +728,7 @@ The pipeline includes robust JSON parsing that handles markdown code fences and 
 Set environment variable for verbose output:
 ```bash
 export CONSTITUTION_DEBUG=1
-python main.py --new-pipeline --test 1
+python main.py --pipeline leader --test 1
 ```
 
 ## Additional Documentation

@@ -20,9 +20,9 @@ os.environ['GRPC_VERBOSITY'] = 'NONE'
 
 import argparse
 import concurrent.futures
-import json
 import time
-from typing import Dict, List, Optional, Tuple
+from collections import Counter
+from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 from dotenv import load_dotenv
@@ -57,7 +57,8 @@ from models.llm_clients import (
     query_gemini_model,
     query_anthropic_model,
     query_aws_bedrock_model,
-    detect_provider
+    detect_provider,
+    create_llm
 )
 from models.search_agents import (
     run_openai_search_agent,
@@ -67,15 +68,24 @@ from models.search_agents import (
 )
 
 # Prompts - backward compatible
-from prompts.constitution import SYSTEM_PROMPT, USER_PROMPT_TEMPLATE
+from prompts.polity_constitution import SYSTEM_PROMPT, USER_PROMPT_TEMPLATE
 from prompts.polity_indicators import get_prompt as get_indicator_prompt
 
 # New pipeline imports
 from pipeline.predictor import Predictor, PredictionConfig, create_predictor
 from pipeline.batch_runner import BatchRunner, BatchConfig, load_polity_data
 
+# Verification
+from verification.self_consistency import SelfConsistencyVerification, SelfConsistencyConfig
+from verification.cove import ChainOfVerification, CoVeConfig
+from utils.cost_tracker import CostTracker
+
 # Utils
-from utils.json_parser import parse_json_response, extract_json_from_response
+from utils.json_parser import (
+    parse_json_response,
+    extract_json_from_response,
+    validate_constitution_response
+)
 
 # Load environment variables from .env file
 load_dotenv()
@@ -113,7 +123,7 @@ def _extract_json_from_response(response: str) -> str:
 
 def parse_llm_response(response: str, max_retries: int, retry_delay: float) -> Dict:
     """Parse the LLM's JSON response with retry logic (backward compatible)."""
-    return parse_json_response(response, max_retries, retry_delay, verbose=True)
+    return parse_json_response(response, max_retries, retry_delay, verbose=False)
 
 
 def _detect_provider(model_identifier: str) -> str:
@@ -187,6 +197,112 @@ def _route_to_model(
     return None
 
 
+def _apply_polity_verification(
+    result: Dict,
+    system_prompt: str,
+    user_prompt: str,
+    country: str,
+    start_year: int,
+    end_year: int,
+    model_suffix: str,
+    verify_type: str,
+    llm: Any,
+    verifier_llm: Any,
+    sc_n_samples: int,
+    sc_temperatures: List[float],
+    cove_questions_per_element: int,
+    initial_status: str,
+    initial_reasoning: str,
+) -> None:
+    """
+    Apply self-consistency and/or CoVe verification to a polity-level constitution
+    prediction.  Updates `result` in-place.
+
+    verify_type: 'self_consistency' | 'cove' | 'both'
+    For 'both': SC runs first; its majority prediction feeds into CoVe as the
+    initial prediction.
+    """
+    current_status = initial_status  # may be updated by SC before CoVe
+
+    # ------------------------------------------------------------------
+    # Self-Consistency
+    # ------------------------------------------------------------------
+    if verify_type in ('self_consistency', 'both'):
+        sc_preds: List[float] = []
+        temps = (sc_temperatures or [0.0, 0.5, 1.0])[:sc_n_samples]
+        for temp in temps:
+            try:
+                resp = llm.call(
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    temperature=temp
+                )
+                parsed = parse_json_response(resp.content, verbose=False)
+                validated = validate_constitution_response(parsed)
+                pred = validated.get('constitution')   # 1.0 or 0.0
+                if pred is not None:
+                    sc_preds.append(pred)
+            except Exception as e:
+                print(f"  SC sample (temp={temp}) failed: {e}")
+
+        if sc_preds:
+            counter = Counter(sc_preds)
+            majority_pred, majority_count = counter.most_common(1)[0]
+            agreement = majority_count / len(sc_preds)
+            verified_int = int(majority_pred)
+            current_status = 'Yes' if verified_int else 'No'
+            result[f'constitution_{model_suffix}'] = verified_int
+            result[f'constitution_sc_agreement_{model_suffix}'] = round(agreement, 3)
+            result[f'constitution_sc_verification_{model_suffix}'] = str({
+                'method': 'self_consistency',
+                'n_samples': len(sc_preds),
+                'vote_distribution': {int(k): v for k, v in dict(counter).items()},
+                'agreement_ratio': round(agreement, 3),
+            })
+
+    # ------------------------------------------------------------------
+    # Chain of Verification (CoVe)
+    # ------------------------------------------------------------------
+    if verify_type in ('cove', 'both'):
+        if verifier_llm is None:
+            print("  Warning: CoVe requires --verifier-model. Skipping CoVe.")
+            return
+        try:
+            cove = ChainOfVerification(
+                primary_llm=llm,
+                verifier_llm=verifier_llm,
+                config=CoVeConfig(questions_per_element=cove_questions_per_element),
+                cost_tracker=CostTracker()
+            )
+            # Normalise initial prediction to 'Yes' / 'No'
+            if current_status is not None:
+                init_pred = 'Yes' if str(current_status).lower() in ('yes', '1', 'true') else 'No'
+            else:
+                init_pred = 'No'
+
+            verify_result = cove.verify(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                indicator='constitution',
+                valid_labels=['Yes', 'No'],
+                initial_prediction=init_pred,
+                initial_reasoning=initial_reasoning or '',
+                polity=country,
+                name='N/A',          # no single leader at polity level
+                start_year=start_year,
+                end_year=end_year,
+            )
+            verified_pred = verify_result.verified_prediction
+            result[f'constitution_cove_verification_{model_suffix}'] = str(
+                verify_result.verification_details
+            )
+            if verified_pred in ('Yes', 'No'):
+                result[f'constitution_{model_suffix}'] = 1 if verified_pred == 'Yes' else 0
+        except Exception as e:
+            print(f"  CoVe verification failed: {e}")
+            result[f'constitution_cove_verification_{model_suffix}'] = f'Error: {e}'
+
+
 def process_single_polity(
     country: str,
     start_year: int,
@@ -197,9 +313,16 @@ def process_single_polity(
     llm_params: Dict,
     max_retries: int,
     retry_delay: float,
-    use_search_flag: bool
+    use_search_flag: bool,
+    # Verification params (optional)
+    verify_type: str = 'none',
+    llm: Any = None,
+    verifier_llm: Any = None,
+    sc_n_samples: int = 3,
+    sc_temperatures: Optional[List[float]] = None,
+    cove_questions_per_element: int = 1,
 ) -> Optional[Dict]:
-    """Process a single polity for constitution analysis (backward compatible)."""
+    """Process a single polity for constitution analysis (polity pipeline)."""
     system_prompt, user_prompt = create_prompt(country, start_year, end_year)
 
     response = _route_to_model(
@@ -225,6 +348,26 @@ def process_single_polity(
         f'confidence_score_{model_suffix}': parsed_result.get('confidence_score', None),
     }
 
+    # Apply verification if requested
+    if verify_type != 'none' and llm is not None:
+        _apply_polity_verification(
+            result=result,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            country=country,
+            start_year=start_year,
+            end_year=end_year,
+            model_suffix=model_suffix,
+            verify_type=verify_type,
+            llm=llm,
+            verifier_llm=verifier_llm,
+            sc_n_samples=sc_n_samples,
+            sc_temperatures=sc_temperatures or [0.0, 0.5, 1.0],
+            cove_questions_per_element=cove_questions_per_element,
+            initial_status=status,
+            initial_reasoning=explanation,
+        )
+
     return result
 
 
@@ -237,15 +380,23 @@ def process_batch(
     llm_params: Optional[Dict] = None,
     max_retries: int = DEFAULT_MAX_RETRIES,
     retry_delay: float = DEFAULT_RETRY_DELAY,
-    use_search_flag: bool = False
+    use_search_flag: bool = False,
+    # Verification params (polity pipeline)
+    verify_type: str = 'none',
+    model_llms: Optional[Dict[str, Any]] = None,   # model_key -> BaseLLM
+    verifier_llm: Any = None,
+    sc_n_samples: int = 3,
+    sc_temperatures: Optional[List[float]] = None,
+    cove_questions_per_element: int = 1,
 ) -> pd.DataFrame:
-    """Process polity data in batches (backward compatible)."""
+    """Process polity data in batches (polity pipeline)."""
     results = []
     total_polities = len(df)
     checkpoint_files = []
     checkpoint_at_50_percent = total_polities // 2
 
-    print(f"Starting to process {total_polities} polities using models: {list(models_dict.keys())}")
+    verify_info = f" | verification: {verify_type}" if verify_type != 'none' else ""
+    print(f"Starting to process {total_polities} polities using models: {list(models_dict.keys())}{verify_info}")
     print(f"Checkpoint will be saved at: {checkpoint_at_50_percent} polities (50%)")
 
     for idx, row in tqdm(df.iterrows(), total=total_polities, desc="Processing Polities"):
@@ -259,12 +410,15 @@ def process_batch(
             future_to_model = {}
 
             for model_key, model_identifier in models_dict.items():
+                llm_for_verify = (model_llms or {}).get(model_key)
                 future = executor.submit(
                     process_single_polity,
                     country, start_year, end_year,
                     model_key, model_identifier,
                     api_keys, llm_params,
-                    max_retries, retry_delay, use_search_flag
+                    max_retries, retry_delay, use_search_flag,
+                    verify_type, llm_for_verify, verifier_llm,
+                    sc_n_samples, sc_temperatures, cove_questions_per_element,
                 )
                 future_to_model[future] = model_key
 
@@ -352,44 +506,66 @@ def _parse_test_argument(test_arg: str, df: pd.DataFrame) -> pd.DataFrame:
 def main():
     """Main function for command line execution."""
     parser = argparse.ArgumentParser(
-        description='Constitution Analysis Pipeline - Polity Level',
+        description=(
+            'Historical Political Indicators Pipeline\n'
+            '\n'
+            'Two pipeline levels:\n'
+            '  polity  -- Legacy pipeline. Predicts constitution (Yes/No) at the polity level.\n'
+            '             Input: plt_polity_data_v2.csv  (columns: territorynamehistorical, start_year, end_year)\n'
+            '             Supports multiple models in parallel and web search.\n'
+            '\n'
+            '  leader  -- New modular pipeline. Predicts any combination of 7 indicators at the\n'
+            '             leader level (one row per leader reign).\n'
+            '             Input: plt_leaders_data.csv  (columns: territorynamehistorical, name, start_year, end_year)\n'
+            '             Supports single / multiple / sequential prompt modes, self-consistency,\n'
+            '             and Chain-of-Verification (CoVe).'
+        ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Basic usage with default Gemini model (backward compatible)
-  python main.py
+  # --- POLITY level (legacy, constitution only) ---
 
-  # Use multiple models with custom input/output
-  python main.py -i data.csv -o results.csv -m GPT=gpt-4o Claude=claude-3-5-sonnet-20241022
+  # Basic run with default Gemini model
+  python main.py --pipeline polity
 
-  # Enable web search with GPT-4
-  python main.py --models GPT=gpt-4o --use-search
+  # Multiple models, custom input/output
+  python main.py --pipeline polity -i data/plt_polity_data_v2.csv -o results.csv -m GPT=gpt-4o Claude=claude-3-5-sonnet-20241022
 
-  # Test mode with first 10 polities
-  python main.py --test 10
+  # Enable web search, test on first 10 rows
+  python main.py --pipeline polity --models GPT=gpt-4o --use-search --test 10
 
-  # Use new pipeline with multiple indicators
-  python main.py --new-pipeline --indicators sovereign assembly powersharing
 
-  # With self-consistency verification
-  python main.py --new-pipeline --indicators assembly --verify self_consistency --verify-indicators assembly
+  # --- LEADER level (new modular pipeline, all 7 indicators) ---
 
-  # Single prompt mode (all indicators in one call)
-  python main.py --new-pipeline --mode single --indicators sovereign assembly exit
+  # Predict sovereign + assembly with multiple prompts (default mode)
+  python main.py --pipeline leader --indicators sovereign assembly powersharing
 
-  # Sequential mode with user-defined order
-  python main.py --new-pipeline --mode sequential --indicators constitution sovereign assembly powersharing appointment tenure exit --sequence assembly constitution sovereign exit powersharing tenure appointment
+  # With self-consistency verification on assembly
+  python main.py --pipeline leader --indicators assembly --verify self_consistency --verify-indicators assembly
 
-  # Sequential mode with random order
-  python main.py --new-pipeline --mode sequential --indicators constitution sovereign assembly powersharing appointment tenure exit --random-sequence
+  # Single prompt mode — all indicators in one LLM call
+  python main.py --pipeline leader --mode single --indicators sovereign assembly exit
+
+  # Sequential mode with a user-defined indicator order
+  python main.py --pipeline leader --mode sequential --indicators constitution sovereign assembly powersharing appointment tenure exit --sequence assembly constitution sovereign exit powersharing tenure appointment
+
+  # Sequential mode with randomised indicator order
+  python main.py --pipeline leader --mode sequential --indicators constitution sovereign assembly powersharing appointment tenure exit --random-sequence
+
+  # CoVe verification with a Bedrock verifier model
+  python main.py --pipeline leader --indicators constitution --verify cove --verify-indicators constitution --verifier-model us.anthropic.claude-sonnet-4-5-20250929-v1:0
         """
     )
 
     # Input/Output arguments
     parser.add_argument(
         '--input', '-i',
-        default='./data/plt_polity_data_v2.csv',
-        help='Input CSV file path (preprocessed polity data)'
+        default=None,
+        help=(
+            'Input CSV file path. Defaults to the standard file for the chosen pipeline level:\n'
+            '  polity → ./data/plt_polity_data_v2.csv  (requires: territorynamehistorical, start_year, end_year)\n'
+            '  leader → ./data/plt_leaders_data.csv    (requires: territorynamehistorical, name, start_year, end_year)'
+        )
     )
     parser.add_argument(
         '--output', '-o',
@@ -471,9 +647,17 @@ Examples:
     )
 
     parser.add_argument(
-        '--new-pipeline',
-        action='store_true',
-        help='Use the new modular pipeline (enables new features)'
+        '--pipeline',
+        choices=['leader', 'polity'],
+        default='polity',
+        help=(
+            'Pipeline level to run (default: polity).\n'
+            '  polity  — Legacy pipeline: predicts constitution (Yes/No) at the polity level.\n'
+            '            One row per polity period; supports multiple models in parallel.\n'
+            '  leader  — New modular pipeline: predicts any of 7 indicators at the leader level.\n'
+            '            One row per leader reign; supports single/multiple/sequential prompt\n'
+            '            modes, self-consistency, and Chain-of-Verification (CoVe).'
+        )
     )
     parser.add_argument(
         '--mode',
@@ -520,7 +704,7 @@ Examples:
         '--checkpoint-interval',
         type=int,
         default=50,
-        help='Save checkpoint every N polities (new pipeline)'
+        help='Save checkpoint every N rows (leader pipeline only)'
     )
     parser.add_argument(
         '--sequence',
@@ -541,6 +725,13 @@ Examples:
 
     args = parser.parse_args()
 
+    # Resolve default input file based on pipeline level if not explicitly provided
+    if args.input is None:
+        if args.pipeline == 'leader':
+            args.input = './data/plt_leaders_data.csv'
+        else:
+            args.input = './data/plt_polity_data_v2.csv'
+
     # Collect API keys
     api_keys = {
         'openai': args.api_key or os.getenv('OPENAI_API_KEY'),
@@ -559,10 +750,11 @@ Examples:
             "Set the SERPER_API_KEY environment variable."
         )
 
-    if args.new_pipeline:
-        print("Using NEW modular pipeline...")
+    if args.pipeline == 'leader':
+        print("Pipeline: LEADER level (modular, all 7 indicators supported)")
+        print(f"Input:    {args.input}")
 
-        # Parse model from --models argument (use first one for new pipeline)
+        # Parse model from --models argument (use first one for leader pipeline)
         model_arg = args.models[0]
         if '=' in model_arg:
             _, model_identifier = model_arg.split('=', 1)
@@ -617,13 +809,14 @@ Examples:
         # Print cost summary
         predictor.cost_tracker.print_summary()
 
-        print("\nNew pipeline processing completed successfully!")
+        print("\nLeader-level pipeline completed successfully!")
         return
 
     # ==========================================================================
-    # LEGACY PIPELINE PATH (backward compatible)
+    # POLITY PIPELINE PATH (legacy, constitution only)
     # ==========================================================================
-    print("Using LEGACY pipeline (constitution only)...")
+    print("Pipeline: POLITY level (legacy, constitution only)")
+    print(f"Input:    {args.input}")
 
     # Parse model specifications
     models_dict = {}
@@ -643,8 +836,14 @@ Examples:
         'top_p': args.top_p,
     }
 
-    # Load data
-    df = load_polity_data(args.input)
+    # Load data (polity-level: only requires territorynamehistorical, start_year, end_year)
+    print(f"Loading polity data from {args.input}...")
+    df = pd.read_csv(args.input)
+    polity_required = [COL_TERRITORY_NAME, COL_START_YEAR, COL_END_YEAR]
+    missing = [c for c in polity_required if c not in df.columns]
+    if missing:
+        raise ValueError(f"Missing required columns for polity pipeline: {missing}")
+    print(f"Data loaded successfully! Total polities: {len(df)}")
 
     # Apply test mode if specified
     if args.test:
@@ -657,6 +856,19 @@ Examples:
     if args.user_prompt:
         USER_PROMPT_TEMPLATE = args.user_prompt
 
+    # Create BaseLLM instances and verifier for verification (if requested)
+    model_llms: Dict[str, Any] = {}
+    verifier_llm_instance: Any = None
+    if args.verify != 'none':
+        print(f"Verification: {args.verify} — creating LLM instances...")
+        for model_key, model_identifier in models_dict.items():
+            model_llms[model_key] = create_llm(model_identifier, api_keys)
+        if args.verify in ('cove', 'both'):
+            if args.verifier_model:
+                verifier_llm_instance = create_llm(args.verifier_model, api_keys)
+            else:
+                print("Warning: CoVe requires --verifier-model. CoVe will be skipped.")
+
     # Process data
     results_df = process_batch(
         df,
@@ -667,7 +879,13 @@ Examples:
         llm_params=llm_params,
         max_retries=args.max_retries,
         retry_delay=args.retry_delay,
-        use_search_flag=args.use_search
+        use_search_flag=args.use_search,
+        verify_type=args.verify,
+        model_llms=model_llms if model_llms else None,
+        verifier_llm=verifier_llm_instance,
+        sc_n_samples=args.n_samples,
+        sc_temperatures=args.sc_temperatures,
+        cove_questions_per_element=1,
     )
 
     # Ensure output directory exists
@@ -675,7 +893,7 @@ Examples:
 
     # Save results
     save_results(results_df, args.output)
-    print("\nLegacy pipeline processing completed successfully!")
+    print("\nPolity-level pipeline completed successfully!")
 
 
 if __name__ == "__main__":

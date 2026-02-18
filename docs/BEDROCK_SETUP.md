@@ -50,8 +50,7 @@ BEDROCK_VERIFIER_MODEL=anthropic.claude-sonnet-4-5-20250929-v1:0
 ### Method 2: Command Line Arguments
 
 ```bash
-python main.py \
-    --new-pipeline \
+python main.py --pipeline leader \
     --verifier-model "arn:aws:bedrock:us-east-1:ACCOUNT_ID:inference-profile/MODEL_ID" \
     --verify cove \
     --verify-indicators constitution
@@ -106,14 +105,13 @@ Cost logs are saved to `data/logs/{experiment}_costs.json` with per-model breakd
 Run a test with 5 samples:
 
 ```bash
-python main.py \
-    --new-pipeline \
+python main.py --pipeline leader \
     --mode multiple \
     --indicators constitution \
     --verify cove \
     --verify-indicators constitution \
     --test 5 \
-    --input data/test_sample_5.csv \
+    --input data/plt_leaders_data.csv \
     --output data/results/bedrock_test.csv
 ```
 

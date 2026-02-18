@@ -2,7 +2,6 @@
 .env
 
 # Dataset directories
-/Dataset/
 /Graph/
 /Data/
 
