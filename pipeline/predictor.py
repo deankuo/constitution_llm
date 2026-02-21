@@ -421,7 +421,8 @@ class Predictor:
         return self.cost_tracker.calculate_cost(
             model=self.config.model,
             input_tokens=response.input_tokens,
-            output_tokens=response.output_tokens
+            output_tokens=response.output_tokens,
+            thinking_tokens=response.thinking_tokens
         )
 
     def get_cost_summary(self) -> Dict:

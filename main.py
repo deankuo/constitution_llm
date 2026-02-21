@@ -338,6 +338,7 @@ def process_single_polity(
     input_tokens = 0
     output_tokens = 0
     cached_tokens = 0
+    thinking_tokens = 0
 
     # Prefer llm.call() (gives token counts) when available and not in search mode
     if llm is not None and not use_search_flag:
@@ -352,6 +353,7 @@ def process_single_polity(
         input_tokens = model_response.input_tokens
         output_tokens = model_response.output_tokens
         cached_tokens = model_response.cached_tokens
+        thinking_tokens = model_response.thinking_tokens
     else:
         response_content = _route_to_model(
             system_prompt, user_prompt, model_identifier,
@@ -378,6 +380,7 @@ def process_single_polity(
         f'_input_tokens_{model_suffix}': input_tokens,
         f'_output_tokens_{model_suffix}': output_tokens,
         f'_cached_tokens_{model_suffix}': cached_tokens,
+        f'_thinking_tokens_{model_suffix}': thinking_tokens,
         '_model_identifier': model_identifier,
     }
 
@@ -481,12 +484,14 @@ def _aggregate_row_costs(
         in_tok = entry_result.pop(f'_input_tokens_{model_suffix}', 0) or 0
         out_tok = entry_result.pop(f'_output_tokens_{model_suffix}', 0) or 0
         ca_tok = entry_result.pop(f'_cached_tokens_{model_suffix}', 0) or 0
+        think_tok = entry_result.pop(f'_thinking_tokens_{model_suffix}', 0) or 0
         if in_tok or out_tok:
             cost_tracker.add_usage(
                 model=model_identifier,
                 input_tokens=int(in_tok),
                 output_tokens=int(out_tok),
                 cached_tokens=int(ca_tok),
+                thinking_tokens=int(think_tok),
                 indicator='constitution',
             )
     # Remove the shared identifier field if present

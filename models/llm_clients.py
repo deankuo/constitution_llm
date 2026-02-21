@@ -192,16 +192,28 @@ class GeminiLLM(BaseLLM):
             usage = {}
             if hasattr(response, 'usage_metadata') and response.usage_metadata:
                 metadata = response.usage_metadata
-                # CRITICAL: For thinking models (e.g., Gemini 2.5 Pro), thinking tokens
-                # are billed as output but NOT included in candidates_token_count.
-                # They must be added together to get the true billable output token count.
-                # Cost calculation happens in CostTracker.calculate_cost() using this sum.
-                thinking_tokens = getattr(metadata, 'thoughts_token_count', 0) or 0
+                prompt_tokens = metadata.prompt_token_count or 0
+                candidate_tokens = metadata.candidates_token_count or 0
+                cached_tokens = metadata.cached_content_token_count or 0
+                total_tokens = metadata.total_token_count or 0
+
+                # For thinking models (Gemini 2.5 Pro/Flash), thinking tokens are
+                # billed SEPARATELY at $3.50/1M — NOT at the output rate ($10/1M).
+                # thoughts_token_count may be None/missing in some SDK versions,
+                # so we derive thinking tokens from total_token_count as a fallback.
+                thinking_tokens = getattr(metadata, 'thoughts_token_count', None)
+                if thinking_tokens is None:
+                    # Derive from total: total = input + candidates + thinking (+ cached)
+                    derived = total_tokens - prompt_tokens - candidate_tokens - cached_tokens
+                    thinking_tokens = max(0, derived)
+                else:
+                    thinking_tokens = int(thinking_tokens) if thinking_tokens else 0
+
                 usage = {
-                    'input_tokens': metadata.prompt_token_count or 0,
-                    'output_tokens': (metadata.candidates_token_count or 0) + thinking_tokens,
-                    'cached_tokens': metadata.cached_content_token_count or 0,
-                    'total_tokens': metadata.total_token_count or 0,
+                    'input_tokens': prompt_tokens,
+                    'output_tokens': candidate_tokens,  # excludes thinking tokens
+                    'cached_tokens': cached_tokens,
+                    'total_tokens': total_tokens,
                     'thinking_tokens': thinking_tokens,
                 }
 

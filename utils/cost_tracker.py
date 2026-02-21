@@ -34,8 +34,10 @@ PRICING = {
 
     # Google Gemini models (per 1M tokens)
     # Gemini context caching: cached tokens are ~10% of input price
-    'gemini-2.5-pro': {'input': 1.25, 'output': 10.00, 'cached': 0.125},
-    'gemini-2.5-flash': {'input': 0.15, 'output': 0.60, 'cached': 0.015},
+    # For thinking models (2.5 Pro, 2.5 Flash), thinking tokens are billed
+    # SEPARATELY at $3.50/1M — NOT at the output rate.
+    'gemini-2.5-pro': {'input': 1.25, 'output': 10.00, 'cached': 0.125, 'thinking': 3.50},
+    'gemini-2.5-flash': {'input': 0.15, 'output': 0.60, 'cached': 0.015, 'thinking': 3.50},
     'gemini-2.0-flash': {'input': 0.10, 'output': 0.40, 'cached': 0.01},
     'gemini-1.5-pro': {'input': 1.25, 'output': 5.00, 'cached': 0.125},
     'gemini-1.5-flash': {'input': 0.075, 'output': 0.30, 'cached': 0.0075},
@@ -69,7 +71,7 @@ class UsageRecord:
     polity: Optional[str] = None
     indicator: Optional[str] = None
     cached_tokens: int = 0
-    thinking_tokens: int = 0  # Thinking tokens (included in output_tokens for billing)
+    thinking_tokens: int = 0  # Thinking tokens (billed separately from output_tokens)
 
 
 @dataclass
@@ -77,9 +79,9 @@ class ModelUsage:
     """Aggregated usage for a single model."""
     model: str
     total_input_tokens: int = 0
-    total_output_tokens: int = 0  # Includes thinking tokens for thinking models
+    total_output_tokens: int = 0  # Non-thinking output tokens only
     total_cached_tokens: int = 0
-    total_thinking_tokens: int = 0  # Thinking tokens (included in output_tokens for billing)
+    total_thinking_tokens: int = 0  # Thinking tokens (billed separately from output_tokens)
     total_cost_usd: float = 0.0
     call_count: int = 0
 
@@ -147,16 +149,19 @@ class CostTracker:
         model: str,
         input_tokens: int,
         output_tokens: int,
-        cached_tokens: int = 0
+        cached_tokens: int = 0,
+        thinking_tokens: int = 0
     ) -> float:
         """
         Calculate cost for a single API call.
 
         Args:
             model: Model name
-            input_tokens: Number of input tokens (non-cached)
-            output_tokens: Number of output tokens
+            input_tokens: Number of input tokens (non-cached, non-thinking)
+            output_tokens: Number of output tokens (non-thinking)
             cached_tokens: Number of cached input tokens (priced separately)
+            thinking_tokens: Number of thinking tokens (priced separately for
+                             thinking models like Gemini 2.5 Pro/Flash)
 
         Returns:
             Cost in USD
@@ -166,8 +171,12 @@ class CostTracker:
         input_cost = (input_tokens / 1_000_000) * prices['input']
         output_cost = (output_tokens / 1_000_000) * prices['output']
         cached_cost = (cached_tokens / 1_000_000) * prices.get('cached', 0)
+        # Thinking tokens have a separate rate (e.g. $3.50/1M for Gemini 2.5).
+        # Fall back to the output rate for models without an explicit thinking price.
+        thinking_rate = prices.get('thinking', prices['output'])
+        thinking_cost = (thinking_tokens / 1_000_000) * thinking_rate
 
-        return input_cost + output_cost + cached_cost
+        return input_cost + output_cost + cached_cost + thinking_cost
 
     def add_usage(
         self,
@@ -189,12 +198,12 @@ class CostTracker:
             polity: Optional polity name for tracking
             indicator: Optional indicator name for tracking
             cached_tokens: Number of cached input tokens
-            thinking_tokens: Number of thinking tokens (subset of output_tokens, for tracking)
+            thinking_tokens: Number of thinking tokens (billed separately from output_tokens)
 
         Returns:
             Cost of this call in USD
         """
-        cost = self.calculate_cost(model, input_tokens, output_tokens, cached_tokens)
+        cost = self.calculate_cost(model, input_tokens, output_tokens, cached_tokens, thinking_tokens)
 
         # Create record
         record = UsageRecord(
