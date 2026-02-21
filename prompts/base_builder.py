@@ -118,11 +118,12 @@ class BasePromptBuilder(ABC):
         return [
             'constitution',
             'sovereign',
-            'powersharing',
             'assembly',
             'appointment',
             'tenure',
-            'exit'
+            'exit',
+            'collegiality',
+            'separate_powers',
         ]
 
     def get_indicator_labels(self, indicator: str) -> List[str]:

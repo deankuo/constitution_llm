@@ -2,13 +2,14 @@
 Political Indicators Prompt Templates (Leader-Level)
 =====================================================
 
-This module contains prompt templates for 6 political indicators:
+This module contains prompt templates for 8 political indicators:
 - Sovereign
-- Powersharing
 - Assembly
 - Appointment
 - Tenure
 - Exit
+- Collegiality
+- Separate Powers
 
 Note: Constitution is handled separately with its own complex prompt.
 
@@ -41,23 +42,6 @@ Provide a JSON object with exactly these fields:
 - Your response must start with {{ and end with }}
 """
 
-OUTPUT_FORMAT_TEMPLATE_NO_REASONING = """
-## Output Requirements
-
-Provide a JSON object with ONLY these two fields:
-- "{indicator}": Must be exactly {valid_labels} (string)
-- "confidence_score": Integer from 1 to 100 based on evidence quality
-
-**DO NOT include a "reasoning" field or any explanation. Output ONLY the two fields above.**
-
-**CRITICAL OUTPUT FORMAT:**
-- Respond with ONLY a JSON object
-- Do NOT include markdown code fences (```json)
-- Do NOT include any text before or after the JSON
-- Do NOT include reasoning, analysis, or explanation in the JSON
-- Your response must start with {{ and end with }}
-"""
-
 SYSTEM_PROMPT_HEADER = """You are a professional political scientist and historian specializing in {specialization} across different historical periods.
 
 Your task is to determine {task_description} based on the polity name, leader name, and the leader's reign period provided.
@@ -67,7 +51,7 @@ USER_PROMPT_TEMPLATE = """Please analyze the {indicator_display} of the followin
 
 **Polity:** {polity}
 **Leader:** {name}
-**Reign Period:** {reign_period}
+**Reign Period:** {start_year}-{end_year}
 
 {task_instruction}
 
@@ -75,22 +59,6 @@ USER_PROMPT_TEMPLATE = """Please analyze the {indicator_display} of the followin
 
 Respond with a single JSON object:
 {{"{indicator}": "{label_format}", "reasoning": "your analysis", "confidence_score": 1-100}}
-"""
-
-USER_PROMPT_TEMPLATE_NO_REASONING = """Analyze the {indicator_display} of the following leader's reign:
-
-**Polity:** {polity}
-**Leader:** {name}
-**Reign Period:** {reign_period}
-
-{task_instruction}
-
-{coding_rule_reminder}
-
-**Do NOT include reasoning or explanation. Output ONLY the prediction and confidence score.**
-
-Respond with a single JSON object:
-{{"{indicator}": "{label_format}", "confidence_score": 1-100}}
 """
 
 
@@ -159,55 +127,6 @@ Remember:
 - Not Sovereign (0): Colony, protectorate, vassal, or tributary state""",
         
         coding_rule_reminder="""⚠️ **IMPORTANT:** Focus on the status during THIS LEADER'S REIGN, not the entire polity history."""
-    ),
-    
-    # =========================================================================
-    # POWERSHARING
-    # =========================================================================
-    "powersharing": IndicatorConfig(
-        name="powersharing",
-        display_name="powersharing status",
-        specialization="executive power structures",
-        labels=["0", "1"],
-        task_description="whether a given polity had powersharing at the executive level during a specific leader's reign",
-        
-        definition="""
-## Definition of Powersharing
-
-Powersharing refers to whether **multiple individuals share power at the apex of a polity**. Where multiple individuals share power, we assume that executive power is to some extent constrained.
-
-**Powersharing (1):**
-- Two or more top leaders with comparable power
-- Examples: Roman consuls, regencies, military juntas, president and prime minister, collegial presidencies
-- Decisions must be vetted across multiple people rather than a single individual
-- These individuals may have independent bases of power or be part of a collegial body
-
-**No Powersharing (0):**
-- One top leader holds executive power
-- Collective leadership bodies dominated by a single member
-- Someone acting "behind the scenes" controls decision-making
-- Advisors exist but have no comparable executive authority
-
-## Important Notes
-
-- Powersharing does NOT imply inclusion/representation of distinct social groups
-- Focus on the apex of executive power, not lower levels of government
-- If a collective body is dominated by one person, code as "0"
-
-## Analysis Process
-
-1. Identify who held executive power during this leader's reign
-2. Determine if there were co-rulers or collegial bodies with comparable authority
-3. Assess whether decisions required vetting across multiple individuals
-""",
-        
-        task_instruction="""Determine whether this polity had executive powersharing (1) or single leadership (0) during this leader's reign.
-
-Remember:
-- Powersharing (1): Two or more leaders with comparable executive power
-- No Powersharing (0): One dominant leader (even if advisors or councils exist)""",
-        
-        coding_rule_reminder="""⚠️ **IMPORTANT:** Focus on the power structure during THIS LEADER'S REIGN."""
     ),
     
     # =========================================================================
@@ -424,6 +343,118 @@ Categories:
         
         coding_rule_reminder="""⚠️ **IMPORTANT:** Focus on how THIS SPECIFIC LEADER left power (or is expected to, if still ruling at end of period)."""
     ),
+    
+    # =========================================================================
+    # COLLEGIALITY
+    # =========================================================================
+    "collegiality": IndicatorConfig(
+        name="collegiality",
+        display_name="collegiality status",
+        specialization="executive power structures and decision-making processes",
+        labels=["0", "1"],
+        task_description="whether decision-making within the executive was collegial during a specific leader's reign",
+        
+        definition="""
+## Definition of Collegiality
+
+Collegiality refers to whether **decision-making within the executive is shared by members of a formally constituted body**. Where decision-making is collegial, we assume that executive power is to some extent constrained.
+
+**Collegial (1):**
+- Decision-making is shared by members of a formally constituted body
+- Examples: cabinets, military juntas, Roman consuls, regencies, Switzerland's presidency (all-party cabinet)
+- Decisions require collective deliberation and agreement
+- Power is distributed among multiple members of the executive body
+
+**Non-Collegial (0):**
+- A single actor dominates decision-making
+- Executive body exists but is dominated by one person
+- Collective bodies that are formally collegial but actually controlled by a single actor
+- Advisory bodies without actual decision-making power
+
+## Critical Distinction: De Facto vs De Jure
+
+**Wherever de facto power differs from de jure power, it is the former (actual practice) that should govern coding decisions.**
+
+- If a body is formally collegial but actually dominated by a single actor → Code as **0**
+- If informal collegial practices exist despite formal single leadership → Consider actual power dynamics
+
+## Analysis Process
+
+1. Identify the formal executive structure during this leader's reign
+2. Determine if there was a formally constituted collegial body
+3. **Critically assess**: Was decision-making actually shared, or did one person dominate?
+4. Focus on de facto (actual) power, not de jure (formal) arrangements
+""",
+        
+        task_instruction="""Determine whether decision-making in the executive was collegial (1) or non-collegial (0) during this leader's reign.
+
+Remember:
+- Collegial (1): Decisions shared by members of a formally constituted body (e.g., cabinet, junta, consuls)
+- Non-Collegial (0): Single actor dominates, OR collegial body is dominated by one person
+
+**CRITICAL:** Code based on de facto (actual) power, not de jure (formal) arrangements. If a body is formally collegial but one person dominates, code as 0.""",
+        
+        coding_rule_reminder="""⚠️ **IMPORTANT:** Focus on ACTUAL decision-making practice during THIS LEADER'S REIGN, not formal structures."""
+    ),
+    
+    # =========================================================================
+    # SEPARATE POWERS
+    # =========================================================================
+    "separate_powers": IndicatorConfig(
+        name="separate_powers",
+        display_name="separate powers status",
+        specialization="constitutional structures and checks and balances",
+        labels=["0", "1"],
+        task_description="whether power at the top was divided between multiple independent organizations during a specific leader's reign",
+        
+        definition="""
+## Definition of Separate Powers
+
+Separate powers refers to whether **power at the top is divided between multiple independent organizations**. Where such division exists, we assume that executive power is to some extent constrained. This may also be referred to as horizontal accountability or checks and balances.
+
+**Separate Powers (1):**
+- Power is divided between multiple independent organizations
+- Examples include:
+  * Executive chosen separately from legislature (and not responsible to it)
+  * Independent judiciary with capacity to check the executive
+  * Separately designated religious authority with checking power over executive
+  * Military authority with ultimate or checking power over executive
+- **Key requirements:**
+  * (a) More than one organization has authority over policymaking
+  * (b) These organizations are independent of each other
+
+**Unitary Authority (0):**
+- Power is concentrated in one organization
+- No effective checks and balances between independent bodies
+- System that looks like separate powers on paper but is entirely controlled by one organization
+- All branches formally exist but are subordinate to the executive
+
+## Critical Distinction: De Facto vs De Jure
+
+**Wherever de facto power diverges from de jure power, we are concerned with the former (actual practice).**
+
+- A system that looks like separate powers on paper but is in fact entirely controlled by one organization → Code as **0**
+- Informal but effective checks on executive power → Consider actual power dynamics
+
+## Analysis Process
+
+1. Identify the formal institutional structure during this leader's reign
+2. Determine if multiple organizations had authority over policymaking
+3. Assess whether these organizations were truly independent of each other
+4. **Critically assess**: Were checks and balances effective in practice, or merely nominal?
+5. Focus on de facto (actual) power relationships, not de jure (formal) arrangements
+""",
+        
+        task_instruction="""Determine whether power was divided between independent organizations (1) or concentrated in unitary authority (0) during this leader's reign.
+
+Remember:
+- Separate Powers (1): Multiple independent organizations with authority over policymaking (e.g., independent legislature, judiciary, or religious/military authority)
+- Unitary Authority (0): Power concentrated in one organization, OR separate branches exist but are controlled by the executive
+
+**CRITICAL:** Code based on de facto (actual) power, not de jure (formal) arrangements. If branches exist on paper but one organization controls everything, code as 0.""",
+        
+        coding_rule_reminder="""⚠️ **IMPORTANT:** Focus on ACTUAL power relationships during THIS LEADER'S REIGN, not formal constitutional structures."""
+    ),
 }
 
 
@@ -431,36 +462,34 @@ Categories:
 # PROMPT BUILDERS
 # =============================================================================
 
-def build_system_prompt(indicator: str, reasoning: bool = True) -> str:
+def build_system_prompt(indicator: str) -> str:
     """
     Build system prompt for an indicator.
-
+    
     Args:
         indicator: Name of the indicator
-        reasoning: Whether to include reasoning in output format (default True)
-
+        
     Returns:
         Complete system prompt string
     """
     if indicator not in INDICATOR_CONFIGS:
         raise ValueError(f"Unknown indicator: {indicator}. Must be one of {list(INDICATOR_CONFIGS.keys())}")
-
+    
     config = INDICATOR_CONFIGS[indicator]
-
+    
     # Build header
     header = SYSTEM_PROMPT_HEADER.format(
         specialization=config.specialization,
         task_description=config.task_description
     )
-
+    
     # Build output format
     label_display = f'"{config.labels[0]}"' if len(config.labels) == 2 else f'one of {config.labels}'
-    template = OUTPUT_FORMAT_TEMPLATE if reasoning else OUTPUT_FORMAT_TEMPLATE_NO_REASONING
-    output_format = template.format(
+    output_format = OUTPUT_FORMAT_TEMPLATE.format(
         indicator=config.name,
         valid_labels=label_display
     )
-
+    
     return header + config.definition + output_format
 
 
@@ -469,49 +498,43 @@ def build_user_prompt(
     polity: str,
     name: str,
     start_year: int,
-    end_year: Optional[int],
-    reasoning: bool = True
+    end_year: int
 ) -> str:
     """
     Build user prompt for an indicator with leader-level information.
-
+    
     Args:
         indicator: Name of the indicator
         polity: Name of the polity
         name: Name of the leader
         start_year: Start year of the leader's reign
-        end_year: End year of the leader's reign (None if unknown/unavailable)
-        reasoning: Whether to include reasoning in output format (default True)
-
+        end_year: End year of the leader's reign
+        
     Returns:
         Complete user prompt string
     """
     if indicator not in INDICATOR_CONFIGS:
         raise ValueError(f"Unknown indicator: {indicator}. Must be one of {list(INDICATOR_CONFIGS.keys())}")
-
+    
     config = INDICATOR_CONFIGS[indicator]
-
-    # Format reign period (show "unknown" if end year is missing)
-    reign_period = f"{start_year}-{end_year if end_year is not None else 'unknown'}"
-
+    
     # Format label display for JSON example
     if len(config.labels) == 2:
         label_format = f"{config.labels[0]} or {config.labels[1]}"
     else:
         label_format = ", ".join(config.labels[:-1]) + f", or {config.labels[-1]}"
-
+    
     # Handle tenure's special coding rule reminder with years
     coding_rule = config.coding_rule_reminder
     if indicator == "tenure":
-        year_range = f"{start_year} to {end_year if end_year is not None else 'unknown'}"
-        coding_rule = coding_rule.format(start_year=start_year, end_year=year_range)
-
-    template = USER_PROMPT_TEMPLATE if reasoning else USER_PROMPT_TEMPLATE_NO_REASONING
-    return template.format(
+        coding_rule = coding_rule.format(start_year=start_year, end_year=end_year)
+    
+    return USER_PROMPT_TEMPLATE.format(
         indicator_display=config.display_name,
         polity=polity,
         name=name,
-        reign_period=reign_period,
+        start_year=start_year,
+        end_year=end_year,
         task_instruction=config.task_instruction,
         coding_rule_reminder=coding_rule,
         indicator=config.name,
@@ -528,25 +551,23 @@ def get_prompt(
     polity: str,
     name: str,
     start_year: int,
-    end_year: Optional[int],
-    reasoning: bool = True
+    end_year: int
 ) -> Tuple[str, str]:
     """
     Get system and user prompts for a specific indicator (leader-level).
-
+    
     Args:
-        indicator: One of sovereign, powersharing, assembly, appointment, tenure, exit
+        indicator: One of sovereign, assembly, appointment, tenure, exit, collegiality, separate_powers
         polity: Name of the polity
         name: Name of the leader
         start_year: Start year of the leader's reign
-        end_year: End year of the leader's reign (None if unknown/unavailable in data)
-        reasoning: Whether to include reasoning in output format (default True)
-
+        end_year: End year of the leader's reign
+        
     Returns:
         Tuple of (system_prompt, user_prompt)
     """
-    system_prompt = build_system_prompt(indicator, reasoning=reasoning)
-    user_prompt = build_user_prompt(indicator, polity, name, start_year, end_year, reasoning=reasoning)
+    system_prompt = build_system_prompt(indicator)
+    user_prompt = build_user_prompt(indicator, polity, name, start_year, end_year)
     return system_prompt, user_prompt
 
 
@@ -579,11 +600,6 @@ COVE_QUESTION_TEMPLATES: Dict[str, List[str]] = {
         "Did {polity} conduct independent foreign policy under {name}?",
         "Did {polity} pay tribute to any external power during {name}'s rule?"
     ],
-    "powersharing": [
-        "Who held executive power in {polity} during {name}'s reign ({start_year}-{end_year})?",
-        "Were there co-rulers, regents, or collegial bodies sharing executive authority with {name}?",
-        "Could {name} make major decisions unilaterally in {polity}?"
-    ],
     "assembly": [
         "What legislative or deliberative bodies existed in {polity} during {name}'s reign ({start_year}-{end_year})?",
         "Did any assembly have authority over taxation, legislation, or leader selection under {name}?",
@@ -603,6 +619,16 @@ COVE_QUESTION_TEMPLATES: Dict[str, List[str]] = {
         "How did {name} leave power in {polity}?",
         "Did {name} die in office, abdicate voluntarily, or face removal?",
         "Were there institutional mechanisms for succession when {name}'s rule ended?"
+    ],
+    "collegiality": [
+        "What was the formal executive structure in {polity} during {name}'s reign ({start_year}-{end_year})?",
+        "Did {name} dominate decision-making, or were decisions genuinely shared among multiple actors?",
+        "Were there co-rulers, regents, or formally constituted bodies sharing executive power with {name}?"
+    ],
+    "separate_powers": [
+        "What independent institutions existed in {polity} during {name}'s reign ({start_year}-{end_year})?",
+        "Did an independent judiciary have the capacity to check {name}'s power?",
+        "Did multiple independent organizations have authority over policymaking under {name}?"
     ]
 }
 
@@ -612,29 +638,26 @@ def get_cove_questions(
     polity: str,
     name: str,
     start_year: int,
-    end_year: Optional[int]
+    end_year: int
 ) -> List[str]:
     """
     Get Chain of Verification questions for an indicator (leader-level).
-
+    
     Args:
         indicator: Name of the indicator
         polity: Name of the polity
         name: Name of the leader
         start_year: Start year of the leader's reign
-        end_year: End year of the leader's reign (None if unknown/unavailable)
-
+        end_year: End year of the leader's reign
+        
     Returns:
         List of formatted questions
     """
     if indicator not in COVE_QUESTION_TEMPLATES:
         raise ValueError(f"No CoVe questions defined for indicator: {indicator}")
-
-    # Format reign period for questions
-    reign_period = f"{start_year}-{end_year if end_year is not None else 'unknown'}"
-
+    
     return [
-        q.format(polity=polity, name=name, start_year=start_year, end_year=reign_period)
+        q.format(polity=polity, name=name, start_year=start_year, end_year=end_year)
         for q in COVE_QUESTION_TEMPLATES[indicator]
     ]
 
@@ -647,29 +670,27 @@ def get_all_prompts_for_leader(
     polity: str,
     name: str,
     start_year: int,
-    end_year: Optional[int],
-    indicators: Optional[List[str]] = None,
-    reasoning: bool = True
+    end_year: int,
+    indicators: Optional[List[str]] = None
 ) -> Dict[str, Tuple[str, str]]:
     """
     Get prompts for all (or specified) indicators for a single leader.
-
+    
     Args:
         polity: Name of the polity
         name: Name of the leader
         start_year: Start year of the leader's reign
-        end_year: End year of the leader's reign (None if unknown/unavailable)
+        end_year: End year of the leader's reign
         indicators: Optional list of indicators to include (default: all)
-        reasoning: Whether to include reasoning in output format (default True)
-
+        
     Returns:
         Dictionary mapping indicator name to (system_prompt, user_prompt) tuple
     """
     if indicators is None:
         indicators = get_all_indicators()
-
+    
     return {
-        ind: get_prompt(ind, polity, name, start_year, end_year, reasoning=reasoning)
+        ind: get_prompt(ind, polity, name, start_year, end_year)
         for ind in indicators
     }
 

@@ -39,7 +39,7 @@ from utils.cost_tracker import CostTracker
 class PredictionConfig:
     """Configuration for prediction pipeline."""
     mode: PromptMode = PromptMode.MULTIPLE
-    indicators: List[str] = field(default_factory=lambda: ['sovereign', 'powersharing', 'assembly', 'appointment', 'tenure', 'exit'])
+    indicators: List[str] = field(default_factory=lambda: ['sovereign', 'assembly', 'appointment', 'tenure', 'exit', 'collegiality', 'separate_powers'])
     verify: VerificationType = VerificationType.NONE
     verify_indicators: List[str] = field(default_factory=list)
     model: str = DEFAULT_PRIMARY_MODEL
@@ -455,7 +455,7 @@ def create_predictor(
     """
     config = PredictionConfig(
         mode=PromptMode(mode),
-        indicators=indicators or ['sovereign', 'powersharing', 'assembly', 'appointment', 'tenure', 'exit'],
+        indicators=indicators or ['sovereign', 'assembly', 'appointment', 'tenure', 'exit', 'collegiality', 'separate_powers'],
         verify=VerificationType(verify),
         verify_indicators=verify_indicators or [],
         model=model,

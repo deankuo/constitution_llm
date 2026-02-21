@@ -38,8 +38,8 @@ class SequentialPromptBuilder(BasePromptBuilder):
     Example:
         # User-specified order
         builder = SequentialPromptBuilder(
-            indicators=['constitution', 'assembly', 'sovereign'],
-            sequence=['assembly', 'constitution', 'sovereign']
+            indicators=['constitution', 'assembly', 'collegiality'],
+            sequence=['assembly', 'constitution', 'collegiality']
         )
 
         # Random order
@@ -73,7 +73,7 @@ class SequentialPromptBuilder(BasePromptBuilder):
         """
         # Default to all 7 indicators if not specified
         if indicators is None:
-            indicators = ['constitution', 'sovereign', 'powersharing', 'assembly', 'appointment', 'tenure', 'exit']
+            indicators = ['constitution', 'sovereign', 'assembly', 'appointment', 'tenure', 'exit', 'collegiality', 'separate_powers']
 
         super().__init__(indicators, reasoning)
 
@@ -101,7 +101,7 @@ class SequentialPromptBuilder(BasePromptBuilder):
 
         Returns constitution first, then others in standard order.
         """
-        default = ['constitution', 'sovereign', 'powersharing', 'assembly', 'appointment', 'tenure', 'exit']
+        default = ['constitution', 'sovereign', 'assembly', 'appointment', 'tenure', 'exit', 'collegiality', 'separate_powers']
         return [ind for ind in default if ind in self.indicators]
 
     def build(

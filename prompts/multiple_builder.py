@@ -23,7 +23,7 @@ class MultiplePromptBuilder(BasePromptBuilder):
     accurate predictions.
 
     Example:
-        builder = MultiplePromptBuilder(indicators=['sovereign', 'assembly', 'powersharing'])
+        builder = MultiplePromptBuilder(indicators=['sovereign', 'assembly', 'collegiality'])
         prompts = builder.build("Roman Republic", -509, -27)
         # Returns 3 PromptOutput objects, one per indicator
     """

@@ -25,12 +25,6 @@ INDICATOR_SUMMARIES: Dict[str, str] = {
         "vassal, or tributary state where executive power is beholden to another polity."
     ),
 
-    "powersharing": (
-        "Powersharing (1) exists when two or more individuals share executive power at the apex of "
-        "the polity with comparable authority (e.g., Roman consuls, regencies, military juntas, "
-        "co-presidents). No powersharing (0) means one dominant leader controls executive power."
-    ),
-
     "assembly": (
         "An assembly (1) is a large popular assembly or representative parliament that: (a) has a "
         "role in leadership selection, taxation, or policy; (b) has independence from the executive; "
@@ -54,7 +48,21 @@ INDICATOR_SUMMARIES: Dict[str, str] = {
         "How leaders leave power: (0) irregular exit - died in office or removed by force; "
         "(1) regular exit - voluntary retirement, term limits, electoral defeat, or peaceful "
         "institutional transition."
-    )
+    ),
+
+    "collegiality": (
+        "Collegiality (1) means decision-making is shared by members of a formally constituted body "
+        "(e.g., cabinets, juntas, Roman consuls, regencies). Non-collegial (0) means a single actor "
+        "dominates, or a formally collegial body is in practice controlled by one person. "
+        "Code based on de facto (actual) power, not de jure (formal) arrangements."
+    ),
+
+    "separate_powers": (
+        "Separate powers (1) means power is divided between multiple independent organizations with "
+        "authority over policymaking (e.g., independent legislature, judiciary, or religious/military "
+        "authority). Unitary authority (0) means power is concentrated in one organization, or separate "
+        "branches exist on paper but are controlled by the executive. Code based on de facto power."
+    ),
 }
 
 
@@ -68,7 +76,7 @@ class SinglePromptBuilder(BasePromptBuilder):
     each other's predictions.
 
     Example:
-        builder = SinglePromptBuilder(indicators=['sovereign', 'assembly', 'powersharing'])
+        builder = SinglePromptBuilder(indicators=['sovereign', 'assembly', 'collegiality'])
         prompts = builder.build("Roman Republic", -509, -27)
         # Returns single PromptOutput covering all 3 indicators
     """
@@ -83,7 +91,7 @@ class SinglePromptBuilder(BasePromptBuilder):
         """
         # Default to all indicators except constitution (which has special handling)
         if indicators is None:
-            indicators = ['sovereign', 'powersharing', 'assembly', 'appointment', 'tenure', 'exit']
+            indicators = ['sovereign', 'assembly', 'appointment', 'tenure', 'exit', 'collegiality', 'separate_powers']
         super().__init__(indicators, reasoning)
 
     def build(

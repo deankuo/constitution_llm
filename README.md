@@ -10,14 +10,15 @@ A sophisticated pipeline for analyzing historical polities to predict political 
   - Google Gemini (Gemini 2.5 Pro, etc.)
   - AWS Bedrock (Claude on Bedrock, etc.)
 
-- **7 Political Indicators**:
+- **8 Political Indicators**:
   - **Constitution**: Written document with governance rules and limitations
   - **Sovereign**: Independent vs. colony/vassal/tributary
-  - **Powersharing**: Single leader vs. multiple leaders with comparable power
   - **Assembly**: Existence of legislative assembly/parliament
   - **Appointment**: How executives are selected (3-class)
   - **Tenure**: Longest leader's tenure: <5y, 5-10y, >10y
   - **Exit**: Irregular (died/forced) vs. regular (voluntary/term limits)
+  - **Collegiality**: Whether executive decision-making is shared by a formally constituted body
+  - **Separate Powers**: Whether power is divided between multiple independent organizations
 
 - **Verification Methods**:
   - **Self-Consistency**: Multiple samples at different temperatures with majority vote (3 samples default)
@@ -27,7 +28,11 @@ A sophisticated pipeline for analyzing historical polities to predict political 
 - **Prompt Modes**:
   - **Single**: All indicators in one unified prompt
   - **Multiple**: Separate prompt per indicator (recommended)
-  - **Sequential**: All 7 indicators in one prompt with distinct sequential sections (user-defined or random order)
+  - **Sequential**: All indicators in one prompt with distinct sequential sections (user-defined or random order)
+
+- **Parallel Row Processing**: Process N leader rows concurrently (`--parallel-rows N`) for faster batch runs. Works with all prompt modes.
+
+- **Assembly Extended Classifier** (`classify_assembly.py`): Downstream post-processing script that upgrades binary assembly predictions (0/1) to a three-label scheme (0/1/2), where label 2 = competitive factions or parties.
 
 - **Robust Processing**: Checkpoint system, automatic retries, cost tracking
 
@@ -94,12 +99,19 @@ BEDROCK_VERIFIER_MODEL=us.anthropic.claude-sonnet-4-5-20250929-v1:0
 ### Leader Pipeline (New, All 7 Indicators)
 
 ```bash
-# Run predictions for 6 indicators (excluding constitution)
+# Run predictions for all non-constitution indicators
 python main.py --pipeline leader \
-  --indicators sovereign powersharing assembly appointment tenure exit \
+  --indicators sovereign assembly appointment tenure exit collegiality separate_powers \
   --models gemini-2.5-pro \
   --mode multiple \
   --test 5
+
+# Process 4 leader rows in parallel (faster batch runs)
+python main.py --pipeline leader \
+  --indicators sovereign assembly \
+  --models gemini-2.5-pro \
+  --parallel-rows 4 \
+  --test 20
 
 # Run with Self-Consistency verification
 python main.py --pipeline leader \
@@ -159,7 +171,7 @@ import os
 # Configure
 config = PredictionConfig(
     mode=PromptMode.MULTIPLE,
-    indicators=['sovereign', 'powersharing', 'assembly'],
+    indicators=['sovereign', 'assembly', 'collegiality'],
     verify=VerificationType.NONE,
     model='gemini-2.5-pro',
     temperature=0.0
@@ -333,6 +345,7 @@ python main.py --help
 | `--sequence` | Indicator order for sequential mode (space-separated) | None |
 | `--random-sequence` | Randomize order in sequential mode | False |
 | `--reasoning` | Include reasoning columns (True/False) | `True` |
+| `--parallel-rows` | Number of leader rows to process concurrently | `1` |
 
 #### Polity Pipeline Arguments (constitution only, supports multiple models)
 
@@ -360,15 +373,15 @@ python main.py --pipeline leader \
 # Sequential mode with user-defined order
 python main.py --pipeline leader \
   --mode sequential \
-  --indicators constitution sovereign assembly powersharing appointment tenure exit \
-  --sequence assembly constitution sovereign exit powersharing tenure appointment \
+  --indicators constitution sovereign assembly collegiality separate_powers appointment tenure exit \
+  --sequence assembly constitution sovereign exit collegiality separate_powers tenure appointment \
   --models gemini-2.5-pro \
   --test 5
 
 # Sequential mode with random order
 python main.py --pipeline leader \
   --mode sequential \
-  --indicators constitution sovereign assembly powersharing appointment tenure exit \
+  --indicators constitution sovereign assembly collegiality separate_powers appointment tenure exit \
   --random-sequence \
   --models gemini-2.5-pro \
   --test 5
@@ -392,11 +405,12 @@ python main.py --pipeline leader \
   --verifier-model anthropic.claude-sonnet-4-5-20250929-v1:0 \
   --test 5
 
-# Full batch (all 7 indicators)
+# Full batch (all non-constitution indicators), 4 rows in parallel
 python main.py --pipeline leader \
-  --indicators sovereign powersharing assembly appointment tenure exit \
+  --indicators sovereign assembly appointment tenure exit collegiality separate_powers \
   --models gemini-2.5-pro \
   --mode multiple \
+  --parallel-rows 4 \
   --input data/plt_leaders_data.csv \
   --output data/results/experiment_001.csv
 
@@ -461,7 +475,7 @@ The pipeline supports three distinct prompt modes, each with different character
 --mode sequential
 
 # User-specified order
---mode sequential --sequence assembly sovereign exit constitution powersharing tenure appointment
+--mode sequential --sequence assembly sovereign exit constitution collegiality separate_powers tenure appointment
 
 # Random order (useful for testing sequence effects)
 --mode sequential --random-sequence
@@ -490,18 +504,19 @@ DEFAULT_MAX_RETRIES = 3
 
 # Indicators
 ALL_INDICATORS = [
-    'constitution', 'sovereign', 'powersharing',
-    'assembly', 'appointment', 'tenure', 'exit'
+    'constitution', 'sovereign', 'assembly',
+    'appointment', 'tenure', 'exit', 'collegiality', 'separate_powers'
 ]
 
 INDICATOR_LABELS = {
     'constitution': ['1', '0'],
     'sovereign': ['0', '1'],
-    'powersharing': ['0', '1'],
     'assembly': ['0', '1'],
     'appointment': ['0', '1', '2'],
     'tenure': ['0', '1', '2'],
-    'exit': ['0', '1']
+    'exit': ['0', '1'],
+    'collegiality': ['0', '1'],
+    'separate_powers': ['0', '1'],
 }
 ```
 
@@ -690,6 +705,68 @@ python utils/sanity_check.py \
 **Column Naming Support:**
 - Automatically detects new format: `{indicator}_prediction`, `{indicator}_confidence`, `{indicator}_reasoning`
 - Backward compatible with legacy format: `constitution_gemini`, `confidence_score_gemini`, `explanation_gemini`
+
+## Assembly Extended Classifier
+
+`classify_assembly.py` is a **standalone downstream script** that extends binary assembly
+predictions to a three-label scheme. Run it **after** the main pipeline.
+
+### Label Scheme
+
+| Label | Meaning |
+|-------|---------|
+| `0` | No assembly (pass-through — no API call) |
+| `1` | Assembly exists, no competitive factions or parties |
+| `2` | Assembly exists **with** competitive factions or parties |
+
+### Output Columns Added
+
+- `assembly_extended_prediction` — `"0"`, `"1"`, or `"2"`
+- `assembly_extended_confidence` — integer 1–100 (null for label-0 rows)
+- `assembly_extended_reasoning` — reasoning text (null for label-0 rows)
+
+The original `assembly_prediction` column is **never modified**.
+
+### Usage
+
+```bash
+# Basic run
+python classify_assembly.py \
+    --input  data/results/predictions.csv \
+    --output data/results/predictions_extended.csv
+
+# With a different model
+python classify_assembly.py \
+    --input  data/results/predictions.csv \
+    --output data/results/predictions_extended.csv \
+    --model  gpt-4o
+
+# Process 4 rows in parallel
+python classify_assembly.py \
+    --input  data/results/predictions.csv \
+    --output data/results/predictions_extended.csv \
+    --parallel-rows 4
+
+# Test on first 10 rows only
+python classify_assembly.py \
+    --input  data/results/predictions.csv \
+    --output data/results/predictions_extended.csv \
+    --test 10
+```
+
+### CLI Options
+
+| Argument | Description | Default |
+|----------|-------------|---------|
+| `--input` | Predictions CSV from the main pipeline | required |
+| `--output` | Output CSV path | required |
+| `--model` | LLM model identifier | `gemini-2.5-pro` |
+| `--assembly-col` | Column name with binary assembly predictions | `assembly_prediction` |
+| `--parallel-rows` | Concurrent rows to process | `1` |
+| `--delay` | Seconds between calls / windows | `1.0` |
+| `--test` | Process only first N rows | None |
+
+---
 
 ## Troubleshooting
 

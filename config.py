@@ -80,32 +80,35 @@ BEDROCK_ARN_PREFIX = "arn:aws:bedrock"
 ALL_INDICATORS = [
     'constitution',
     'sovereign',
-    'powersharing',
     'assembly',
     'appointment',
     'tenure',
-    'exit'
+    'exit',
+    'collegiality',
+    'separate_powers',
 ]
 
 # Indicators with ground truth for evaluation
 INDICATORS_WITH_GROUND_TRUTH = [
     'sovereign',
-    'powersharing',
     'assembly',
     'appointment',
     'tenure',
-    'exit'
+    'exit',
+    'collegiality',
+    'separate_powers',
 ]
 
 # Indicator valid labels
 INDICATOR_LABELS = {
     'constitution': ['1', '0'],
     'sovereign': ['0', '1'],
-    'powersharing': ['0', '1'],
     'assembly': ['0', '1'],
     'appointment': ['0', '1', '2'],
     'tenure': ['0', '1', '2'],
-    'exit': ['0', '1']
+    'exit': ['0', '1'],
+    'collegiality': ['0', '1'],
+    'separate_powers': ['0', '1'],
 }
 
 # =============================================================================

@@ -8,10 +8,12 @@ on multiple polities with checkpoint support.
 import json
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Any
+from threading import Lock
+from typing import Callable, Dict, List, Optional, Any, Tuple
 
 import pandas as pd
 from tqdm import tqdm
@@ -31,6 +33,7 @@ class BatchConfig:
     retry_delay: float = 5.0
     save_intermediate: bool = True
     output_formats: List[str] = field(default_factory=lambda: ['csv', 'json'])
+    max_workers: int = 1  # Number of rows to process in parallel (1 = sequential)
 
 
 @dataclass
@@ -134,36 +137,16 @@ class BatchRunner:
                 'verification': self.predictor.config.verify.value
             })
 
+        workers = self.config.max_workers
         print(f"Starting batch processing of {len(df)} polities...")
         print(f"Checkpoint interval: {self.config.checkpoint_interval}")
+        print(f"Parallel workers:    {workers}")
         print(f"Output path: {self.output_path}")
 
-        # Process each polity
-        for idx in tqdm(range(start_idx, len(df)), desc="Processing polities"):
-            row = df.iloc[idx]
-
-            try:
-                result = self._process_single_polity(row, idx)
-                self.results.append(result)
-                self.progress.completed += 1
-
-            except Exception as e:
-                print(f"\nError processing {row.get(COL_TERRITORY_NAME, 'unknown')}: {e}")
-                self.progress.failed += 1
-
-                # Add error result
-                error_result = self._create_error_result(row, str(e))
-                self.results.append(error_result)
-
-                if self.logger:
-                    self.logger.log_error(f"Failed: {row.get(COL_TERRITORY_NAME, 'unknown')}: {e}")
-
-            # Save checkpoint if needed
-            if self.config.save_intermediate and (idx + 1) % self.config.checkpoint_interval == 0:
-                self._save_checkpoint(idx + 1)
-
-            # Rate limiting delay
-            time.sleep(self.config.delay_between_calls)
+        if workers > 1:
+            self._run_parallel(df, start_idx)
+        else:
+            self._run_sequential(df, start_idx)
 
         # Save final results
         results_df = self._save_final_results()
@@ -186,6 +169,89 @@ class BatchRunner:
         print(f"Results saved to: {self.output_path}")
 
         return results_df
+
+    def _run_sequential(self, df: pd.DataFrame, start_idx: int) -> None:
+        """Process rows one at a time (original behaviour)."""
+        for idx in tqdm(range(start_idx, len(df)), desc="Processing polities"):
+            row = df.iloc[idx]
+            try:
+                result = self._process_single_polity(row, idx)
+                self.results.append(result)
+                self.progress.completed += 1
+            except Exception as e:
+                print(f"\nError processing {row.get(COL_TERRITORY_NAME, 'unknown')}: {e}")
+                self.progress.failed += 1
+                self.results.append(self._create_error_result(row, str(e)))
+                if self.logger:
+                    self.logger.log_error(f"Failed: {row.get(COL_TERRITORY_NAME, 'unknown')}: {e}")
+
+            if self.config.save_intermediate and (idx + 1) % self.config.checkpoint_interval == 0:
+                self._save_checkpoint(idx + 1)
+
+            time.sleep(self.config.delay_between_calls)
+
+    def _run_parallel(self, df: pd.DataFrame, start_idx: int) -> None:
+        """
+        Process rows in parallel windows of max_workers size.
+
+        Rows within each window are submitted concurrently; windows are
+        processed in order so that checkpointing and result ordering are
+        preserved.  A short delay is inserted between windows to avoid
+        overwhelming rate limits.
+        """
+        workers = self.config.max_workers
+        indices = list(range(start_idx, len(df)))
+        # Split into windows of `workers` rows
+        windows = [indices[i:i + workers] for i in range(0, len(indices), workers)]
+
+        processed_total = start_idx
+        results_lock = Lock()
+
+        with tqdm(total=len(indices), desc="Processing polities") as pbar:
+            for window in windows:
+                window_results: List[Tuple[int, Dict]] = []
+
+                with ThreadPoolExecutor(max_workers=workers) as executor:
+                    future_to_idx = {
+                        executor.submit(
+                            self._process_single_polity, df.iloc[orig_idx], orig_idx
+                        ): orig_idx
+                        for orig_idx in window
+                    }
+
+                    for future in as_completed(future_to_idx):
+                        orig_idx = future_to_idx[future]
+                        row = df.iloc[orig_idx]
+                        try:
+                            result = future.result()
+                            window_results.append((orig_idx, result))
+                            with results_lock:
+                                self.progress.completed += 1
+                        except Exception as e:
+                            print(f"\nError processing {row.get(COL_TERRITORY_NAME, 'unknown')}: {e}")
+                            with results_lock:
+                                self.progress.failed += 1
+                            window_results.append((orig_idx, self._create_error_result(row, str(e))))
+                            if self.logger:
+                                self.logger.log_error(
+                                    f"Failed: {row.get(COL_TERRITORY_NAME, 'unknown')}: {e}"
+                                )
+
+                # Re-sort window results by original index to preserve row order
+                window_results.sort(key=lambda x: x[0])
+                for _, result in window_results:
+                    self.results.append(result)
+
+                processed_total += len(window)
+                pbar.update(len(window))
+
+                # Checkpoint after each window if interval reached
+                if self.config.save_intermediate and processed_total % self.config.checkpoint_interval == 0:
+                    self._save_checkpoint(processed_total)
+
+                # Brief delay between windows to respect rate limits
+                if window != windows[-1]:
+                    time.sleep(self.config.delay_between_calls)
 
     def _validate_input(self, df: pd.DataFrame) -> None:
         """Validate input DataFrame has required columns."""

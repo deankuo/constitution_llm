@@ -23,12 +23,12 @@ from sklearn.metrics import (
 
 # Indicators with ground truth (exclude constitution)
 INDICATORS_WITH_GROUND_TRUTH = [
-    'sovereign', 'powersharing', 'assembly',
-    'appointment', 'tenure', 'exit'
+    'sovereign', 'assembly', 'appointment', 'tenure', 'exit',
+    'collegiality', 'separate_powers'
 ]
 
 # Binary (2-class) indicators
-BINARY_INDICATORS = ['sovereign', 'powersharing', 'assembly', 'exit']
+BINARY_INDICATORS = ['sovereign', 'assembly', 'exit', 'collegiality', 'separate_powers']
 
 # 3-class indicators
 MULTICLASS_INDICATORS = ['appointment', 'tenure']

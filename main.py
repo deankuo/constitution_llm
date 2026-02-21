@@ -2,7 +2,7 @@
 Constitution Analysis Pipeline - Polity Level
 
 This script analyzes historical polities to determine political indicators
-including constitution status, sovereignty, powersharing, assembly, appointment,
+including constitution status, sovereignty, assembly, appointment,
 tenure, and exit patterns.
 
 Supports multiple LLM providers:
@@ -22,6 +22,9 @@ import argparse
 import concurrent.futures
 import time
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
+from threading import Lock
 from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
@@ -322,18 +325,43 @@ def process_single_polity(
     sc_temperatures: Optional[List[float]] = None,
     cove_questions_per_element: int = 1,
 ) -> Optional[Dict]:
-    """Process a single polity for constitution analysis (polity pipeline)."""
+    """Process a single polity for constitution analysis (polity pipeline).
+
+    When an LLM instance is supplied and web search is disabled, uses
+    llm.call() so that token counts are available for cost tracking.
+    Cost data is returned under private keys (_input_tokens, _output_tokens,
+    _cached_tokens) for the caller to aggregate; they are stripped before
+    the final CSV is written.
+    """
     system_prompt, user_prompt = create_prompt(country, start_year, end_year)
 
-    response = _route_to_model(
-        system_prompt, user_prompt, model_identifier,
-        api_keys, llm_params, max_retries, retry_delay, use_search_flag
-    )
+    input_tokens = 0
+    output_tokens = 0
+    cached_tokens = 0
 
-    if response is None:
+    # Prefer llm.call() (gives token counts) when available and not in search mode
+    if llm is not None and not use_search_flag:
+        model_response = llm.call(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=llm_params.get('temperature', DEFAULT_TEMPERATURE),
+            max_tokens=llm_params.get('max_tokens', DEFAULT_MAX_TOKENS),
+            top_p=llm_params.get('top_p', DEFAULT_TOP_P),
+        )
+        response_content = model_response.content
+        input_tokens = model_response.input_tokens
+        output_tokens = model_response.output_tokens
+        cached_tokens = model_response.cached_tokens
+    else:
+        response_content = _route_to_model(
+            system_prompt, user_prompt, model_identifier,
+            api_keys, llm_params, max_retries, retry_delay, use_search_flag
+        )
+
+    if response_content is None:
         return None
 
-    parsed_result = parse_llm_response(response, max_retries, retry_delay)
+    parsed_result = parse_llm_response(response_content, max_retries, retry_delay)
 
     model_suffix = model_key.lower().replace("-", "_")
     status = parsed_result.get('constitution_status') or parsed_result.get('constitution')
@@ -346,6 +374,11 @@ def process_single_polity(
         f'explanation_{model_suffix}': explanation,
         f'explanation_length_{model_suffix}': len(explanation) if explanation else 0,
         f'confidence_score_{model_suffix}': parsed_result.get('confidence_score', None),
+        # Private cost fields — stripped before CSV output
+        f'_input_tokens_{model_suffix}': input_tokens,
+        f'_output_tokens_{model_suffix}': output_tokens,
+        f'_cached_tokens_{model_suffix}': cached_tokens,
+        '_model_identifier': model_identifier,
     }
 
     # Apply verification if requested
@@ -364,11 +397,100 @@ def process_single_polity(
             sc_n_samples=sc_n_samples,
             sc_temperatures=sc_temperatures or [0.0, 0.5, 1.0],
             cove_questions_per_element=cove_questions_per_element,
-            initial_status=status,
+            initial_status=status or '',
             initial_reasoning=explanation,
         )
 
     return result
+
+
+def _process_one_row(
+    row: pd.Series,
+    models_dict: Dict[str, str],
+    api_keys: Dict,
+    llm_params: Dict,
+    max_retries: int,
+    retry_delay: float,
+    use_search_flag: bool,
+    verify_type: str,
+    model_llms: Dict[str, Any],
+    verifier_llm: Any,
+    sc_n_samples: int,
+    sc_temperatures: Optional[List[float]],
+    cove_questions_per_element: int,
+) -> Dict:
+    """
+    Process all models for a single polity row.
+
+    Returns a merged result dict (original row data + all model predictions).
+    Private cost fields (_input_tokens_*, _output_tokens_*, _cached_tokens_*,
+    _model_identifier) are included for the caller to aggregate into CostTracker.
+    """
+    country = row[COL_TERRITORY_NAME]
+    start_year = int(row[COL_START_YEAR])
+    end_year = int(row[COL_END_YEAR])
+
+    entry_result = row.to_dict()
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(models_dict)) as executor:
+        future_to_model = {
+            executor.submit(
+                process_single_polity,
+                country, start_year, end_year,
+                model_key, model_identifier,
+                api_keys, llm_params,
+                max_retries, retry_delay, use_search_flag,
+                verify_type, model_llms.get(model_key), verifier_llm,
+                sc_n_samples, sc_temperatures, cove_questions_per_element,
+            ): model_key
+            for model_key, model_identifier in models_dict.items()
+        }
+
+        for future in concurrent.futures.as_completed(future_to_model):
+            model_key = future_to_model[future]
+            try:
+                result = future.result()
+                if result:
+                    entry_result.update(result)
+                else:
+                    raise ValueError("Query function returned None")
+            except Exception as exc:
+                print(f"\nERROR processing {country} with model {model_key}: {exc}")
+                model_suffix = model_key.lower().replace("-", "_")
+                error_msg = f"Failed after retries: {exc}"
+                entry_result[f'constitution_{model_suffix}'] = -1
+                entry_result[f'constitution_name_{model_suffix}'] = "Query Failed"
+                entry_result['constitution_year'] = None
+                entry_result[f'explanation_{model_suffix}'] = error_msg
+                entry_result[f'explanation_length_{model_suffix}'] = len(error_msg)
+
+    return entry_result
+
+
+def _aggregate_row_costs(
+    entry_result: Dict,
+    models_dict: Dict[str, str],
+    cost_tracker: CostTracker,
+) -> None:
+    """
+    Read private cost fields from entry_result, record them in cost_tracker,
+    and remove them from entry_result so they don't appear in the CSV.
+    """
+    for model_key, model_identifier in models_dict.items():
+        model_suffix = model_key.lower().replace("-", "_")
+        in_tok = entry_result.pop(f'_input_tokens_{model_suffix}', 0) or 0
+        out_tok = entry_result.pop(f'_output_tokens_{model_suffix}', 0) or 0
+        ca_tok = entry_result.pop(f'_cached_tokens_{model_suffix}', 0) or 0
+        if in_tok or out_tok:
+            cost_tracker.add_usage(
+                model=model_identifier,
+                input_tokens=int(in_tok),
+                output_tokens=int(out_tok),
+                cached_tokens=int(ca_tok),
+                indicator='constitution',
+            )
+    # Remove the shared identifier field if present
+    entry_result.pop('_model_identifier', None)
 
 
 def process_batch(
@@ -388,75 +510,130 @@ def process_batch(
     sc_n_samples: int = 3,
     sc_temperatures: Optional[List[float]] = None,
     cove_questions_per_element: int = 1,
+    # Parallel row processing
+    max_workers: int = 1,
+    # Cost tracking
+    cost_tracker: Optional[CostTracker] = None,
+    output_path: Optional[str] = None,
 ) -> pd.DataFrame:
-    """Process polity data in batches (polity pipeline)."""
-    results = []
+    """Process polity data in batches (polity pipeline).
+
+    Args:
+        max_workers: Number of polity rows to process concurrently.
+                     1 (default) = sequential; >1 = parallel windows.
+        cost_tracker: Optional shared CostTracker. A new one is created if
+                      not supplied.
+        output_path:  If provided, a cost report JSON is saved alongside it.
+    """
+    _api_keys = api_keys or {}
+    _llm_params = llm_params or {}
+    _model_llms = model_llms or {}
+    cost_tracker = cost_tracker or CostTracker()
+
+    results: List[Dict] = []
     total_polities = len(df)
-    checkpoint_files = []
+    checkpoint_files: List[str] = []
     checkpoint_at_50_percent = total_polities // 2
 
     verify_info = f" | verification: {verify_type}" if verify_type != 'none' else ""
     print(f"Starting to process {total_polities} polities using models: {list(models_dict.keys())}{verify_info}")
+    print(f"Parallel row workers: {max_workers}")
     print(f"Checkpoint will be saved at: {checkpoint_at_50_percent} polities (50%)")
 
-    for idx, row in tqdm(df.iterrows(), total=total_polities, desc="Processing Polities"):
-        country = row[COL_TERRITORY_NAME]
-        start_year = int(row[COL_START_YEAR])
-        end_year = int(row[COL_END_YEAR])
+    # Closure that captures shared kwargs — avoids **dict unpacking so that
+    # Pylance can resolve argument types correctly.
+    def _call_row(row: pd.Series) -> Dict:
+        return _process_one_row(
+            row=row,
+            models_dict=models_dict,
+            api_keys=_api_keys,
+            llm_params=_llm_params,
+            max_retries=max_retries,
+            retry_delay=retry_delay,
+            use_search_flag=use_search_flag,
+            verify_type=verify_type,
+            model_llms=_model_llms,
+            verifier_llm=verifier_llm,
+            sc_n_samples=sc_n_samples,
+            sc_temperatures=sc_temperatures,
+            cove_questions_per_element=cove_questions_per_element,
+        )
 
-        entry_result = row.to_dict()
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(models_dict)) as executor:
-            future_to_model = {}
-
-            for model_key, model_identifier in models_dict.items():
-                llm_for_verify = (model_llms or {}).get(model_key)
-                future = executor.submit(
-                    process_single_polity,
-                    country, start_year, end_year,
-                    model_key, model_identifier,
-                    api_keys, llm_params,
-                    max_retries, retry_delay, use_search_flag,
-                    verify_type, llm_for_verify, verifier_llm,
-                    sc_n_samples, sc_temperatures, cove_questions_per_element,
-                )
-                future_to_model[future] = model_key
-
-            for future in concurrent.futures.as_completed(future_to_model):
-                model_key = future_to_model[future]
-                try:
-                    result = future.result()
-                    if result:
-                        entry_result.update(result)
-                    else:
-                        raise ValueError("Query function returned None")
-                except Exception as exc:
-                    print(f"\nERROR processing {country} with model {model_key}: {exc}")
-                    model_suffix = model_key.lower().replace("-", "_")
-                    error_msg = f"Failed after retries: {exc}"
-                    entry_result[f'constitution_{model_suffix}'] = -1
-                    entry_result[f'constitution_name_{model_suffix}'] = "Query Failed"
-                    entry_result['constitution_year'] = None
-                    entry_result[f'explanation_{model_suffix}'] = error_msg
-                    entry_result[f'explanation_length_{model_suffix}'] = len(error_msg)
-
+    def _handle_row_result(entry_result: Dict, processed_count: int) -> None:
+        """Aggregate cost from result, append to results, maybe checkpoint."""
+        _aggregate_row_costs(entry_result, models_dict, cost_tracker)
         results.append(entry_result)
-
-        if (idx + 1) == checkpoint_at_50_percent:
+        if processed_count == checkpoint_at_50_percent:
             temp_df = pd.DataFrame(results)
-            temp_filename = f'checkpoint_50percent_{total_polities}polities.csv'
-            temp_df.to_csv(temp_filename, index=False)
-            checkpoint_files.append(temp_filename)
-            print(f"\n  Checkpoint saved at 50%: {temp_filename}")
+            fname = f'checkpoint_50percent_{total_polities}polities.csv'
+            temp_df.to_csv(fname, index=False)
+            checkpoint_files.append(fname)
+            print(f"\n  Checkpoint saved at 50%: {fname}")
 
-        time.sleep(delay)
+    if max_workers <= 1:
+        # ── Sequential (original behaviour) ────────────────────────────────
+        for processed_count, (_, row) in enumerate(
+            tqdm(df.iterrows(), total=total_polities, desc="Processing Polities"), start=1
+        ):
+            try:
+                entry_result = _call_row(row)
+            except Exception as e:
+                print(f"\nERROR on row {processed_count}: {e}")
+                entry_result = row.to_dict()
+                for model_key in models_dict:
+                    model_suffix = model_key.lower().replace("-", "_")
+                    entry_result[f'constitution_{model_suffix}'] = -1
+                    entry_result[f'explanation_{model_suffix}'] = f"Error: {e}"
 
+            _handle_row_result(entry_result, processed_count)
+            time.sleep(delay)
+
+    else:
+        # ── Parallel window-based ──────────────────────────────────────────
+        row_list = [(i, row) for i, row in df.iterrows()]
+        windows = [row_list[i:i + max_workers] for i in range(0, len(row_list), max_workers)]
+        processed_count = 0
+
+        with tqdm(total=total_polities, desc="Processing Polities") as pbar:
+            for window in windows:
+                window_results: List[Tuple[int, Dict]] = []
+
+                with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    future_to_orig = {
+                        executor.submit(_call_row, row): orig_idx
+                        for orig_idx, row in window
+                    }
+                    for future in as_completed(future_to_orig):
+                        orig_idx = future_to_orig[future]
+                        row = df.iloc[orig_idx]
+                        try:
+                            entry_result = future.result()
+                        except Exception as e:
+                            print(f"\nERROR on row {orig_idx}: {e}")
+                            entry_result = row.to_dict()
+                            for model_key in models_dict:
+                                model_suffix = model_key.lower().replace("-", "_")
+                                entry_result[f'constitution_{model_suffix}'] = -1
+                                entry_result[f'explanation_{model_suffix}'] = f"Error: {e}"
+                        window_results.append((orig_idx, entry_result))
+
+                # Re-sort by original index to preserve row order
+                window_results.sort(key=lambda x: x[0])
+                for _, entry_result in window_results:
+                    processed_count += 1
+                    _handle_row_result(entry_result, processed_count)
+
+                pbar.update(len(window))
+                if window != windows[-1]:
+                    time.sleep(delay)
+
+    # ── Final checkpoint and cleanup ──────────────────────────────────────
     final_df = pd.DataFrame(results)
 
-    temp_filename = f'checkpoint_100percent_{total_polities}polities.csv'
-    final_df.to_csv(temp_filename, index=False)
-    checkpoint_files.append(temp_filename)
-    print(f"\n  Checkpoint saved at 100%: {temp_filename}")
+    fname = f'checkpoint_100percent_{total_polities}polities.csv'
+    final_df.to_csv(fname, index=False)
+    checkpoint_files.append(fname)
+    print(f"\n  Checkpoint saved at 100%: {fname}")
 
     for checkpoint_file in checkpoint_files:
         try:
@@ -465,6 +642,15 @@ def process_batch(
                 print(f"  Deleted checkpoint file: {checkpoint_file}")
         except Exception as e:
             print(f"  Warning: Could not delete checkpoint file {checkpoint_file}: {e}")
+
+    # ── Cost report ──────────────────────────────────────────────────────
+    cost_tracker.print_summary()
+    if output_path:
+        logs_dir = Path('data/logs')
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        cost_report = logs_dir / f'{Path(output_path).stem}_costs.json'
+        cost_tracker.save_report(str(cost_report))
+        print(f"  Cost report saved: {cost_report}")
 
     return final_df
 
@@ -538,7 +724,7 @@ Examples:
   # --- LEADER level (new modular pipeline, all 7 indicators) ---
 
   # Predict sovereign + assembly with multiple prompts (default mode)
-  python main.py --pipeline leader --indicators sovereign assembly powersharing
+  python main.py --pipeline leader --indicators sovereign assembly collegiality
 
   # With self-consistency verification on assembly
   python main.py --pipeline leader --indicators assembly --verify self_consistency --verify-indicators assembly
@@ -547,10 +733,10 @@ Examples:
   python main.py --pipeline leader --mode single --indicators sovereign assembly exit
 
   # Sequential mode with a user-defined indicator order
-  python main.py --pipeline leader --mode sequential --indicators constitution sovereign assembly powersharing appointment tenure exit --sequence assembly constitution sovereign exit powersharing tenure appointment
+  python main.py --pipeline leader --mode sequential --indicators constitution sovereign assembly collegiality separate_powers appointment tenure exit --sequence assembly constitution sovereign exit collegiality separate_powers tenure appointment
 
   # Sequential mode with randomised indicator order
-  python main.py --pipeline leader --mode sequential --indicators constitution sovereign assembly powersharing appointment tenure exit --random-sequence
+  python main.py --pipeline leader --mode sequential --indicators constitution sovereign assembly collegiality separate_powers appointment tenure exit --random-sequence
 
   # CoVe verification with a Bedrock verifier model
   python main.py --pipeline leader --indicators constitution --verify cove --verify-indicators constitution --verifier-model us.anthropic.claude-sonnet-4-5-20250929-v1:0
@@ -707,6 +893,17 @@ Examples:
         help='Save checkpoint every N rows (leader pipeline only)'
     )
     parser.add_argument(
+        '--parallel-rows',
+        type=int,
+        default=1,
+        metavar='N',
+        help=(
+            'Number of input rows (leaders) to process concurrently (default: 1 = sequential). '
+            'Works with all prompt modes (single, multiple, sequential). '
+            'Each parallel worker makes its own independent API call(s) for one leader row.'
+        )
+    )
+    parser.add_argument(
         '--sequence',
         nargs='+',
         help='Indicator sequence for sequential mode (space-separated, e.g., "constitution assembly sovereign")'
@@ -787,7 +984,8 @@ Examples:
             checkpoint_interval=args.checkpoint_interval,
             delay_between_calls=args.delay,
             max_retries=args.max_retries,
-            retry_delay=args.retry_delay
+            retry_delay=args.retry_delay,
+            max_workers=args.parallel_rows
         )
 
         # Load data
@@ -859,15 +1057,16 @@ Examples:
     # Create BaseLLM instances and verifier for verification (if requested)
     model_llms: Dict[str, Any] = {}
     verifier_llm_instance: Any = None
-    if args.verify != 'none':
-        print(f"Verification: {args.verify} — creating LLM instances...")
-        for model_key, model_identifier in models_dict.items():
-            model_llms[model_key] = create_llm(model_identifier, api_keys)
-        if args.verify in ('cove', 'both'):
-            if args.verifier_model:
-                verifier_llm_instance = create_llm(args.verifier_model, api_keys)
-            else:
-                print("Warning: CoVe requires --verifier-model. CoVe will be skipped.")
+    # Always create LLM instances — needed for cost tracking AND verification
+    print("Creating LLM instances for cost tracking...")
+    for model_key, model_identifier in models_dict.items():
+        model_llms[model_key] = create_llm(model_identifier, api_keys)
+
+    if args.verify in ('cove', 'both'):
+        if args.verifier_model:
+            verifier_llm_instance = create_llm(args.verifier_model, api_keys)
+        else:
+            print("Warning: CoVe requires --verifier-model. CoVe will be skipped.")
 
     # Process data
     results_df = process_batch(
@@ -881,11 +1080,13 @@ Examples:
         retry_delay=args.retry_delay,
         use_search_flag=args.use_search,
         verify_type=args.verify,
-        model_llms=model_llms if model_llms else None,
+        model_llms=model_llms,
         verifier_llm=verifier_llm_instance,
         sc_n_samples=args.n_samples,
         sc_temperatures=args.sc_temperatures,
         cove_questions_per_element=1,
+        max_workers=args.parallel_rows,
+        output_path=args.output,
     )
 
     # Ensure output directory exists

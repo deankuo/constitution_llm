@@ -74,6 +74,7 @@ Step 3  **Identify Written Constitutional Documents**
    - What specific written document(s) established rules for governance?
    - Name the document(s) with their official titles
    - When were they adopted or enacted?
+   - If multiple constitutions existed during this period, list ALL of them
 
 Step 4  **Evaluate Against the Four Criteria**
    - Element 1 (Written): Is there a specific written document you can name?
@@ -87,7 +88,7 @@ Step 5  **Consider Temporal Factors**
    - When was the constitution adopted?
    - Did it exist for the entire period, or only part of it?
    - Were there changes, amendments, or abrogations?
-   - If multiple constitutions, record the earliest one
+   - If multiple constitutions existed during this period, record ALL of them
 
 Step 6  **Assess Confidence Based on Historical Evidence**
    - How clear and well-documented is the evidence?
@@ -109,8 +110,8 @@ Step 6  **Assess Confidence Based on Historical Evidence**
 
 Provide a JSON object with exactly these fields:
 - "constitution": Must be exactly "Yes" or "No" (string)
-- "document_name": Official name(s) of the constitutional document(s), or "N/A" if none
-- "constitution_year": Year of adoption of the earliest constitutional document (integer), or null if none
+- "document_name": Official name(s) of the constitutional document(s), or "N/A" if none. If multiple documents, separate with semicolons (e.g., "Document A; Document B")
+- "constitution_year": Year(s) of adoption as exact integers only, or "N/A" if none. Do NOT use approximations like "c.", "circa", or "approximately". If multiple years, separate with semicolons (e.g., "1789; 1791")
 - "reasoning": Your step-by-step reasoning following the analysis process (string)
 - "confidence_score": Integer from 1 to 100 based on evidence quality
 
@@ -146,7 +147,7 @@ Work through each step systematically:
    ✓ Code of law - do they have legal force?
    ✓ Governance rules - do they specify how leaders are chosen and laws are made?
    ✓ Limitations on authority - do they constrain power or protect rights?
-5. If multiple constitutions existed, record the earliest one
+5. If multiple constitutions existed during this period, record ALL of them (separate with semicolons)
 6. Assess your confidence based on the quality of historical evidence
 
 **Remember: If you cannot confirm ALL FOUR elements, answer "No".**
@@ -155,7 +156,7 @@ Work through each step systematically:
 
 Respond with a single JSON object (no markdown, no extra text):
 
-{{"constitution": "Yes or No", "document_name": "name or N/A", "constitution_year": year or null, "reasoning": "step-by-step reasoning", "confidence_score": 1-100}}
+{{"constitution": "Yes or No", "document_name": "name(s) or N/A (semicolon-separated if multiple)", "constitution_year": "exact integer year(s) or N/A (semicolon-separated if multiple, no 'c.' or 'circa')", "reasoning": "step-by-step reasoning", "confidence_score": 1-100}}
 
 ## Now provide your analysis:
 """

@@ -29,7 +29,7 @@ except ImportError:
     from config import DEFAULT_MAX_TOKENS
 
 # All available indicators
-ALL_INDICATORS = ['constitution', 'sovereign', 'powersharing', 'assembly', 'appointment', 'tenure', 'exit']
+ALL_INDICATORS = ['constitution', 'sovereign', 'assembly', 'appointment', 'tenure', 'exit', 'collegiality', 'separate_powers']
 
 
 def fix_column_types(df: pd.DataFrame) -> pd.DataFrame:
@@ -551,7 +551,7 @@ def sanity_check_and_reprocess(
         # Determine which indicators to check
         if indicators is None:
             # Auto-detect: check all 6 standard indicators
-            check_indicators = ['sovereign', 'powersharing', 'assembly', 'appointment', 'tenure', 'exit']
+            check_indicators = ['sovereign', 'assembly', 'appointment', 'tenure', 'exit', 'collegiality', 'separate_powers']
             # Also check constitution if columns exist
             if 'constitution_prediction' in df.columns or 'constitution_confidence' in df.columns:
                 check_indicators.insert(0, 'constitution')
@@ -649,8 +649,8 @@ def sanity_check_and_reprocess(
         # For multiple mode: reprocess only specified indicators
         if indicators is None:
             if mode == 'single':
-                indicators = ['sovereign', 'powersharing', 'assembly', 'appointment', 'tenure', 'exit']
-                print(f"Single mode: Will reprocess all 6 indicators together: {indicators}")
+                indicators = ['sovereign', 'assembly', 'appointment', 'tenure', 'exit', 'collegiality', 'separate_powers']
+                print(f"Single mode: Will reprocess all 7 indicators together: {indicators}")
             else:
                 indicators = [indicator]
                 print(f"Multiple mode: Will reprocess indicator: {indicator}")
