@@ -34,6 +34,14 @@ BINARY_INDICATORS = ['sovereign', 'assembly', 'exit', 'collegiality', 'separate_
 MULTICLASS_INDICATORS = ['appointment', 'tenure']
 
 
+def _to_str_labels(series: pd.Series) -> pd.Series:
+    """Normalize series to string labels, converting float-ints (1.0 -> '1')."""
+    try:
+        return series.astype(float).astype(int).astype(str)
+    except (ValueError, TypeError):
+        return series.astype(str)
+
+
 def load_predictions(filepath: str) -> pd.DataFrame:
     """
     Load prediction results from CSV.
@@ -136,7 +144,7 @@ def calculate_polity_accuracy(
                 # Skip if either is missing
                 if pd.notna(gt) and pd.notna(pred):
                     total += 1
-                    if str(gt) == str(pred):
+                    if _to_str_labels(pd.Series([gt]))[0] == _to_str_labels(pd.Series([pred]))[0]:
                         correct += 1
 
         correct_counts.append(correct)
@@ -189,8 +197,8 @@ def evaluate_indicator(
 
     # Filter out rows with missing values
     valid_mask = df[indicator].notna() & df[pred_col].notna()
-    y_true = df.loc[valid_mask, indicator].astype(str)
-    y_pred = df.loc[valid_mask, pred_col].astype(str)
+    y_true = _to_str_labels(df.loc[valid_mask, indicator])
+    y_pred = _to_str_labels(df.loc[valid_mask, pred_col])
 
     if len(y_true) == 0:
         print(f"⚠️ No valid data for {indicator}")
@@ -346,8 +354,8 @@ def plot_accuracy_comparison(
         if indicator in df.columns and pred_col in df.columns:
             valid_mask = df[indicator].notna() & df[pred_col].notna()
             if valid_mask.sum() > 0:
-                y_true = df.loc[valid_mask, indicator].astype(str)
-                y_pred = df.loc[valid_mask, pred_col].astype(str)
+                y_true = _to_str_labels(df.loc[valid_mask, indicator])
+                y_pred = _to_str_labels(df.loc[valid_mask, pred_col])
                 acc = round(accuracy_score(y_true, y_pred), 3)
                 accuracies.append(acc)
                 labels.append(indicator)
@@ -479,8 +487,8 @@ def compute_metrics_for_dataset(
 
     # Filter valid rows
     valid_mask = df[indicator].notna() & df[pred_col].notna()
-    y_true = df.loc[valid_mask, indicator].astype(str)
-    y_pred = df.loc[valid_mask, pred_col].astype(str)
+    y_true = _to_str_labels(df.loc[valid_mask, indicator])
+    y_pred = _to_str_labels(df.loc[valid_mask, pred_col])
 
     if len(y_true) == 0:
         return {}
