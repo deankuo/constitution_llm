@@ -103,7 +103,7 @@ BEDROCK_VERIFIER_MODEL=us.anthropic.claude-sonnet-4-5-20250929-v1:0
 
 ## Quick Start
 
-### Leader Pipeline (New, All 7 Indicators)
+### Leader Pipeline (All 8 Indicators)
 
 ```bash
 # Run predictions for all non-constitution indicators
@@ -208,24 +208,30 @@ results_df = runner.run(df.head(100))
 
 ```
 constitution_llm/
-├── main.py                        # CLI entry point (legacy + new pipeline)
+│
+├── CLAUDE.md                      # Project design document and specifications
+├── README.md                      # Project overview and usage guide
+├── main.py                        # CLI entry point (leader + polity pipelines)
 ├── main_test.py                   # Test script for new pipeline
-├── config.py                      # Global configuration, enums
+├── config.py                      # Global configuration, enums, constants
+├── requirements.txt               # Python dependencies
+├── run.sh                         # Shell script (background exec, env check, etc.)
+├── .env.example                   # Environment variable template
 │
 ├── prompts/
 │   ├── base_builder.py            # BasePromptBuilder ABC + PromptOutput
 │   ├── constitution.py            # Constitution prompt (leader-level, 4 elements)
 │   ├── polity_constitution.py     # Legacy polity-level constitution prompt
-│   ├── indicators.py              # 6 other indicator prompts (leader-level)
+│   ├── indicators.py              # 7 other indicator prompts (leader-level)
 │   ├── polity_indicators.py       # Legacy polity-level indicator prompts
 │   ├── single_builder.py          # Combines indicators (unified prompt)
 │   ├── multiple_builder.py        # Separate prompt per indicator
-│   └── sequential_builder.py      # All 7 indicators in sequence
+│   └── sequential_builder.py      # All 8 indicators in sequential sections
 │
 ├── models/
 │   ├── base.py                    # BaseLLM abstract class + ModelResponse
 │   ├── llm_clients.py             # OpenAILLM, GeminiLLM, AnthropicLLM, BedrockLLM
-│   └── search_agents.py           # Web search agents
+│   └── search_agents.py           # Search agents (DuckDuckGo, Wiki, Serper)
 │
 ├── verification/
 │   ├── base.py                    # BaseVerification ABC + VerificationResult
@@ -235,9 +241,9 @@ constitution_llm/
 ├── pipeline/
 │   ├── predictor.py               # Core prediction orchestrator
 │   ├── batch_runner.py            # Batch processing + checkpoints
+│   ├── batch_gemini.py            # Gemini Batch API runner (50% cost savings)
 │   ├── search_predictor.py        # Search-augmented predictions (agentic search)
 │   ├── pre_search.py              # Deterministic pre-search (Wikipedia/DDG/Serper)
-│   ├── batch_gemini.py            # Gemini Batch API runner (50% savings)
 │   └── classify_assembly.py       # Assembly extended classifier (downstream)
 │
 ├── evaluation/
@@ -259,7 +265,14 @@ constitution_llm/
 ├── docs/
 │   ├── BEDROCK_SETUP.md           # AWS Bedrock configuration guide
 │   ├── EVALUATION_GUIDE.md        # Evaluation methodology guide
+│   ├── IMPLEMENTATION_SUMMARY.md  # Implementation details
+│   ├── MIGRATION_GUIDE.md         # Migration from legacy to new pipeline
+│   ├── MISSING_VALUES.md          # Handling missing data
 │   └── ...                        # Other documentation
+│
+├── Graph/                         # Visualization outputs (PNG plots)
+│
+├── *.ipynb                        # Jupyter notebooks (evaluation, data cleaning, etc.)
 │
 └── data/
     ├── Original_Data/             # Raw datasets
@@ -272,68 +285,73 @@ constitution_llm/
 ### System Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                            SYSTEM ARCHITECTURE                               │
-├──────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  ┌──────────────┐    ┌──────────────────────────────────────────────────┐    │
-│  │   Config     │    │               Prompt Layer                       │    │
-│  │ --mode       │    │  │  (complex)      │  │  (unified template)  │   │    │
-│  │              │    │  │  Constitution   │  │  Other 6 Indicators  │   │    │
-│  │  (argparse)  │    │  ┌─────────────────┐  ┌──────────────────────┐   │    │
-│  │ --indicators │───▶│  └─────────────────┘  └──────────────────────┘   │    │
-│  │ --verify     │    │           │                      │               │    │
-│  │ --search-mode│    │  ┌──────────────────────────────────────────┐    │    │
-│  │ --use-batch  │    │  │          Prompt Builder                  │    │    │
-│  │ --model      │    │  │        ▼                      ▼          │    │    │
-│  └──────────────┘    │  │  • SinglePromptBuilder (unified)         │    │    │
-│                      │  │  • MultiplePromptBuilder (separate)      │    │    │
-│                      │  │  • SequentialPromptBuilder (sequence)    │    │    │
-│                      │  └──────────────────────────────────────────┘    │    │
-│                      └──────────────────────────────────────────────────┘    │
-│                                           │                                  │
-│                              ┌────────────┼────────────┐                     │
-│                              ▼            ▼            ▼                     │
-│  ┌──────────────────┐      ┌────────────┐ ┌───────────────────┐                   │
-│  │  Search Layer    │      │ Model Layer│ │ Gemini Batch API  │                   │
-│  │  (Optional)      │      │            │ │ (--use-batch)     │                   │
-│  │                  │      │ ┌────────┐ │ │                   │                   │
-│  │ --search-mode:   │      │ │ Gemini │ │ │ • 50% cost saving │                   │
-│  │  none (default)  │      │ │ Claude │ │ │ • Async batch job │                   │
-│  │  agentic (auto)  │      │ │ GPT    │ │ │ • Pre-search +    │                   │
-│  │  forced (always) │      │ └────────┘ │ │   batch compatible│                   │
-│  │                  │      │  BaseLLM   │ │                   │                   │
-│  │ Tiered search:   │      │ Interface  │ └───────────────────┘                   │
-│  │ 1. Wikipedia API │      ├────────────┤                                         │
-│  │ 2. DuckDuckGo    │      │ Search     │                                         │
-│  │ 3. Serper (opt.) │      │ Agents     │                                         │
-│  └──────────────────┘      │ (agentic)  │                                         │
-│                            └────────────┘                                         │
-│                              │                                               │
-│                              ▼                                               │
-│  ┌──────────────────────────────────────────────────────────────────────┐    │
-│  │            Verification Layer (Optional)                             │    │
-│  │                                                                      │    │
-│  │  │ Self-Consistency  │  │       CoVe        │                        │    │
-│  │  │ • n_samples       │  │ • Question Gen    │                        │    │
-│  │  │ • temperature     │  │ • Cross-model     │                        │    │
-│  │  ┌───────────────────┐  ┌───────────────────┐                        │    │
-│  │  └───────────────────┘  └───────────────────┘                        │    │
-│  │         (Configurable per indicator)                                 │    │
-│  │  │ • majority vote   │  │ • Synthesis       │                        │    │
-│  └──────────────────────────────────────────────────────────────────────┘    │
-│                              │                                               │
-│                              ▼                                               │
-│  ┌──────────────────────────────────────────────────────────────────────┐    │
-│  │               Output & Evaluation                                    │    │
-│  │  • JSON parsing (robust)                                             │    │
-│  │  • Metrics (F1, accuracy, per-class)                                 │    │
-│  │  • Cost tracking (with batch discount support)                       │    │
-│  │  • Experiment logging                                                │    │
-│  │  • Per-class metrics visualization (plot_per_class_metrics)          │    │
-│  └──────────────────────────────────────────────────────────────────────┘    │
-│                                                                              │
-└──────────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                     SYSTEM ARCHITECTURE                      │
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│  ┌────────────────────────────────────────────────────────┐  │
+│  │  Config (argparse)                                     │  │
+│  │  --mode  --indicators  --verify  --model               │  │
+│  │  --search-mode  --use-batch  --parallel-rows           │  │
+│  └───────────────────────┬────────────────────────────────┘  │
+│                          │                                   │
+│                          ▼                                   │
+│  ┌────────────────────────────────────────────────────────┐  │
+│  │  Prompt Layer                                          │  │
+│  │                                                        │  │
+│  │  ┌──────────────┐  ┌───────────────────────────────┐   │  │
+│  │  │ Constitution │  │ Other 7 Indicators            │   │  │
+│  │  │ (4 elements) │  │ (unified template)            │   │  │
+│  │  └──────────────┘  └───────────────────────────────┘   │  │
+│  │                                                        │  │
+│  │  Builders: Single | Multiple | Sequential              │  │
+│  └───────────────────────┬────────────────────────────────┘  │
+│                          │                                   │
+│                          ▼                                   │
+│  ┌────────────────────────────────────────────────────────┐  │
+│  │  Search Layer (--search-mode, optional)                │  │
+│  │                                                        │  │
+│  │  none:    No search (default, pure LLM)                │  │
+│  │  agentic: LLM decides via tool calling (Serper)        │  │
+│  │  forced:  Wikipedia → DuckDuckGo → Serper (tiered)     │  │
+│  └───────────────────────┬────────────────────────────────┘  │
+│                          │                                   │
+│             ┌────────────┴────────────┐                      │
+│             ▼                         ▼                      │
+│  ┌────────────────────┐  ┌──────────────────────────┐        │
+│  │  Model Layer       │  │  Gemini Batch API        │        │
+│  │  (sync)            │  │  (--use-batch)           │        │
+│  │                    │  │                          │        │
+│  │  Gemini | Claude   │  │  • 50% cost savings      │        │
+│  │  GPT    | Bedrock  │  │  • Server-side parallel  │        │
+│  │                    │  │  • Pre-search compatible │        │
+│  │  Unified BaseLLM   │  │  • Sub-batch checkpoint  │        │
+│  └─────────┬──────────┘  └────────────┬─────────────┘        │
+│             └────────────┬────────────┘                      │
+│                          │                                   │
+│                          ▼                                   │
+│  ┌────────────────────────────────────────────────────────┐  │
+│  │  Verification Layer (--verify, optional)               │  │
+│  │                                                        │  │
+│  │  ┌───────────────────┐  ┌───────────────────┐          │  │
+│  │  │ Self-Consistency  │  │      CoVe         │          │  │
+│  │  │ • n temperature   │  │ • Question Gen    │          │  │
+│  │  │   samples         │  │ • Cross-model     │          │  │
+│  │  │ • majority vote   │  │ • Factored exec   │          │  │
+│  │  └───────────────────┘  └───────────────────┘          │  │
+│  │  Configurable per indicator (--verify-indicators)      │  │
+│  └───────────────────────┬────────────────────────────────┘  │
+│                          │                                   │
+│                          ▼                                   │
+│  ┌────────────────────────────────────────────────────────┐  │
+│  │  Output & Evaluation                                   │  │
+│  │                                                        │  │
+│  │  • CSV + JSON output       • Cost tracking             │  │
+│  │  • F1, accuracy, kappa     • Search metadata           │  │
+│  │  • Per-class metrics       • Experiment logging        │  │
+│  └────────────────────────────────────────────────────────┘  │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
 ```
 
 ## Usage
@@ -348,7 +366,7 @@ python main.py --help
 
 | Argument | Description | Default |
 |----------|-------------|---------|
-| `--pipeline` | `leader` (new, all 7 indicators) or `polity` (legacy, constitution only) | `polity` |
+| `--pipeline` | `leader` (new, all 8 indicators) or `polity` (legacy, constitution only) | `polity` |
 
 #### Leader Pipeline Arguments
 
@@ -385,7 +403,7 @@ python main.py --help
 ### Example Commands
 
 ```bash
-# --- LEADER PIPELINE (leader-level, all 7 indicators) ---
+# --- LEADER PIPELINE (leader-level, all 8 indicators) ---
 
 # Basic multi-indicator prediction
 python main.py --pipeline leader \
@@ -469,17 +487,17 @@ The pipeline supports three distinct prompt modes, each with different character
 - **Pros**: No cross-indicator contamination, independent predictions
 - **Cons**: More API calls, higher cost
 - **Use when**: You want the most accurate predictions and cost is not a primary concern
-- **Example**: 7 indicators = 7 separate LLM calls
+- **Example**: 8 indicators = 8 separate LLM calls
 
 #### 2. Single Mode
 - **How it works**: All indicators merged into one unified prompt
 - **Pros**: Fewer API calls, lower cost
 - **Cons**: Potential cross-indicator contamination (predictions may influence each other)
 - **Use when**: You want to reduce costs and are willing to accept potential contamination
-- **Example**: 7 indicators = 1 LLM call with unified definitions
+- **Example**: 8 indicators = 1 LLM call with unified definitions
 
 #### 3. Sequential Mode
-- **How it works**: All 7 indicators presented as distinct sequential sections in one prompt
+- **How it works**: All 8 indicators presented as distinct sequential sections in one prompt
 - **Pros**:
   - Single API call (cost-efficient)
   - Each indicator maintains its distinct prompt structure
@@ -490,7 +508,7 @@ The pipeline supports three distinct prompt modes, each with different character
 - **Use when**:
   - You want to study how indicator ordering affects predictions
   - You want cost efficiency while maintaining distinct indicator definitions
-- **Example**: 7 indicators = 1 LLM call with 7 sequential sections
+- **Example**: 8 indicators = 1 LLM call with 8 sequential sections
 
 **Sequential Mode Order Options:**
 ```bash
@@ -878,6 +896,44 @@ python pipeline/classify_assembly.py \
 | `--parallel-rows` | Concurrent rows to process | `1` |
 | `--delay` | Seconds between calls / windows | `1.0` |
 | `--test` | Process only first N rows | None |
+
+---
+
+## Using run.sh
+
+The `run.sh` script is a user-friendly wrapper for running the pipeline. It supports all CLI options, environment validation, and background execution that survives computer sleep.
+
+```bash
+# Make it executable (first time only)
+chmod +x run.sh
+
+# Check environment setup (Python, packages, API keys)
+./run.sh --check-env
+
+# Quick test (5 rows, leader pipeline)
+./run.sh --quick-test
+
+# Run a leader pipeline experiment
+./run.sh --pipeline leader \
+  --indicators sovereign assembly \
+  --models gemini-2.5-pro \
+  --test 20
+
+# Run in background (survives sleep/logout, uses caffeinate)
+./run.sh --background --pipeline leader \
+  --indicators sovereign assembly appointment tenure exit collegiality separate_powers \
+  --models gemini-2.5-pro \
+  --input data/plt_leaders_data.csv \
+  --output data/results/full_run.csv
+
+# Preview command without running (dry run)
+./run.sh --dry-run --pipeline leader --indicators sovereign --test 5
+
+# Send macOS notification on completion
+./run.sh --notify --pipeline leader --indicators sovereign --test 10
+```
+
+**Background mode** uses `caffeinate -i` to prevent macOS sleep and `nohup` to survive terminal close. Logs are saved to `data/logs/run_<timestamp>.log`.
 
 ---
 
