@@ -32,7 +32,11 @@ The original columns are never modified.
 
 import argparse
 import os
+import sys
 import time
+
+# Ensure project root is on sys.path when run as `python pipeline/classify_assembly.py`
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
 from typing import Dict, List, Optional, Tuple
@@ -43,6 +47,7 @@ from tqdm import tqdm
 
 from models.llm_clients import create_llm
 from utils.json_parser import parse_json_response
+from config import SearchMode
 
 load_dotenv()
 
@@ -130,6 +135,8 @@ class AssemblyExtendedClassifier:
         assembly_col: str = "assembly_prediction",
         max_workers: int = 1,
         delay: float = 1.0,
+        search_mode: SearchMode = SearchMode.NONE,
+        serper_api_key: str = "",
     ):
         """
         Args:
@@ -138,12 +145,21 @@ class AssemblyExtendedClassifier:
             assembly_col:  Name of the column holding binary assembly predictions
             max_workers:   Number of rows to process concurrently (1 = sequential)
             delay:         Seconds between sequential calls / between parallel windows
+            search_mode:   Search mode (none, agentic, forced)
+            serper_api_key: Serper API key (for agentic/forced search)
         """
         self.model = model
         self.llm = create_llm(model, api_keys)
+        self.api_keys = api_keys
         self.assembly_col = assembly_col
         self.max_workers = max_workers
         self.delay = delay
+        self.search_mode = search_mode
+        self.serper_api_key = serper_api_key
+        self.pre_searcher = None
+        if search_mode == SearchMode.FORCED:
+            from pipeline.pre_search import PreSearcher
+            self.pre_searcher = PreSearcher(serper_api_key=serper_api_key)
 
     # ------------------------------------------------------------------
     # Public API
@@ -216,13 +232,49 @@ class AssemblyExtendedClassifier:
             end_year=end_year,
         )
 
-        response = self.llm.call(
-            system_prompt=SYSTEM_PROMPT,
-            user_prompt=user_prompt,
-            temperature=0.0,
-        )
+        # Enrich prompt with pre-search context if forced search mode
+        if self.pre_searcher is not None:
+            try:
+                sy = int(start_year) if start_year != "?" else 0
+                ey = int(end_year) if end_year != "?" else None
+            except (ValueError, TypeError):
+                sy, ey = 0, None
+            search_result = self.pre_searcher.search(polity, name, sy, ey)
+            user_prompt = self.pre_searcher.enrich_prompt(user_prompt, search_result)
 
-        parsed = parse_json_response(response.content, verbose=False)
+        # Agentic search: route through search agent
+        if self.search_mode == SearchMode.AGENTIC:
+            from models.llm_clients import detect_provider
+            from models.search_agents import (
+                run_openai_search_agent, run_gemini_search_agent,
+                run_bedrock_search_agent, run_anthropic_search_agent,
+            )
+            provider = detect_provider(self.model)
+            agent_kwargs = dict(
+                system_prompt=SYSTEM_PROMPT,
+                user_prompt=user_prompt,
+                serper_api_key=self.serper_api_key,
+                force_search=False,
+            )
+            if provider == 'openai':
+                content = run_openai_search_agent(model=self.model, api_key=self.api_keys.get('openai', ''), **agent_kwargs)
+            elif provider == 'gemini':
+                content = run_gemini_search_agent(model=self.model, api_key=self.api_keys.get('gemini', ''), **agent_kwargs)
+            elif provider == 'bedrock':
+                content = run_bedrock_search_agent(model=self.model, api_keys=self.api_keys, **agent_kwargs)
+            elif provider == 'anthropic':
+                content = run_anthropic_search_agent(model=self.model, api_key=self.api_keys.get('anthropic', ''), **agent_kwargs)
+            else:
+                content = run_openai_search_agent(model=self.model, api_key=self.api_keys.get('openai', ''), **agent_kwargs)
+            parsed = parse_json_response(content or '', verbose=False)
+        else:
+            response = self.llm.call(
+                system_prompt=SYSTEM_PROMPT,
+                user_prompt=user_prompt,
+                temperature=0.0,
+            )
+            parsed = parse_json_response(response.content, verbose=False)
+
         pred = str(parsed.get("assembly_extended", "1"))
         # Clamp to valid labels
         if pred not in ("1", "2"):
@@ -371,6 +423,17 @@ Examples:
         metavar="N",
         help="Process only the first N rows (for testing)"
     )
+    parser.add_argument(
+        "--search-mode",
+        choices=["none", "agentic", "forced"],
+        default="none",
+        help=(
+            "Search mode (default: none).\n"
+            "  none    — Pure LLM output.\n"
+            "  agentic — LLM decides whether to search.\n"
+            "  forced  — Always search before LLM answers (Wikipedia/DuckDuckGo/Serper)."
+        )
+    )
 
     args = parser.parse_args()
 
@@ -402,6 +465,14 @@ Examples:
           f"assembly=0: {(df[args.assembly_col].astype(str) == '0').sum()}, "
           f"assembly=1: {(df[args.assembly_col].astype(str) == '1').sum()}")
 
+    # --- Resolve search mode ---
+    search_mode = SearchMode(args.search_mode)
+
+    if search_mode == SearchMode.AGENTIC and not os.getenv("SERPER_API_KEY"):
+        raise ValueError(
+            "Agentic search requires SERPER_API_KEY environment variable."
+        )
+
     # --- Run classifier ---
     classifier = AssemblyExtendedClassifier(
         model=args.model,
@@ -409,6 +480,8 @@ Examples:
         assembly_col=args.assembly_col,
         max_workers=args.parallel_rows,
         delay=args.delay,
+        search_mode=search_mode,
+        serper_api_key=os.getenv("SERPER_API_KEY", ""),
     )
 
     result_df = classifier.classify(df)

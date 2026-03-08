@@ -32,7 +32,14 @@ A sophisticated pipeline for analyzing historical polities to predict political 
 
 - **Parallel Row Processing**: Process N leader rows concurrently (`--parallel-rows N`) for faster batch runs. Works with all prompt modes.
 
-- **Assembly Extended Classifier** (`classify_assembly.py`): Downstream post-processing script that upgrades binary assembly predictions (0/1) to a three-label scheme (0/1/2), where label 2 = competitive factions or parties.
+- **Assembly Extended Classifier** (`pipeline/classify_assembly.py`): Downstream post-processing script that upgrades binary assembly predictions (0/1) to a three-label scheme (0/1/2), where label 2 = competitive factions or parties.
+
+- **Search Modes** (`--search-mode`):
+  - **None**: Pure LLM output, no web search (default)
+  - **Agentic**: LLM decides whether to search via tool calling (Serper API)
+  - **Forced**: Always search before LLM answers (Wikipedia/DuckDuckGo/Serper tiered)
+
+- **Gemini Batch API** (`--use-batch`): Submit predictions as a batch job for 50% cost savings. Compatible with `--search-mode forced` (pre-search + batch). Verification runs synchronously after batch completes. Batches are split by `--checkpoint-interval` (default 500 rows) for checkpointing.
 
 - **Robust Processing**: Checkpoint system, automatic retries, cost tracking
 
@@ -189,7 +196,7 @@ print(result.predictions['sovereign'].reasoning)
 df = pd.read_csv('data/plt_leaders_data.csv')
 runner = BatchRunner(
     predictor,
-    BatchConfig(checkpoint_interval=50),
+    BatchConfig(checkpoint_interval=500),
     'data/results/output.csv'
 )
 results_df = runner.run(df.head(100))
@@ -227,7 +234,11 @@ constitution_llm/
 │
 ├── pipeline/
 │   ├── predictor.py               # Core prediction orchestrator
-│   └── batch_runner.py            # Batch processing + checkpoints
+│   ├── batch_runner.py            # Batch processing + checkpoints
+│   ├── search_predictor.py        # Search-augmented predictions (agentic search)
+│   ├── pre_search.py              # Deterministic pre-search (Wikipedia/DDG/Serper)
+│   ├── batch_gemini.py            # Gemini Batch API runner (50% savings)
+│   └── classify_assembly.py       # Assembly extended classifier (downstream)
 │
 ├── evaluation/
 │   ├── metrics.py                 # Accuracy, F1, Cohen's kappa
@@ -261,59 +272,68 @@ constitution_llm/
 ### System Architecture
 
 ```
-┌────────────────────────────────────────────────────────────────────────────┐
-│                           SYSTEM ARCHITECTURE                              │
-├────────────────────────────────────────────────────────────────────────────┤
-│                                                                            │
-│  ┌─────────────┐     ┌─────────────────────────────────────────────────┐   │
-│  │   Config    │     │              Prompt Layer                       │   │
-│  │  (argparse) │     │  ┌─────────────────┐  ┌─────────────────────┐   │   │
-│  │             │     │  │  Constitution   │  │  Other 6 Indicators │   │   │
-│  │ --mode      │     │  │  (complex)      │  │  (unified template) │   │   │
-│  │ --indicators│────▶│  └─────────────────┘  └─────────────────────┘   │   │
-│  │ --verify    │     │           │                     │               │   │
-│  │ --model     │     │           ▼                     ▼               │   │
-│  └─────────────┘     │  ┌─────────────────────────────────────────┐    │   │
-│                      │  │         Prompt Builder                  │    │   │
-│                      │  │  • SinglePromptBuilder (unified)        │    │   │
-│                      │  │  • MultiplePromptBuilder (separate)     │    │   │
-│                      │  │  • SequentialPromptBuilder (sequence)   │    │   │
-│                      │  └─────────────────────────────────────────┘    │   │
-│                      └─────────────────────────────────────────────────┘   │
-│                                           │                                │
-│                                           ▼                                │
-│                      ┌─────────────────────────────────────────────────┐   │
-│                      │              Model Layer                        │   │
-│                      │  ┌─────────┐ ┌─────────┐ ┌─────────┐            │   │
-│                      │  │ Gemini  │ │ Claude  │ │   GPT   │  ...       │   │
-│                      │  └─────────┘ └─────────┘ └─────────┘            │   │
-│                      │         (Unified BaseLLM Interface)             │   │
-│                      └─────────────────────────────────────────────────┘   │
-│                                           │                                │
-│                                           ▼                                │
-│                      ┌─────────────────────────────────────────────────┐   │
-│                      │           Verification Layer (Optional)         │   │
-│                      │                                                 │   │
-│                      │  ┌───────────────────┐  ┌───────────────────┐   │   │
-│                      │  │ Self-Consistency  │  │       CoVe        │   │   │
-│                      │  │                   │  │                   │   │   │
-│                      │  │ • n_samples       │  │ • Question Gen    │   │   │
-│                      │  │ • temperature     │  │ • Cross-model     │   │   │
-│                      │  │ • majority vote   │  │ • Synthesis       │   │   │
-│                      │  └───────────────────┘  └───────────────────┘   │   │
-│                      │         (Configurable per indicator)            │   │
-│                      └─────────────────────────────────────────────────┘   │
-│                                           │                                │
-│                                           ▼                                │
-│                      ┌─────────────────────────────────────────────────┐   │
-│                      │              Output & Evaluation                │   │
-│                      │  • JSON parsing (robust)                        │   │
-│                      │  • Metrics (F1, accuracy, per-class)            │   │
-│                      │  • Cost tracking                                │   │
-│                      │  • Experiment logging                           │   │
-│                      └─────────────────────────────────────────────────┘   │
-│                                                                            │
-└────────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                            SYSTEM ARCHITECTURE                               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ┌──────────────┐    ┌──────────────────────────────────────────────────┐    │
+│  │   Config     │    │               Prompt Layer                       │    │
+│  │ --mode       │    │  │  (complex)      │  │  (unified template)  │   │    │
+│  │              │    │  │  Constitution   │  │  Other 6 Indicators  │   │    │
+│  │  (argparse)  │    │  ┌─────────────────┐  ┌──────────────────────┐   │    │
+│  │ --indicators │───▶│  └─────────────────┘  └──────────────────────┘   │    │
+│  │ --verify     │    │           │                      │               │    │
+│  │ --search-mode│    │  ┌──────────────────────────────────────────┐    │    │
+│  │ --use-batch  │    │  │          Prompt Builder                  │    │    │
+│  │ --model      │    │  │        ▼                      ▼          │    │    │
+│  └──────────────┘    │  │  • SinglePromptBuilder (unified)         │    │    │
+│                      │  │  • MultiplePromptBuilder (separate)      │    │    │
+│                      │  │  • SequentialPromptBuilder (sequence)    │    │    │
+│                      │  └──────────────────────────────────────────┘    │    │
+│                      └──────────────────────────────────────────────────┘    │
+│                                           │                                  │
+│                              ┌────────────┼────────────┐                     │
+│                              ▼            ▼            ▼                     │
+│  ┌──────────────────┐      ┌────────────┐ ┌───────────────────┐                   │
+│  │  Search Layer    │      │ Model Layer│ │ Gemini Batch API  │                   │
+│  │  (Optional)      │      │            │ │ (--use-batch)     │                   │
+│  │                  │      │ ┌────────┐ │ │                   │                   │
+│  │ --search-mode:   │      │ │ Gemini │ │ │ • 50% cost saving │                   │
+│  │  none (default)  │      │ │ Claude │ │ │ • Async batch job │                   │
+│  │  agentic (auto)  │      │ │ GPT    │ │ │ • Pre-search +    │                   │
+│  │  forced (always) │      │ └────────┘ │ │   batch compatible│                   │
+│  │                  │      │  BaseLLM   │ │                   │                   │
+│  │ Tiered search:   │      │ Interface  │ └───────────────────┘                   │
+│  │ 1. Wikipedia API │      ├────────────┤                                         │
+│  │ 2. DuckDuckGo    │      │ Search     │                                         │
+│  │ 3. Serper (opt.) │      │ Agents     │                                         │
+│  └──────────────────┘      │ (agentic)  │                                         │
+│                            └────────────┘                                         │
+│                              │                                               │
+│                              ▼                                               │
+│  ┌──────────────────────────────────────────────────────────────────────┐    │
+│  │            Verification Layer (Optional)                             │    │
+│  │                                                                      │    │
+│  │  │ Self-Consistency  │  │       CoVe        │                        │    │
+│  │  │ • n_samples       │  │ • Question Gen    │                        │    │
+│  │  │ • temperature     │  │ • Cross-model     │                        │    │
+│  │  ┌───────────────────┐  ┌───────────────────┐                        │    │
+│  │  └───────────────────┘  └───────────────────┘                        │    │
+│  │         (Configurable per indicator)                                 │    │
+│  │  │ • majority vote   │  │ • Synthesis       │                        │    │
+│  └──────────────────────────────────────────────────────────────────────┘    │
+│                              │                                               │
+│                              ▼                                               │
+│  ┌──────────────────────────────────────────────────────────────────────┐    │
+│  │               Output & Evaluation                                    │    │
+│  │  • JSON parsing (robust)                                             │    │
+│  │  • Metrics (F1, accuracy, per-class)                                 │    │
+│  │  • Cost tracking (with batch discount support)                       │    │
+│  │  • Experiment logging                                                │    │
+│  │  • Per-class metrics visualization (plot_per_class_metrics)          │    │
+│  └──────────────────────────────────────────────────────────────────────┘    │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Usage
@@ -345,7 +365,10 @@ python main.py --help
 | `--sequence` | Indicator order for sequential mode (space-separated) | None |
 | `--random-sequence` | Randomize order in sequential mode | False |
 | `--reasoning` | Include reasoning columns (True/False) | `True` |
-| `--parallel-rows` | Number of leader rows to process concurrently | `1` |
+| `--parallel-rows` | Number of leader rows to process concurrently (no effect with `--use-batch`) | `1` |
+| `--checkpoint-interval` | Rows per batch/checkpoint | `500` |
+| `--search-mode` | Search mode: `none`, `agentic`, `forced` | `none` |
+| `--use-batch` | Use Gemini Batch API (50% cost savings, Gemini only) | `False` |
 
 #### Polity Pipeline Arguments (constitution only, supports multiple models)
 
@@ -354,7 +377,7 @@ python main.py --help
 | `--models` | One or more models in `KEY=model` format | `Gemini=gemini-2.5-pro` |
 | `--verify` | Verification: `none`, `self_consistency`, `cove`, `both` | `none` |
 | `--verifier-model` | Model for CoVe verification | None |
-| `--use-search` | Enable web search | False |
+| `--search-mode` | Search mode: `none`, `agentic`, `forced` | `none` |
 | `--temperature` | Generation temperature | 0 |
 | `--max_tokens` | Max tokens per response | 32768 |
 | `--delay` | Delay between API calls | 1.0 |
@@ -483,6 +506,68 @@ The pipeline supports three distinct prompt modes, each with different character
 
 **Note**: The `--sequence` argument must include all indicators specified in `--indicators`. The order will affect how the LLM sees and processes each indicator.
 
+### Understanding Search Modes
+
+The pipeline supports three search modes for experimental comparison:
+
+#### 1. None (Default)
+- **How it works**: Pure LLM output with no web search
+- **Use when**: You want baseline predictions using only the model's training knowledge
+- **Example**: `--search-mode none`
+
+#### 2. Agentic
+- **How it works**: LLM decides whether to search via tool calling (`tool_choice=auto`)
+- **Requires**: `SERPER_API_KEY` environment variable
+- **Not compatible with**: `--use-batch` (multi-turn interaction required)
+- **Example**: `--search-mode agentic`
+
+#### 3. Forced
+- **How it works**: Always runs deterministic search before LLM answers
+- **Search order**: Wikipedia API -> DuckDuckGo -> Serper (optional, tiered — lower tiers only run if previous tiers returned < 200 chars)
+- **Search query format**:
+  - Leader pipeline: `"{leader_name} {polity} {start_year}-{end_year}"`
+  - Polity pipeline: `"{polity} {start_year}-{end_year}"`
+- **Compatible with**: `--use-batch` (pre-search + batch)
+- **Example**: `--search-mode forced`
+
+**Note on single vs. multiple mode with search:**
+- `--mode single`: 1 search call per row (all indicators share the same search results)
+- `--mode multiple`: 1 search call per indicator per row (each indicator gets independent search)
+
+```bash
+# Compare all three search modes
+python main.py --pipeline leader --indicators sovereign assembly --search-mode none --test 10
+python main.py --pipeline leader --indicators sovereign assembly --search-mode agentic --test 10
+python main.py --pipeline leader --indicators sovereign assembly --search-mode forced --test 10
+```
+
+### Using Gemini Batch API
+
+The `--use-batch` flag submits predictions to the Gemini Batch API for **50% cost savings**:
+
+```bash
+# Basic batch mode (no search)
+python main.py --pipeline leader --indicators sovereign assembly \
+    --models gemini-2.5-pro --use-batch --test 20
+
+# Pre-search + batch (forced search compatible)
+python main.py --pipeline leader --indicators sovereign assembly \
+    --models gemini-2.5-pro --search-mode forced --use-batch --test 20
+```
+
+**How batching works:**
+- Rows are split into sub-batches based on `--checkpoint-interval` (default 500 rows)
+- Each sub-batch is submitted as one Gemini batch job
+- Example: 1000 rows, single mode → 2 batch jobs of 500 requests each
+- Example: 1000 rows, multiple mode (5 indicators) → 2 batch jobs of 2500 requests each
+- `--parallel-rows` has **no effect** with `--use-batch` (Gemini handles parallelism server-side)
+
+**Constraints:**
+- Only works with Gemini models
+- Incompatible with `--search-mode agentic` (use `forced` instead)
+- Verification runs synchronously after batch completes
+- Batch jobs are polled every 30 seconds until completion
+
 
 ## Configuration
 
@@ -525,13 +610,25 @@ INDICATOR_LABELS = {
 ### CSV Columns
 
 For each indicator `{ind}`:
-- `{ind}` - Prediction ("0"/"1"/"2")
-- `{ind}_reasoning` - Reasoning text
+- `{ind}_prediction` - Prediction ("0"/"1"/"2")
+- `{ind}_reasoning` - Reasoning text (omitted if `--reasoning False`)
 - `{ind}_confidence` - Score 1-100
 
 With verification:
 - `{ind}_verified` - Final prediction after verification
 - `{ind}_verification` - Verification details
+
+With search mode (leader pipeline, agentic/forced):
+- `{ind}_search_queries` - JSON list of all search queries used
+- `{ind}_urls` - JSON list of all URLs retrieved
+
+With search mode (polity pipeline):
+- `search_queries_{model}` - Pipe-delimited search queries
+- `urls_used_{model}` - Pipe-delimited URLs retrieved
+
+With search mode (batch, forced):
+- `search_queries` - Pipe-delimited search queries for the row
+- `urls_used` - Pipe-delimited URLs retrieved for the row
 
 Additional columns:
 - `total_cost_usd` - Total API cost
@@ -575,8 +672,9 @@ from pipeline.batch_runner import BatchRunner, BatchConfig
 runner = BatchRunner(
     predictor=predictor,
     config=BatchConfig(
-        checkpoint_interval=50,
+        checkpoint_interval=500,   # Save checkpoint every 500 rows
         delay_between_calls=1.0,
+        max_workers=4,             # Process 4 rows concurrently
         output_formats=['csv', 'json']
     ),
     output_path='data/results/output.csv'
@@ -624,6 +722,21 @@ binary_metrics, multiclass_metrics = compare_experiments(datasets)
 # Generates 2 plots:
 # 1. Binary indicators: 4 subplots (accuracy, precision, recall, f1)
 # 2. Multi-class indicators: 3 metrics (accuracy, f1_macro, f1_weighted)
+```
+
+**Per-Class Metrics Visualization:**
+```python
+from evaluation import plot_per_class_metrics
+
+datasets = {
+    'Baseline': 'data/results/baseline.csv',
+    'Self-Consistency': 'data/results/sc.csv',
+    'CoVe': 'data/results/cove.csv',
+}
+
+# Plot per-class precision/recall/F1 for specific indicators
+plot_per_class_metrics(datasets, indicators=['assembly', 'appointment', 'tenure'])
+# Generates one figure per indicator showing per-class metrics across experiments
 ```
 
 ### Sanity Check and Reprocessing
@@ -708,7 +821,7 @@ python utils/sanity_check.py \
 
 ## Assembly Extended Classifier
 
-`classify_assembly.py` is a **standalone downstream script** that extends binary assembly
+`pipeline/classify_assembly.py` is a **standalone downstream script** that extends binary assembly
 predictions to a three-label scheme. Run it **after** the main pipeline.
 
 ### Label Scheme
@@ -731,24 +844,24 @@ The original `assembly_prediction` column is **never modified**.
 
 ```bash
 # Basic run
-python classify_assembly.py \
+python pipeline/classify_assembly.py \
     --input  data/results/predictions.csv \
     --output data/results/predictions_extended.csv
 
 # With a different model
-python classify_assembly.py \
+python pipeline/classify_assembly.py \
     --input  data/results/predictions.csv \
     --output data/results/predictions_extended.csv \
     --model  gpt-4o
 
 # Process 4 rows in parallel
-python classify_assembly.py \
+python pipeline/classify_assembly.py \
     --input  data/results/predictions.csv \
     --output data/results/predictions_extended.csv \
     --parallel-rows 4
 
 # Test on first 10 rows only
-python classify_assembly.py \
+python pipeline/classify_assembly.py \
     --input  data/results/predictions.csv \
     --output data/results/predictions_extended.csv \
     --test 10

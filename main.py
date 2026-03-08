@@ -50,6 +50,7 @@ from config import (
     OPENAI_MODELS,
     PromptMode,
     VerificationType,
+    SearchMode,
     ALL_INDICATORS,
     INDICATORS_WITH_GROUND_TRUTH
 )
@@ -142,7 +143,10 @@ def _route_to_model(
     llm_params: Dict,
     max_retries: int,
     retry_delay: float,
-    use_search: bool
+    use_search: bool,
+    url_tracker: Optional[List[str]] = None,
+    query_tracker: Optional[List[str]] = None,
+    force_search: bool = False,
 ) -> Optional[str]:
     """Route the query to the appropriate model API."""
     provider = detect_provider(model_identifier)
@@ -154,25 +158,37 @@ def _route_to_model(
             return run_openai_search_agent(
                 system_prompt, user_prompt, model_identifier,
                 api_key=api_keys.get('openai'),
-                serper_api_key=api_keys.get('serper')
+                serper_api_key=api_keys.get('serper'),
+                url_tracker=url_tracker,
+                query_tracker=query_tracker,
+                force_search=force_search,
             )
         elif provider == 'gemini':
             return run_gemini_search_agent(
                 system_prompt, user_prompt, model_identifier,
                 api_key=api_keys.get('gemini'),
-                serper_api_key=api_keys.get('serper')
+                serper_api_key=api_keys.get('serper'),
+                url_tracker=url_tracker,
+                query_tracker=query_tracker,
+                force_search=force_search,
             )
         elif provider == 'anthropic':
             return run_anthropic_search_agent(
                 system_prompt, user_prompt, model_identifier,
                 api_key=api_keys.get('anthropic'),
-                serper_api_key=api_keys.get('serper')
+                serper_api_key=api_keys.get('serper'),
+                url_tracker=url_tracker,
+                query_tracker=query_tracker,
+                force_search=force_search,
             )
         elif provider == 'bedrock':
             return run_bedrock_search_agent(
                 system_prompt, user_prompt, model_identifier,
                 api_keys=api_keys,
-                serper_api_key=api_keys.get('serper')
+                serper_api_key=api_keys.get('serper'),
+                url_tracker=url_tracker,
+                query_tracker=query_tracker,
+                force_search=force_search,
             )
     else:
         if provider == 'openai':
@@ -324,6 +340,8 @@ def process_single_polity(
     sc_n_samples: int = 3,
     sc_temperatures: Optional[List[float]] = None,
     cove_questions_per_element: int = 1,
+    # Search tracking
+    force_search: bool = False,
 ) -> Optional[Dict]:
     """Process a single polity for constitution analysis (polity pipeline).
 
@@ -332,6 +350,9 @@ def process_single_polity(
     Cost data is returned under private keys (_input_tokens, _output_tokens,
     _cached_tokens) for the caller to aggregate; they are stripped before
     the final CSV is written.
+
+    Search metadata (URLs, queries) are returned under search_queries_{suffix}
+    and urls_used_{suffix} columns when search mode is active.
     """
     system_prompt, user_prompt = create_prompt(country, start_year, end_year)
 
@@ -339,6 +360,25 @@ def process_single_polity(
     output_tokens = 0
     cached_tokens = 0
     thinking_tokens = 0
+
+    # Track search URLs and queries
+    url_tracker: List[str] = []
+    query_tracker: List[str] = []
+
+    # For forced search mode, run pre-search and enrich the prompt
+    if use_search_flag and force_search:
+        try:
+            from pipeline.pre_search import PreSearcher
+            pre_searcher = PreSearcher(serper_api_key=api_keys.get('serper', ''))
+            search_result = pre_searcher.search(
+                polity=country, name="", start_year=start_year, end_year=end_year
+            )
+            if search_result.context:
+                user_prompt = pre_searcher.enrich_prompt(user_prompt, search_result)
+            url_tracker.extend(search_result.urls_used)
+            query_tracker.extend(search_result.search_queries)
+        except Exception as e:
+            print(f"  Pre-search failed for {country}: {e}")
 
     # Prefer llm.call() (gives token counts) when available and not in search mode
     if llm is not None and not use_search_flag:
@@ -354,10 +394,29 @@ def process_single_polity(
         output_tokens = model_response.output_tokens
         cached_tokens = model_response.cached_tokens
         thinking_tokens = model_response.thinking_tokens
+    elif llm is not None and use_search_flag and force_search:
+        # Forced search: prompt already enriched with pre-search context above,
+        # use llm.call() to get token counts
+        model_response = llm.call(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=llm_params.get('temperature', DEFAULT_TEMPERATURE),
+            max_tokens=llm_params.get('max_tokens', DEFAULT_MAX_TOKENS),
+            top_p=llm_params.get('top_p', DEFAULT_TOP_P),
+        )
+        response_content = model_response.content
+        input_tokens = model_response.input_tokens
+        output_tokens = model_response.output_tokens
+        cached_tokens = model_response.cached_tokens
+        thinking_tokens = model_response.thinking_tokens
     else:
+        # Agentic search: the LLM decides what to search
         response_content = _route_to_model(
             system_prompt, user_prompt, model_identifier,
-            api_keys, llm_params, max_retries, retry_delay, use_search_flag
+            api_keys, llm_params, max_retries, retry_delay, use_search_flag,
+            url_tracker=url_tracker,
+            query_tracker=query_tracker,
+            force_search=force_search,
         )
 
     if response_content is None:
@@ -376,6 +435,9 @@ def process_single_polity(
         f'explanation_{model_suffix}': explanation,
         f'explanation_length_{model_suffix}': len(explanation) if explanation else 0,
         f'confidence_score_{model_suffix}': parsed_result.get('confidence_score', None),
+        # Search metadata
+        f'search_queries_{model_suffix}': ' | '.join(query_tracker) if query_tracker else None,
+        f'urls_used_{model_suffix}': ' | '.join(url_tracker) if url_tracker else None,
         # Private cost fields — stripped before CSV output
         f'_input_tokens_{model_suffix}': input_tokens,
         f'_output_tokens_{model_suffix}': output_tokens,
@@ -421,6 +483,7 @@ def _process_one_row(
     sc_n_samples: int,
     sc_temperatures: Optional[List[float]],
     cove_questions_per_element: int,
+    force_search: bool = False,
 ) -> Dict:
     """
     Process all models for a single polity row.
@@ -445,6 +508,7 @@ def _process_one_row(
                 max_retries, retry_delay, use_search_flag,
                 verify_type, model_llms.get(model_key), verifier_llm,
                 sc_n_samples, sc_temperatures, cove_questions_per_element,
+                force_search,
             ): model_key
             for model_key, model_identifier in models_dict.items()
         }
@@ -520,6 +584,8 @@ def process_batch(
     # Cost tracking
     cost_tracker: Optional[CostTracker] = None,
     output_path: Optional[str] = None,
+    # Search mode
+    force_search: bool = False,
 ) -> pd.DataFrame:
     """Process polity data in batches (polity pipeline).
 
@@ -562,6 +628,7 @@ def process_batch(
             sc_n_samples=sc_n_samples,
             sc_temperatures=sc_temperatures,
             cove_questions_per_element=cove_questions_per_element,
+            force_search=force_search,
         )
 
     def _handle_row_result(entry_result: Dict, processed_count: int) -> None:
@@ -723,13 +790,25 @@ Examples:
   python main.py --pipeline polity -i data/plt_polity_data_v2.csv -o results.csv -m GPT=gpt-4o Claude=claude-3-5-sonnet-20241022
 
   # Enable web search, test on first 10 rows
-  python main.py --pipeline polity --models GPT=gpt-4o --use-search --test 10
+  python main.py --pipeline polity --models GPT=gpt-4o --search-mode agentic --test 10
 
 
   # --- LEADER level (new modular pipeline, all 7 indicators) ---
 
   # Predict sovereign + assembly with multiple prompts (default mode)
   python main.py --pipeline leader --indicators sovereign assembly collegiality
+
+  # With agentic search (LLM decides whether to search)
+  python main.py --pipeline leader --indicators sovereign assembly --search-mode agentic --test 10
+
+  # With forced search (always search before LLM answers)
+  python main.py --pipeline leader --indicators sovereign assembly --search-mode forced --test 10
+
+  # With Gemini Batch API (50% cost savings, no search)
+  python main.py --pipeline leader --indicators sovereign assembly --models gemini-2.5-pro --use-batch --test 20
+
+  # With forced search + Gemini Batch API (pre-search + batch)
+  python main.py --pipeline leader --indicators sovereign assembly --models gemini-2.5-pro --search-mode forced --use-batch --test 20
 
   # With self-consistency verification on assembly
   python main.py --pipeline leader --indicators assembly --verify self_consistency --verify-indicators assembly
@@ -778,7 +857,27 @@ Examples:
     parser.add_argument(
         '--use-search',
         action='store_true',
-        help='Enable web search functionality for models'
+        help='(Deprecated) Use --search-mode agentic instead. Kept for backward compatibility.'
+    )
+    parser.add_argument(
+        '--search-mode',
+        choices=['none', 'agentic', 'forced'],
+        default='none',
+        help=(
+            'Search mode for LLM generation (default: none).\n'
+            '  none    — Pure LLM output, no web search.\n'
+            '  agentic — LLM decides whether to search (tool_choice=auto).\n'
+            '  forced  — Always perform web search before LLM answers.'
+        )
+    )
+    parser.add_argument(
+        '--use-batch',
+        action='store_true',
+        help=(
+            'Use Gemini Batch API for main predictions (50%% cost savings).\n'
+            'Only works with Gemini models. Verification runs synchronously after batch.\n'
+            'Compatible with --search-mode forced (pre-search + batch).'
+        )
     )
 
     # API configuration
@@ -789,7 +888,7 @@ Examples:
 
     # Processing configuration
     parser.add_argument(
-        '--batch-size', '-b',
+        '--checkpoint', '-b',
         type=int,
         default=DEFAULT_BATCH_SIZE,
         help='Batch size for temporary saves'
@@ -894,8 +993,8 @@ Examples:
     parser.add_argument(
         '--checkpoint-interval',
         type=int,
-        default=50,
-        help='Save checkpoint every N rows (leader pipeline only)'
+        default=500,
+        help='Save checkpoint every N rows (leader pipeline only, default 500)'
     )
     parser.add_argument(
         '--parallel-rows',
@@ -945,16 +1044,43 @@ Examples:
         'serper': os.getenv('SERPER_API_KEY')
     }
 
+    # Handle backward-compatible --use-search flag
+    if args.use_search and args.search_mode == 'none':
+        args.search_mode = 'agentic'
+
+    # Resolve search mode enum
+    search_mode = SearchMode(args.search_mode)
+
     # Validate search configuration
-    if args.use_search and not api_keys['serper']:
+    if search_mode == SearchMode.AGENTIC and not api_keys['serper']:
         raise ValueError(
-            "Web search is enabled (--use-search), but no Serper API key was provided. "
-            "Set the SERPER_API_KEY environment variable."
+            "Agentic search mode requires a Serper API key. "
+            "Set the SERPER_API_KEY environment variable or use --search-mode forced "
+            "(which uses free Wikipedia/DuckDuckGo first)."
         )
+
+    # Validate batch configuration
+    if args.use_batch:
+        model_arg_check = args.models[0]
+        model_id_check = model_arg_check.split('=', 1)[-1] if '=' in model_arg_check else model_arg_check
+        if not any(model_id_check.startswith(prefix) for prefix in GEMINI_MODELS):
+            raise ValueError(
+                f"--use-batch is only supported with Gemini models, got '{model_id_check}'. "
+                "Batch API is a Gemini-specific feature."
+            )
+        if search_mode == SearchMode.AGENTIC:
+            raise ValueError(
+                "--use-batch is incompatible with --search-mode agentic. "
+                "Agentic search requires multi-turn LLM calls which batch API does not support.\n"
+                "Use --search-mode forced --use-batch instead (pre-search + batch)."
+            )
 
     if args.pipeline == 'leader':
         print("Pipeline: LEADER level (modular, all 7 indicators supported)")
         print(f"Input:    {args.input}")
+        print(f"Search:   {search_mode.value}")
+        if args.use_batch:
+            print("Batch:    Gemini Batch API (50% cost savings)")
 
         # Parse model from --models argument (use first one for leader pipeline)
         model_arg = args.models[0]
@@ -962,6 +1088,165 @@ Examples:
             _, model_identifier = model_arg.split('=', 1)
         else:
             model_identifier = model_arg
+
+        # ── Search mode: agentic ──────────────────────────────────────────
+        # Use SearchPredictor (LLM decides whether to search via tool calling)
+        if search_mode == SearchMode.AGENTIC:
+            from pipeline.search_predictor import SearchPredictor
+
+            df = load_polity_data(args.input)
+            if args.test:
+                df = _parse_test_argument(args.test, df)
+
+            search_predictor = SearchPredictor(
+                model=model_identifier,
+                api_keys=api_keys,
+                mode=args.mode,
+                indicators=args.indicators,
+                reasoning=args.reasoning,
+                sequence=args.sequence,
+                random_sequence=args.random_sequence,
+                force_search=False,
+            )
+
+            results = []
+            for idx in tqdm(range(len(df)), desc="Processing (agentic search)"):
+                row = df.iloc[idx]
+                polity = str(row.get(COL_TERRITORY_NAME, "Unknown"))
+                name = str(row.get('name', "Unknown"))
+                start_year = int(row[COL_START_YEAR])
+                end_year = None if pd.isna(row[COL_END_YEAR]) else int(row[COL_END_YEAR])
+
+                pred = search_predictor.predict(polity, name, start_year, end_year)
+                result_dict = row.to_dict()
+                result_dict.update(pred.to_dict())
+                results.append(result_dict)
+                time.sleep(args.delay)
+
+            results_df = pd.DataFrame(results)
+            os.makedirs(os.path.dirname(args.output) or '.', exist_ok=True)
+            results_df.to_csv(args.output, index=False)
+            print(f"\nResults saved to: {args.output}")
+            print("\nLeader-level pipeline (agentic search) completed successfully!")
+            return
+
+        # ── Search mode: forced ───────────────────────────────────────────
+        # Two sub-paths: forced + batch  OR  forced + synchronous
+        if search_mode == SearchMode.FORCED:
+            if args.use_batch:
+                # Pre-search + Gemini Batch API
+                from pipeline.pre_search import PreSearcher
+                from pipeline.batch_gemini import GeminiBatchRunner
+
+                config = PredictionConfig(
+                    mode=PromptMode(args.mode),
+                    indicators=args.indicators,
+                    verify=VerificationType(args.verify),
+                    verify_indicators=args.verify_indicators,
+                    model=model_identifier,
+                    verifier_model=args.verifier_model,
+                    temperature=args.temperature,
+                    max_tokens=args.max_tokens,
+                    top_p=args.top_p,
+                    sc_n_samples=args.n_samples,
+                    sc_temperatures=args.sc_temperatures,
+                    sequence=args.sequence,
+                    random_sequence=args.random_sequence,
+                    reasoning=args.reasoning,
+                )
+                predictor = Predictor(config, api_keys)
+                batch_config = BatchConfig(
+                    checkpoint_interval=args.checkpoint_interval,
+                    delay_between_calls=args.delay,
+                    max_retries=args.max_retries,
+                    retry_delay=args.retry_delay,
+                    max_workers=args.parallel_rows,
+                )
+
+                df = load_polity_data(args.input)
+                if args.test:
+                    df = _parse_test_argument(args.test, df)
+
+                # Phase 1: Pre-search and enrich prompts
+                print("\n[Pre-Search] Running deterministic search for all rows...")
+                pre_searcher = PreSearcher(serper_api_key=api_keys.get('serper', ''))
+
+                # We need to monkey-patch the prompt builder to inject search context.
+                # Store original build method and wrap it.
+                original_build = predictor.prompt_builder.build
+
+                def _build_with_search(polity, name, start_year, end_year):
+                    search_result = pre_searcher.search(polity, name, start_year, end_year)
+                    prompts = original_build(polity, name, start_year, end_year)
+                    # Enrich each prompt's user_prompt with search context
+                    enriched = []
+                    for p in prompts:
+                        enriched_user = pre_searcher.enrich_prompt(p.user_prompt, search_result)
+                        from prompts.base_builder import PromptOutput
+                        enriched.append(PromptOutput(
+                            system_prompt=p.system_prompt,
+                            user_prompt=enriched_user,
+                            indicators=p.indicators,
+                            metadata={**p.metadata, 'search_queries': search_result.search_queries,
+                                      'urls_used': search_result.urls_used,
+                                      'sources_used': search_result.sources_used},
+                        ))
+                    return enriched
+
+                predictor.prompt_builder.build = _build_with_search
+
+                # Phase 2: Run batch
+                runner = GeminiBatchRunner(
+                    predictor=predictor,
+                    config=batch_config,
+                    output_path=args.output,
+                )
+                results_df = runner.run(df)
+                print("\nLeader-level pipeline (forced search + batch) completed successfully!")
+                return
+
+            else:
+                # Forced search without batch: use SearchPredictor with force_search=True
+                from pipeline.search_predictor import SearchPredictor
+
+                df = load_polity_data(args.input)
+                if args.test:
+                    df = _parse_test_argument(args.test, df)
+
+                search_predictor = SearchPredictor(
+                    model=model_identifier,
+                    api_keys=api_keys,
+                    mode=args.mode,
+                    indicators=args.indicators,
+                    reasoning=args.reasoning,
+                    sequence=args.sequence,
+                    random_sequence=args.random_sequence,
+                    force_search=True,
+                )
+
+                results = []
+                for idx in tqdm(range(len(df)), desc="Processing (forced search)"):
+                    row = df.iloc[idx]
+                    polity = str(row.get(COL_TERRITORY_NAME, "Unknown"))
+                    name = str(row.get('name', "Unknown"))
+                    start_year = int(row[COL_START_YEAR])
+                    end_year = None if pd.isna(row[COL_END_YEAR]) else int(row[COL_END_YEAR])
+
+                    pred = search_predictor.predict(polity, name, start_year, end_year)
+                    result_dict = row.to_dict()
+                    result_dict.update(pred.to_dict())
+                    results.append(result_dict)
+                    time.sleep(args.delay)
+
+                results_df = pd.DataFrame(results)
+                os.makedirs(os.path.dirname(args.output) or '.', exist_ok=True)
+                results_df.to_csv(args.output, index=False)
+                print(f"\nResults saved to: {args.output}")
+                print("\nLeader-level pipeline (forced search) completed successfully!")
+                return
+
+        # ── Search mode: none (default) ───────────────────────────────────
+        # Two sub-paths: batch (Gemini Batch API) OR synchronous (BatchRunner)
 
         # Create prediction config
         config = PredictionConfig(
@@ -1000,12 +1285,21 @@ Examples:
         if args.test:
             df = _parse_test_argument(args.test, df)
 
-        # Create runner and run
-        runner = BatchRunner(
-            predictor=predictor,
-            config=batch_config,
-            output_path=args.output
-        )
+        if args.use_batch:
+            # Gemini Batch API path (no search)
+            from pipeline.batch_gemini import GeminiBatchRunner
+            runner = GeminiBatchRunner(
+                predictor=predictor,
+                config=batch_config,
+                output_path=args.output,
+            )
+        else:
+            # Standard synchronous BatchRunner
+            runner = BatchRunner(
+                predictor=predictor,
+                config=batch_config,
+                output_path=args.output
+            )
 
         results_df = runner.run(df)
 
@@ -1074,6 +1368,7 @@ Examples:
             print("Warning: CoVe requires --verifier-model. CoVe will be skipped.")
 
     # Process data
+    polity_cost_tracker = CostTracker()
     results_df = process_batch(
         df,
         models_dict=models_dict,
@@ -1083,7 +1378,7 @@ Examples:
         llm_params=llm_params,
         max_retries=args.max_retries,
         retry_delay=args.retry_delay,
-        use_search_flag=args.use_search,
+        use_search_flag=(search_mode != SearchMode.NONE),
         verify_type=args.verify,
         model_llms=model_llms,
         verifier_llm=verifier_llm_instance,
@@ -1091,7 +1386,9 @@ Examples:
         sc_temperatures=args.sc_temperatures,
         cove_questions_per_element=1,
         max_workers=args.parallel_rows,
+        cost_tracker=polity_cost_tracker,
         output_path=args.output,
+        force_search=(search_mode == SearchMode.FORCED),
     )
 
     # Ensure output directory exists

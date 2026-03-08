@@ -130,6 +130,13 @@ class PromptMode(Enum):
     SEQUENTIAL = "sequential"  # All 7 indicators in sequence with distinct sections
 
 
+class SearchMode(Enum):
+    """Search modes for LLM generation."""
+    NONE = "none"          # Pure LLM output, no search
+    AGENTIC = "agentic"    # LLM decides whether to search (tool_choice=auto)
+    FORCED = "forced"      # Always search before LLM answers
+
+
 # Default verification configuration
 DEFAULT_VERIFICATION_CONFIG = {
     "self_consistency": {
@@ -156,7 +163,7 @@ DEFAULT_OUTPUT_DIR = "data/results"
 
 import os
 
-DEFAULT_PRIMARY_MODEL = "gemini-2.5-pro"
+DEFAULT_PRIMARY_MODEL = "gemini-3-pro"
 
 # Bedrock Verifier Model Configuration
 # Users can customize by setting BEDROCK_VERIFIER_MODEL in .env
@@ -219,6 +226,7 @@ __all__ = [
     # Verification Configuration
     'VerificationType',
     'PromptMode',
+    'SearchMode',
     'DEFAULT_VERIFICATION_CONFIG',
 
     # Output Configuration

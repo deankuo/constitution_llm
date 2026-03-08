@@ -788,6 +788,134 @@ def plot_multiclass_comparison(
     plt.show()
 
 
+def plot_per_class_metrics(
+    datasets: Dict[str, Union[str, pd.DataFrame]],
+    indicators: Optional[List[str]] = None,
+    figsize: Tuple[int, int] = (14, 8),
+):
+    """
+    Plot per-class precision, recall, and F1 across experiment settings.
+
+    Creates one figure per indicator with grouped bars showing per-class
+    metrics for each dataset/experiment.
+
+    Args:
+        datasets: Dict mapping experiment labels to file paths or DataFrames.
+        indicators: Indicators to plot (default: all with ground truth).
+        figsize: Figure size per indicator plot.
+
+    Example (in a Jupyter notebook)::
+
+        from evaluation import plot_per_class_metrics
+
+        datasets = {
+            'Baseline': 'data/results/baseline.csv',
+            'Self-Consistency': 'data/results/sc.csv',
+            'CoVe': 'data/results/cove.csv',
+        }
+        plot_per_class_metrics(datasets, indicators=['assembly', 'appointment'])
+    """
+    if indicators is None:
+        indicators = INDICATORS_WITH_GROUND_TRUTH
+
+    # Load datasets
+    dfs: Dict[str, pd.DataFrame] = {}
+    for label, data in datasets.items():
+        if isinstance(data, pd.DataFrame):
+            dfs[label] = data
+        elif isinstance(data, str):
+            dfs[label] = load_predictions(data)
+        else:
+            raise ValueError(f"Dataset '{label}' must be str or DataFrame, got {type(data)}")
+
+    for indicator in indicators:
+        pred_col = f'{indicator}_prediction'
+
+        # Collect per-class metrics for each dataset
+        all_reports = {}
+        all_labels = set()
+
+        for ds_label, df in dfs.items():
+            if indicator not in df.columns or pred_col not in df.columns:
+                continue
+            valid_mask = df[indicator].notna() & df[pred_col].notna()
+            y_true = _to_str_labels(df.loc[valid_mask, indicator])
+            y_pred = _to_str_labels(df.loc[valid_mask, pred_col])
+            if len(y_true) == 0:
+                continue
+
+            labels = sorted(set(y_true) | set(y_pred))
+            all_labels.update(labels)
+
+            report = classification_report(y_true, y_pred, labels=labels,
+                                           output_dict=True, zero_division=0)
+            all_reports[ds_label] = report
+
+        if not all_reports:
+            continue
+
+        sorted_labels = sorted(all_labels)
+        ds_names = list(all_reports.keys())
+        metrics_names = ['precision', 'recall', 'f1-score']
+
+        n_classes = len(sorted_labels)
+        n_metrics = len(metrics_names)
+        n_datasets = len(ds_names)
+
+        fig, axes = plt.subplots(1, n_metrics, figsize=figsize)
+        if n_metrics == 1:
+            axes = [axes]
+        fig.suptitle(f'Per-Class Metrics: {indicator.upper()}', fontsize=16, fontweight='bold')
+
+        colors = plt.cm.get_cmap('tab10')(np.linspace(0, 1, n_datasets))
+
+        for m_idx, metric_name in enumerate(metrics_names):
+            ax = axes[m_idx]
+            x = np.arange(n_classes)
+            width = 0.8 / max(n_datasets, 1)
+
+            for d_idx, ds_name in enumerate(ds_names):
+                report = all_reports[ds_name]
+                values = []
+                for lbl in sorted_labels:
+                    if lbl in report:
+                        values.append(round(report[lbl][metric_name], 3))
+                    else:
+                        values.append(0.0)
+                offset = (d_idx - n_datasets / 2) * width + width / 2
+                bars = ax.bar(x + offset, values, width, label=ds_name,
+                              color=colors[d_idx], alpha=0.8)
+                # Value labels
+                for b, v in zip(bars, values):
+                    if v > 0:
+                        ax.text(b.get_x() + b.get_width() / 2, v + 0.01,
+                                f'{v:.2f}', ha='center', va='bottom', fontsize=7)
+
+            ax.set_xlabel('Class Label', fontsize=11)
+            ax.set_ylabel(metric_name.capitalize(), fontsize=11)
+            ax.set_title(metric_name.capitalize(), fontsize=12, fontweight='bold')
+            ax.set_xticks(x)
+            ax.set_xticklabels(sorted_labels)
+            ax.set_ylim(0, 1.1)
+            ax.grid(axis='y', alpha=0.3)
+            ax.legend(fontsize=8)
+
+        plt.tight_layout()
+        plt.show()
+
+        # Also print macro/weighted summary for this indicator
+        print(f"\n{'='*60}")
+        print(f"Summary for {indicator.upper()}:")
+        for ds_name in ds_names:
+            report = all_reports[ds_name]
+            if 'macro avg' in report:
+                macro_f1 = report['macro avg']['f1-score']
+                weighted_f1 = report['weighted avg']['f1-score']
+                acc = report.get('accuracy', 0)
+                print(f"  {ds_name}: accuracy={acc:.3f}, macro-F1={macro_f1:.3f}, weighted-F1={weighted_f1:.3f}")
+        print(f"{'='*60}\n")
+
+
 def compare_experiments(
     datasets: Dict[str, Union[str, pd.DataFrame]],
     indicators: Optional[List[str]] = None,

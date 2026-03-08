@@ -21,6 +21,7 @@ from evaluation.notebook_utils import (
     compare_experiments,
     plot_binary_comparison,
     plot_multiclass_comparison,
+    plot_per_class_metrics,
     INDICATORS_WITH_GROUND_TRUTH,
     BINARY_INDICATORS,
     MULTICLASS_INDICATORS
@@ -38,6 +39,7 @@ __all__ = [
     'compare_experiments',
     'plot_binary_comparison',
     'plot_multiclass_comparison',
+    'plot_per_class_metrics',
     'INDICATORS_WITH_GROUND_TRUTH',
     'BINARY_INDICATORS',
     'MULTICLASS_INDICATORS'

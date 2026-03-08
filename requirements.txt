@@ -14,6 +14,10 @@ botocore>=1.34.0
 
 # Web Search
 requests>=2.31.0
+ddgs>=6.0.0
+
+# Gemini Batch API (optional, for --use-batch with Gemini models)
+google-genai>=1.0.0
 
 # Environment and Configuration
 python-dotenv>=1.0.0
@@ -23,6 +27,11 @@ tqdm>=4.65.0
 
 # Encoding Detection (for utils/encoding_fix.py)
 chardet>=5.0.0
+
+# Evaluation and Visualization
+scikit-learn>=1.3.0
+matplotlib>=3.7.0
+seaborn>=0.12.0
 
 # Optional: Jupyter support (for notebooks)
 ipykernel>=6.20.0

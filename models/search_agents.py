@@ -10,7 +10,7 @@ This module provides search-enabled agents for different LLM providers:
 
 import json
 import traceback
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 import boto3
 import google.generativeai as genai
@@ -22,13 +22,20 @@ from config import DEFAULT_MAX_TOKENS
 from models.llm_clients import _create_bedrock_client
 
 
-def perform_web_search(query: str, serper_api_key: str) -> str:
+def perform_web_search(
+    query: str,
+    serper_api_key: str,
+    url_tracker: Optional[List[str]] = None,
+    query_tracker: Optional[List[str]] = None,
+) -> str:
     """
     Perform a web search using the Serper API.
 
     Args:
         query: The search query
         serper_api_key: API key for Serper
+        url_tracker: Optional list to append result URLs to
+        query_tracker: Optional list to append the query string to
 
     Returns:
         A formatted string of search results or an error message
@@ -37,6 +44,9 @@ def perform_web_search(query: str, serper_api_key: str) -> str:
 
     if not serper_api_key:
         return "Error: Serper API key is not configured."
+
+    if query_tracker is not None:
+        query_tracker.append(query)
 
     payload = json.dumps({"q": query})
     headers = {
@@ -71,6 +81,8 @@ def perform_web_search(query: str, serper_api_key: str) -> str:
                 link = result.get("link", "")
                 snippet = result.get("snippet", "")
                 output += f"{i}. Title: {title}\n   Link: {link}\n   Snippet: {snippet}\n\n"
+                if url_tracker is not None and link:
+                    url_tracker.append(link)
 
         return output if output else "No results found."
 
@@ -84,7 +96,10 @@ def run_openai_search_agent(
     model: str,
     api_key: str,
     serper_api_key: str,
-    llm_params: Optional[Dict] = None
+    llm_params: Optional[Dict] = None,
+    url_tracker: Optional[List[str]] = None,
+    query_tracker: Optional[List[str]] = None,
+    force_search: bool = False,
 ) -> Optional[str]:
     """
     Run an agentic workflow with OpenAI that enables web search.
@@ -127,12 +142,17 @@ def run_openai_search_agent(
             }
         ]
 
+        tool_choice = (
+            {"type": "function", "function": {"name": "perform_web_search"}}
+            if force_search else "auto"
+        )
+
         print("INFO: Making initial call to OpenAI to plan")
         response = client.chat.completions.create(
             model=model,
             messages=messages,
             tools=tools,
-            tool_choice="auto"
+            tool_choice=tool_choice
         )
 
         response_message = response.choices[0].message
@@ -149,7 +169,11 @@ def run_openai_search_agent(
                     query = function_args.get("query")
 
                     print(f"INFO: Executing web search for query: '{query}'")
-                    search_results = perform_web_search(query, serper_api_key)
+                    search_results = perform_web_search(
+                        query, serper_api_key,
+                        url_tracker=url_tracker,
+                        query_tracker=query_tracker,
+                    )
 
                     messages.append({
                         "tool_call_id": tool_call.id,
@@ -174,16 +198,33 @@ def run_openai_search_agent(
         return None
 
 
+def _extract_text_from_gemini_response(response) -> Optional[str]:
+    """Extract text content from a Gemini response, skipping function_call parts."""
+    text_parts = []
+    for part in response.parts:
+        if hasattr(part, 'text') and part.text:
+            text_parts.append(part.text)
+    if text_parts:
+        return ' '.join(text_parts).strip()
+    return None
+
+
 def run_gemini_search_agent(
     system_prompt: str,
     user_prompt: str,
     model: str,
     api_key: str,
     serper_api_key: str,
-    llm_params: Optional[Dict] = None
+    llm_params: Optional[Dict] = None,
+    url_tracker: Optional[List[str]] = None,
+    query_tracker: Optional[List[str]] = None,
+    force_search: bool = False,
 ) -> Optional[str]:
     """
     Run an agentic workflow with Google Gemini that enables web search.
+
+    Handles multiple rounds of function calling and gracefully recovers from
+    MALFORMED_FUNCTION_CALL errors by retrying without tools.
 
     Args:
         system_prompt: System prompt for the model
@@ -225,6 +266,10 @@ def run_gemini_search_agent(
             HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
         }
 
+        tool_config_dict = None
+        if force_search:
+            tool_config_dict = {"function_calling_config": {"mode": "ANY"}}
+
         gemini_model = genai.GenerativeModel(
             model_name=model,
             system_instruction=system_prompt,
@@ -235,35 +280,95 @@ def run_gemini_search_agent(
         chat = gemini_model.start_chat()
 
         print("INFO: Making initial call to Gemini to plan...")
-        response = chat.send_message(user_prompt)
+        send_kwargs = {}
+        if tool_config_dict:
+            send_kwargs['tool_config'] = tool_config_dict
 
         try:
-            function_call = response.parts[0].function_call
-            if function_call.name == "perform_web_search":
-                print("INFO: Gemini model decided to use the web_search tool.")
-                query = function_call.args['query']
+            response = chat.send_message(user_prompt, **send_kwargs)
+        except Exception as initial_err:
+            err_str = str(initial_err)
+            if 'MALFORMED_FUNCTION_CALL' in err_str:
+                print("WARN: Gemini returned MALFORMED_FUNCTION_CALL. Retrying without tools...")
+                # Fall back to a plain call without tools
+                fallback_model = genai.GenerativeModel(
+                    model_name=model,
+                    system_instruction=system_prompt,
+                    safety_settings=safety_settings,
+                )
+                fallback_resp = fallback_model.generate_content(user_prompt)
+                return _extract_text_from_gemini_response(fallback_resp)
+            raise
 
-                print(f"INFO: Executing web search for query: '{query}'")
-                search_results_str = perform_web_search(query, serper_api_key)
+        # Loop to handle multiple rounds of function calling (max 3 rounds)
+        max_rounds = 3
+        for round_num in range(max_rounds):
+            # Check if the response contains a function call
+            has_function_call = False
+            try:
+                for part in response.parts:
+                    if hasattr(part, 'function_call') and part.function_call.name:
+                        has_function_call = True
+                        break
+            except (AttributeError, IndexError):
+                pass
 
-                print("INFO: Making second call to Gemini with search results...")
-                final_response = chat.send_message(
-                    [
-                        {
-                            "function_response": {
-                                "name": "perform_web_search",
-                                "response": {"content": search_results_str}
-                            }
-                        }
-                    ]
+            if not has_function_call:
+                break
+
+            # Extract and execute the function call
+            function_call = None
+            for part in response.parts:
+                if hasattr(part, 'function_call') and part.function_call.name:
+                    function_call = part.function_call
+                    break
+
+            if function_call and function_call.name == "perform_web_search":
+                query = function_call.args.get('query', '')
+                print(f"INFO: Gemini requested web search (round {round_num + 1}): '{query}'")
+                search_results_str = perform_web_search(
+                    query, serper_api_key,
+                    url_tracker=url_tracker,
+                    query_tracker=query_tracker,
                 )
 
-                return final_response.text.strip()
-        except (AttributeError, IndexError):
-            pass
+                print("INFO: Sending search results back to Gemini...")
+                try:
+                    response = chat.send_message(
+                        [
+                            {
+                                "function_response": {
+                                    "name": "perform_web_search",
+                                    "response": {"content": search_results_str}
+                                }
+                            }
+                        ]
+                    )
+                except Exception as round_err:
+                    if 'MALFORMED_FUNCTION_CALL' in str(round_err):
+                        print("WARN: Gemini returned MALFORMED_FUNCTION_CALL after search. Using search results directly.")
+                        break
+                    raise
+            else:
+                break
 
-        print("INFO: Gemini model answered directly without searching.")
-        return response.text.strip()
+        # Extract text from the final response
+        text = _extract_text_from_gemini_response(response)
+        if text:
+            return text
+
+        # Last resort: try .text property
+        try:
+            return response.text.strip()
+        except (ValueError, AttributeError):
+            print("WARN: Could not extract text from Gemini response. Attempting fallback without tools.")
+            fallback_model = genai.GenerativeModel(
+                model_name=model,
+                system_instruction=system_prompt,
+                safety_settings=safety_settings,
+            )
+            fallback_resp = fallback_model.generate_content(user_prompt)
+            return _extract_text_from_gemini_response(fallback_resp)
 
     except Exception as e:
         print(f"ERROR: Exception in run_gemini_search_agent for model '{model}': {e}")
@@ -277,7 +382,10 @@ def run_bedrock_search_agent(
     model: str,
     api_keys: Dict,
     serper_api_key: str,
-    llm_params: Optional[Dict] = None
+    llm_params: Optional[Dict] = None,
+    url_tracker: Optional[List[str]] = None,
+    query_tracker: Optional[List[str]] = None,
+    force_search: bool = False,
 ) -> Optional[str]:
     """
     Run an agentic workflow with AWS Bedrock that enables web search.
@@ -321,13 +429,19 @@ def run_bedrock_search_agent(
             ]
         }
 
+        converse_kwargs = {
+            "modelId": model,
+            "messages": messages,
+            "system": [{"text": system_prompt}],
+            "toolConfig": tool_config,
+        }
+        if force_search:
+            converse_kwargs["toolConfig"]["toolChoice"] = {
+                "tool": {"name": "perform_web_search"}
+            }
+
         print("INFO: Making initial call to Bedrock to plan")
-        response = client.converse(
-            modelId=model,
-            messages=messages,
-            system=[{"text": system_prompt}],
-            toolConfig=tool_config
-        )
+        response = client.converse(**converse_kwargs)
 
         response_message = response['output']['message']
         messages.append(response_message)
@@ -346,7 +460,11 @@ def run_bedrock_search_agent(
                     query = tool_input.get("query")
 
                     print(f"INFO: Executing web search for query: '{query}'")
-                    search_results = perform_web_search(query, serper_api_key)
+                    search_results = perform_web_search(
+                        query, serper_api_key,
+                        url_tracker=url_tracker,
+                        query_tracker=query_tracker,
+                    )
 
                     messages.append({
                         "role": "user",
@@ -384,7 +502,10 @@ def run_anthropic_search_agent(
     model: str,
     api_key: str,
     serper_api_key: str,
-    llm_params: Optional[Dict] = None
+    llm_params: Optional[Dict] = None,
+    url_tracker: Optional[List[str]] = None,
+    query_tracker: Optional[List[str]] = None,
+    force_search: bool = False,
 ) -> Optional[str]:
     """
     Run an agentic workflow with Anthropic Claude that enables web search.
@@ -425,14 +546,18 @@ def run_anthropic_search_agent(
             }
         ]
 
+        create_kwargs = {
+            "model": model,
+            "system": system_prompt,
+            "messages": [{"role": "user", "content": user_prompt}],
+            "tools": tools,
+            "max_tokens": max_tokens,
+        }
+        if force_search:
+            create_kwargs["tool_choice"] = {"type": "tool", "name": "perform_web_search"}
+
         print("INFO: Making initial call to Claude to plan")
-        response = client.messages.create(
-            model=model,
-            system=system_prompt,
-            messages=[{"role": "user", "content": user_prompt}],
-            tools=tools,
-            max_tokens=max_tokens
-        )
+        response = client.messages.create(**create_kwargs)
 
         if response.stop_reason == "tool_use":
             print("INFO: Claude model decided to use the web_search tool.")
@@ -443,7 +568,11 @@ def run_anthropic_search_agent(
                 query = tool_use_block.input.get("query")
 
                 print(f"INFO: Executing web search for query: '{query}'")
-                search_results = perform_web_search(query, serper_api_key)
+                search_results = perform_web_search(
+                    query, serper_api_key,
+                    url_tracker=url_tracker,
+                    query_tracker=query_tracker,
+                )
 
                 print("INFO: Making second call to Claude with search results")
                 final_response = client.messages.create(

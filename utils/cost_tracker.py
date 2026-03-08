@@ -150,7 +150,8 @@ class CostTracker:
         input_tokens: int,
         output_tokens: int,
         cached_tokens: int = 0,
-        thinking_tokens: int = 0
+        thinking_tokens: int = 0,
+        batch_discount: float = 1.0
     ) -> float:
         """
         Calculate cost for a single API call.
@@ -162,6 +163,7 @@ class CostTracker:
             cached_tokens: Number of cached input tokens (priced separately)
             thinking_tokens: Number of thinking tokens (priced separately for
                              thinking models like Gemini 2.5 Pro/Flash)
+            batch_discount: Multiplier for batch API pricing (e.g. 0.5 for 50% off)
 
         Returns:
             Cost in USD
@@ -176,7 +178,7 @@ class CostTracker:
         thinking_rate = prices.get('thinking', prices['output'])
         thinking_cost = (thinking_tokens / 1_000_000) * thinking_rate
 
-        return input_cost + output_cost + cached_cost + thinking_cost
+        return (input_cost + output_cost + cached_cost + thinking_cost) * batch_discount
 
     def add_usage(
         self,
@@ -186,7 +188,8 @@ class CostTracker:
         polity: Optional[str] = None,
         indicator: Optional[str] = None,
         cached_tokens: int = 0,
-        thinking_tokens: int = 0
+        thinking_tokens: int = 0,
+        batch_discount: float = 1.0
     ) -> float:
         """
         Record usage from an API call.
@@ -199,11 +202,12 @@ class CostTracker:
             indicator: Optional indicator name for tracking
             cached_tokens: Number of cached input tokens
             thinking_tokens: Number of thinking tokens (billed separately from output_tokens)
+            batch_discount: Multiplier for batch API pricing (e.g. 0.5 for 50% off)
 
         Returns:
             Cost of this call in USD
         """
-        cost = self.calculate_cost(model, input_tokens, output_tokens, cached_tokens, thinking_tokens)
+        cost = self.calculate_cost(model, input_tokens, output_tokens, cached_tokens, thinking_tokens, batch_discount)
 
         # Create record
         record = UsageRecord(

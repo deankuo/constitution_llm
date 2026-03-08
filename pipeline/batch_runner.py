@@ -27,7 +27,7 @@ from utils.logger import ExperimentLogger
 @dataclass
 class BatchConfig:
     """Configuration for batch processing."""
-    checkpoint_interval: int = 50  # Save checkpoint every N polities
+    checkpoint_interval: int = 500  # Save checkpoint every N polities
     delay_between_calls: float = 1.0  # Seconds between API calls
     max_retries: int = 3
     retry_delay: float = 5.0
