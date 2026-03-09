@@ -8,6 +8,7 @@ This package contains utility modules for the constitution analysis pipeline:
 - encoding_fix: CSV encoding utilities
 - sanity_check: Data validation utilities
 - data_cleaner: Data cleaning and aggregation utilities
+- data_loader: Unified CSV/JSONL data loading
 
 For backward compatibility, config is re-exported from root config.py.
 LLM clients, prompts, and other modules should be imported from their
@@ -91,6 +92,8 @@ from utils.logger import (
     default_logger,
 )
 
+from utils.data_loader import load_dataframe
+
 # =============================================================================
 # MODULE LIST
 # =============================================================================
@@ -145,4 +148,6 @@ __all__ = [
     'get_logger',
     'ExperimentLogger',
     'default_logger',
+    # Data loader
+    'load_dataframe',
 ]

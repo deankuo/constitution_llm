@@ -41,6 +41,8 @@ A sophisticated pipeline for analyzing historical polities to predict political 
 
 - **Gemini Batch API** (`--use-batch`): Submit predictions as a batch job for 50% cost savings. Compatible with `--search-mode forced` (pre-search + batch). Verification runs synchronously after batch completes. Batches are split by `--checkpoint-interval` (default 500 rows) for checkpointing.
 
+- **CSV & JSONL Input**: Accepts both CSV and JSONL input files (auto-detected by extension). Convert between formats with `scripts/csv_to_jsonl.py`.
+
 - **Robust Processing**: Checkpoint system, automatic retries, cost tracking
 
 ## Table of Contents
@@ -192,8 +194,9 @@ result = predictor.predict("Roman Republic", "Julius Caesar", -49, -44)
 print(result.predictions['sovereign'].prediction)
 print(result.predictions['sovereign'].reasoning)
 
-# Batch processing
-df = pd.read_csv('data/plt_leaders_data.csv')
+# Batch processing (accepts CSV or JSONL)
+from utils.data_loader import load_dataframe
+df = load_dataframe('data/plt_leaders_data.csv')  # or .jsonl
 runner = BatchRunner(
     predictor,
     BatchConfig(checkpoint_interval=500),
@@ -255,9 +258,13 @@ constitution_llm/
 │   ├── json_parser.py             # Robust JSON extraction + validation
 │   ├── cost_tracker.py            # API cost tracking per model/indicator
 │   ├── logger.py                  # Logging utilities
+│   ├── data_loader.py             # Unified CSV/JSONL data loading
 │   ├── data_cleaner.py            # Data cleaning utilities
 │   ├── encoding_fix.py            # CSV encoding utilities
 │   └── sanity_check.py            # Failed row identification + reprocessing
+│
+├── scripts/
+│   └── csv_to_jsonl.py            # CSV to JSONL conversion utility
 │
 ├── tests/
 │   └── test_leader_level.py       # Leader-level prompt tests
@@ -889,7 +896,7 @@ python pipeline/classify_assembly.py \
 
 | Argument | Description | Default |
 |----------|-------------|---------|
-| `--input` | Predictions CSV from the main pipeline | required |
+| `--input` | Predictions file (CSV or JSONL) from the main pipeline | required |
 | `--output` | Output CSV path | required |
 | `--model` | LLM model identifier | `gemini-2.5-pro` |
 | `--assembly-col` | Column name with binary assembly predictions | `assembly_prediction` |

@@ -367,21 +367,22 @@ class BatchRunner:
 
 def load_polity_data(file_path: str) -> pd.DataFrame:
     """
-    Load preprocessed polity data from CSV file.
+    Load preprocessed polity data from a CSV or JSONL file.
 
     Args:
-        file_path: Path to the CSV file containing polity data
+        file_path: Path to the input file (.csv or .jsonl)
 
     Returns:
         DataFrame with polity information
 
     Raises:
-        ValueError: If required columns are missing
+        ValueError: If required columns are missing or file format unsupported
         FileNotFoundError: If the file doesn't exist
     """
     print(f"Loading polity data from {file_path}...")
 
-    df = pd.read_csv(file_path)
+    from utils.data_loader import load_dataframe
+    df = load_dataframe(file_path)
 
     # Validate required columns
     missing_columns = [col for col in REQUIRED_COLUMNS if col not in df.columns]

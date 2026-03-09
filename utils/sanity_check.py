@@ -537,7 +537,8 @@ def sanity_check_and_reprocess(
 
     # Step 1: Load original data
     print("Step 1: Loading original dataset...")
-    df = pd.read_csv(input_csv)
+    from utils.data_loader import load_dataframe
+    df = load_dataframe(input_csv)
     df = fix_column_types(df)
     print(f"Loaded {len(df)} rows from {input_csv}\n")
 
@@ -796,7 +797,7 @@ Examples:
       --indicator constitution --indicators constitution sovereign assembly
         """
     )
-    parser.add_argument('--input', '-i', required=True, help='Input CSV file')
+    parser.add_argument('--input', '-i', required=True, help='Input file (CSV or JSONL)')
     parser.add_argument('--output', '-o', required=True, help='Output CSV file')
     parser.add_argument('--indicator', default='constitution',
                        choices=ALL_INDICATORS,

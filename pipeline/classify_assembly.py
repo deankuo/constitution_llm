@@ -386,7 +386,7 @@ Examples:
     parser.add_argument(
         "--input", "-i",
         required=True,
-        help="Path to predictions CSV from the main pipeline"
+        help="Path to predictions file (CSV or JSONL) from the main pipeline"
     )
     parser.add_argument(
         "--output", "-o",
@@ -449,11 +449,12 @@ Examples:
 
     # --- Load input data ---
     print(f"Loading predictions from: {args.input}")
-    df = pd.read_csv(args.input)
+    from utils.data_loader import load_dataframe
+    df = load_dataframe(args.input)
 
     if args.assembly_col not in df.columns:
         raise ValueError(
-            f"Column '{args.assembly_col}' not found in input CSV. "
+            f"Column '{args.assembly_col}' not found in input file. "
             f"Available columns: {list(df.columns)}"
         )
 

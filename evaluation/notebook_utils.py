@@ -44,15 +44,16 @@ def _to_str_labels(series: pd.Series) -> pd.Series:
 
 def load_predictions(filepath: str) -> pd.DataFrame:
     """
-    Load prediction results from CSV.
+    Load prediction results from CSV or JSONL.
 
     Args:
-        filepath: Path to the predictions CSV file
+        filepath: Path to the predictions file (.csv or .jsonl)
 
     Returns:
         DataFrame with predictions
     """
-    df = pd.read_csv(filepath)
+    from utils.data_loader import load_dataframe
+    df = load_dataframe(filepath)
     return df
 
 

@@ -832,7 +832,8 @@ Examples:
         '--input', '-i',
         default=None,
         help=(
-            'Input CSV file path. Defaults to the standard file for the chosen pipeline level:\n'
+            'Input data file path (CSV or JSONL). Format is auto-detected by extension.\n'
+            'Defaults to the standard file for the chosen pipeline level:\n'
             '  polity → ./data/plt_polity_data_v2.csv  (requires: territorynamehistorical, start_year, end_year)\n'
             '  leader → ./data/plt_leaders_data.csv    (requires: territorynamehistorical, name, start_year, end_year)'
         )
@@ -1335,7 +1336,8 @@ Examples:
 
     # Load data (polity-level: only requires territorynamehistorical, start_year, end_year)
     print(f"Loading polity data from {args.input}...")
-    df = pd.read_csv(args.input)
+    from utils.data_loader import load_dataframe
+    df = load_dataframe(args.input)
     polity_required = [COL_TERRITORY_NAME, COL_START_YEAR, COL_END_YEAR]
     missing = [c for c in polity_required if c not in df.columns]
     if missing:

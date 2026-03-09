@@ -415,11 +415,12 @@ def quick_evaluate(
     """
     analyzer = ResultAnalyzer()
 
-    results_df = pd.read_csv(results_path)
+    from utils.data_loader import load_dataframe
+    results_df = load_dataframe(results_path)
 
     ground_truth_df = None
     if ground_truth_path:
-        ground_truth_df = pd.read_csv(ground_truth_path)
+        ground_truth_df = load_dataframe(ground_truth_path)
 
     metrics = analyzer.evaluate_predictions(
         results_df,
