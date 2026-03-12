@@ -789,6 +789,206 @@ def plot_multiclass_comparison(
     plt.show()
 
 
+def plot_comparison_2x2(
+    datasets: Dict[str, Union[str, pd.DataFrame]],
+    indicators: Optional[List[str]] = None,
+    figsize: Tuple[int, int] = (18, 12),
+):
+    """
+    Unified 2x2 comparison plot: Accuracy, Precision, Recall, F1-Score.
+
+    Each subplot shows all indicators on the x-axis with grouped vertical
+    bars per dataset. Binary and multi-class indicators are visually
+    differentiated (multi-class uses macro-averaged precision/recall/F1).
+
+    Args:
+        datasets: Dict mapping labels to file paths or DataFrames.
+        indicators: Indicators to include (default: all with ground truth).
+        figsize: Figure size.
+
+    Example::
+
+        from evaluation.notebook_utils import plot_comparison_2x2
+
+        datasets = {
+            'Baseline': 'data/results/baseline.csv',
+            'Self-Consistency': 'data/results/sc.csv',
+        }
+        plot_comparison_2x2(datasets)
+    """
+    if indicators is None:
+        indicators = INDICATORS_WITH_GROUND_TRUTH
+
+    # Load datasets
+    dfs: Dict[str, pd.DataFrame] = {}
+    for label, data in datasets.items():
+        if isinstance(data, pd.DataFrame):
+            dfs[label] = data
+        elif isinstance(data, str):
+            dfs[label] = load_predictions(data)
+        else:
+            raise ValueError(
+                f"Dataset '{label}' must be str or DataFrame, got {type(data)}"
+            )
+
+    ds_names = list(dfs.keys())
+    n_datasets = len(ds_names)
+
+    # Compute metrics per dataset x indicator
+    metrics_data: Dict[str, Dict[str, Dict[str, float]]] = {}
+    for ds_label, df in dfs.items():
+        metrics_data[ds_label] = {}
+        for indicator in indicators:
+            pred_col = f'{indicator}_prediction'
+            if indicator not in df.columns or pred_col not in df.columns:
+                continue
+
+            valid_mask = df[indicator].notna() & df[pred_col].notna()
+            y_true = _to_str_labels(df.loc[valid_mask, indicator])
+            y_pred = _to_str_labels(df.loc[valid_mask, pred_col])
+
+            if len(y_true) == 0:
+                continue
+
+            unique_labels = sorted(set(y_true) | set(y_pred))
+            is_binary = indicator in BINARY_INDICATORS
+
+            acc = accuracy_score(y_true, y_pred)
+
+            if is_binary:
+                pos_label = unique_labels[-1]
+                prec = precision_score(
+                    y_true, y_pred, pos_label=pos_label, zero_division=0
+                )
+                rec = recall_score(
+                    y_true, y_pred, pos_label=pos_label, zero_division=0
+                )
+                f1 = f1_score(
+                    y_true, y_pred, pos_label=pos_label, zero_division=0
+                )
+            else:
+                prec = precision_score(
+                    y_true, y_pred, average='macro', zero_division=0
+                )
+                rec = recall_score(
+                    y_true, y_pred, average='macro', zero_division=0
+                )
+                f1 = f1_score(
+                    y_true, y_pred, average='macro', zero_division=0
+                )
+
+            metrics_data[ds_label][indicator] = {
+                'accuracy': round(acc, 3),
+                'precision': round(prec, 3),
+                'recall': round(rec, 3),
+                'f1': round(f1, 3),
+            }
+
+    # Order: binary first, then multi-class
+    binary_inds = [i for i in indicators if i in BINARY_INDICATORS]
+    multi_inds = [i for i in indicators if i in MULTICLASS_INDICATORS]
+    sorted_indicators = binary_inds + multi_inds
+    sorted_indicators = [
+        i for i in sorted_indicators
+        if any(i in metrics_data[ds] for ds in ds_names)
+    ]
+
+    if not sorted_indicators:
+        print("No indicator data to plot.")
+        return
+
+    n_binary = len([i for i in sorted_indicators if i in BINARY_INDICATORS])
+    n_indicators = len(sorted_indicators)
+
+    # --- Plotting ---
+    metric_keys = [
+        ('accuracy', 'Accuracy'),
+        ('precision', 'Precision'),
+        ('recall', 'Recall'),
+        ('f1', 'F1-Score'),
+    ]
+
+    palette = sns.color_palette('Set2', n_colors=max(n_datasets, 1))
+    label_fontsize = max(6, 9 - n_datasets)
+
+    fig, axes = plt.subplots(2, 2, figsize=figsize)
+    fig.suptitle(
+        'Performance Comparison Across Datasets',
+        fontsize=18, fontweight='bold', y=0.98,
+    )
+
+    x = np.arange(n_indicators)
+    bar_width = 0.8 / max(n_datasets, 1)
+
+    for idx, (m_key, m_name) in enumerate(metric_keys):
+        ax = axes[idx // 2, idx % 2]
+
+        for d_idx, ds_name in enumerate(ds_names):
+            values = []
+            for indicator in sorted_indicators:
+                if indicator in metrics_data[ds_name]:
+                    values.append(metrics_data[ds_name][indicator][m_key])
+                else:
+                    values.append(0.0)
+
+            offset = (d_idx - n_datasets / 2) * bar_width + bar_width / 2
+            bars = ax.bar(
+                x + offset, values, bar_width,
+                label=ds_name,
+                color=palette[d_idx],
+                edgecolor='white',
+                linewidth=0.8,
+                alpha=0.9,
+            )
+
+            for bar, val in zip(bars, values):
+                if val > 0:
+                    ax.text(
+                        bar.get_x() + bar.get_width() / 2,
+                        bar.get_height() + 0.008,
+                        f'{val:.3f}',
+                        ha='center', va='bottom',
+                        fontsize=label_fontsize, fontweight='medium',
+                    )
+
+        # Vertical separator between binary and multi-class groups
+        if 0 < n_binary < n_indicators:
+            ax.axvline(
+                x=n_binary - 0.5, color='#95a5a6',
+                linestyle='--', linewidth=0.9, alpha=0.6,
+            )
+
+        ax.set_ylabel(m_name, fontsize=12, fontweight='medium')
+        ax.set_title(m_name, fontsize=14, fontweight='bold', pad=8)
+        ax.set_xticks(x)
+
+        tick_labels = [ind.replace('_', ' ').title() for ind in sorted_indicators]
+        ax.set_xticklabels(tick_labels, rotation=45, ha='right', fontsize=10)
+
+        # Differentiate multi-class x-tick labels
+        for i, tick in enumerate(ax.get_xticklabels()):
+            if sorted_indicators[i] in MULTICLASS_INDICATORS:
+                tick.set_fontstyle('italic')
+                tick.set_color('#d35400')
+
+        ax.set_ylim(0, 1.15)
+        ax.grid(axis='y', alpha=0.2, linestyle='-')
+        ax.set_axisbelow(True)
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.legend(fontsize=9, loc='upper right', framealpha=0.9)
+
+    fig.text(
+        0.5, 0.005,
+        'Regular labels = Binary indicators  \u2502  '
+        'Italic orange labels = Multi-class indicators (macro-averaged)',
+        ha='center', fontsize=10, fontstyle='italic', color='#7f8c8d',
+    )
+
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    plt.show()
+
+
 def plot_per_class_metrics(
     datasets: Dict[str, Union[str, pd.DataFrame]],
     indicators: Optional[List[str]] = None,
@@ -999,13 +1199,8 @@ def compare_experiments(
     print("📈 GENERATING COMPARISON PLOTS")
     print("="*80)
 
-    if not binary_metrics.empty:
-        print("\n1️⃣ Binary Indicators Plot (Accuracy, Precision, Recall, F1-Score)...")
-        plot_binary_comparison(binary_metrics)
-
-    if not multiclass_metrics.empty:
-        print("\n2️⃣ Multi-Class Indicators Plot (Accuracy, F1-Macro, F1-Weighted)...")
-        plot_multiclass_comparison(multiclass_metrics)
+    print("\n📊 Unified 2x2 Comparison Plot (Accuracy, Precision, Recall, F1-Score)...")
+    plot_comparison_2x2(datasets, indicators)
 
     print("\n" + "="*80)
     print("✅ COMPARISON COMPLETED")

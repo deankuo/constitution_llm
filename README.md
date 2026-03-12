@@ -744,9 +744,23 @@ datasets = {
 # }
 
 binary_metrics, multiclass_metrics = compare_experiments(datasets)
-# Generates 2 plots:
-# 1. Binary indicators: 4 subplots (accuracy, precision, recall, f1)
-# 2. Multi-class indicators: 3 metrics (accuracy, f1_macro, f1_weighted)
+# Generates a unified 2x2 comparison plot:
+# Subplots: Accuracy, Precision, Recall, F1-Score
+# All indicators shown together with binary vs. multi-class differentiation
+# Multi-class indicators use macro-averaged metrics
+```
+
+**Unified 2x2 Comparison Plot (standalone):**
+```python
+from evaluation.notebook_utils import plot_comparison_2x2
+
+datasets = {
+    'Baseline': 'data/results/baseline.csv',
+    'Self-Consistency': 'data/results/sc.csv',
+}
+# 2x2 grid: Accuracy, Precision, Recall, F1-Score
+# Binary and multi-class indicators differentiated visually
+plot_comparison_2x2(datasets)
 ```
 
 **Per-Class Metrics Visualization:**

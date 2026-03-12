@@ -892,6 +892,7 @@ Examples:
         '--checkpoint', '-b',
         type=int,
         default=DEFAULT_BATCH_SIZE,
+        dest='batch_size',
         help='Batch size for temporary saves'
     )
     parser.add_argument(

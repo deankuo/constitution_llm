@@ -126,6 +126,9 @@ class GeminiBatchRunner:
         all_requests = self._build_all_requests(df)
         print(f"[Batch] Total requests: {len(all_requests)}")
 
+        # Save requests JSONL for debugging
+        self._save_requests_jsonl(all_requests)
+
         # Split into sub-batches based on checkpoint_interval (in rows)
         # Each row may produce multiple requests (e.g., multiple mode)
         prompts_per_row = self._prompts_per_row()
@@ -149,6 +152,9 @@ class GeminiBatchRunner:
 
             # Checkpoint
             self._save_checkpoint(df, raw_results, batch_idx + 1)
+
+        # Save responses JSONL for debugging
+        self._save_responses_jsonl(raw_results)
 
         # Parse results into DataFrame
         results_df = self._parse_all_results(df, raw_results, all_requests)
@@ -496,6 +502,38 @@ class GeminiBatchRunner:
     def _is_success_state(state_str: str) -> bool:
         """Check if a state string indicates success (any format)."""
         return "SUCCEEDED" in state_str.upper()
+
+    def _save_requests_jsonl(self, all_requests: List[_BatchRequest]) -> None:
+        """Save all batch requests to JSONL for debugging."""
+        stem = Path(self.output_path).stem
+        out_dir = Path(self.output_path).parent
+        path = out_dir / f"{stem}_batch_requests.jsonl"
+        with open(path, "w", encoding="utf-8") as f:
+            for req in all_requests:
+                record = {
+                    "custom_id": req.custom_id,
+                    "row_idx": req.row_idx,
+                    "indicators": req.indicators,
+                    "system_prompt": req.system_prompt,
+                    "user_prompt": req.user_prompt,
+                    "metadata": req.metadata,
+                }
+                f.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
+        print(f"[Batch] Saved requests JSONL: {path}")
+
+    def _save_responses_jsonl(self, raw_results: Dict[str, str]) -> None:
+        """Save all batch responses to JSONL for debugging."""
+        stem = Path(self.output_path).stem
+        out_dir = Path(self.output_path).parent
+        path = out_dir / f"{stem}_batch_responses.jsonl"
+        with open(path, "w", encoding="utf-8") as f:
+            for custom_id, response_text in raw_results.items():
+                record = {
+                    "custom_id": custom_id,
+                    "response": response_text,
+                }
+                f.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
+        print(f"[Batch] Saved responses JSONL: {path}")
 
     def _save_checkpoint(
         self, df: pd.DataFrame, raw_results: Dict[str, str], batch_num: int
