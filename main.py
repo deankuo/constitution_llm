@@ -20,6 +20,7 @@ os.environ['GRPC_VERBOSITY'] = 'NONE'
 
 import argparse
 import concurrent.futures
+import json
 import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -34,6 +35,7 @@ from tqdm import tqdm
 # Import from new module structure
 from config import (
     COL_TERRITORY_NAME,
+    COL_LEADER_NAME,
     COL_START_YEAR,
     COL_END_YEAR,
     REQUIRED_COLUMNS,
@@ -1115,7 +1117,7 @@ Examples:
             for idx in tqdm(range(len(df)), desc="Processing (agentic search)"):
                 row = df.iloc[idx]
                 polity = str(row.get(COL_TERRITORY_NAME, "Unknown"))
-                name = str(row.get('name', "Unknown"))
+                name = str(row.get(COL_LEADER_NAME, "Unknown"))
                 start_year = int(row[COL_START_YEAR])
                 end_year = None if pd.isna(row[COL_END_YEAR]) else int(row[COL_END_YEAR])
 
@@ -1209,42 +1211,109 @@ Examples:
                 return
 
             else:
-                # Forced search without batch: use SearchPredictor with force_search=True
-                from pipeline.search_predictor import SearchPredictor
+                # Forced search without batch: use PreSearcher (tiered) + regular Predictor
+                # Same tiered search as batch path: Wikipedia → DuckDuckGo → Serper
+                from pipeline.pre_search import PreSearcher
+                from prompts.base_builder import PromptOutput
+
+                config = PredictionConfig(
+                    mode=PromptMode(args.mode),
+                    indicators=args.indicators,
+                    verify=VerificationType(args.verify),
+                    verify_indicators=args.verify_indicators,
+                    model=model_identifier,
+                    verifier_model=args.verifier_model,
+                    temperature=args.temperature,
+                    max_tokens=args.max_tokens,
+                    top_p=args.top_p,
+                    sc_n_samples=args.n_samples,
+                    sc_temperatures=args.sc_temperatures,
+                    sequence=args.sequence,
+                    random_sequence=args.random_sequence,
+                    reasoning=args.reasoning,
+                )
+                predictor = Predictor(config, api_keys)
 
                 df = load_polity_data(args.input)
                 if args.test:
                     df = _parse_test_argument(args.test, df)
 
-                search_predictor = SearchPredictor(
-                    model=model_identifier,
-                    api_keys=api_keys,
-                    mode=args.mode,
-                    indicators=args.indicators,
-                    reasoning=args.reasoning,
-                    sequence=args.sequence,
-                    random_sequence=args.random_sequence,
-                    force_search=True,
-                )
+                pre_searcher = PreSearcher(serper_api_key=api_keys.get('serper', ''))
+
+                # Track last search result via closure for metadata extraction
+                _last_search = [None]
+                original_build = predictor.prompt_builder.build
+
+                def _build_with_search_sync(polity, name, start_year, end_year):
+                    search_result = pre_searcher.search(polity, name, start_year, end_year)
+                    _last_search[0] = search_result
+                    prompts = original_build(polity, name, start_year, end_year)
+                    enriched = []
+                    for p in prompts:
+                        enriched_user = pre_searcher.enrich_prompt(p.user_prompt, search_result)
+                        enriched.append(PromptOutput(
+                            system_prompt=p.system_prompt,
+                            user_prompt=enriched_user,
+                            indicators=p.indicators,
+                            metadata={**p.metadata,
+                                      'search_queries': search_result.search_queries,
+                                      'urls_used': search_result.urls_used,
+                                      'sources_used': search_result.sources_used,
+                                      'search_context': search_result.context},
+                        ))
+                    return enriched
+
+                predictor.prompt_builder.build = _build_with_search_sync
+
+                is_single_or_seq = args.mode in ('single', 'sequential')
 
                 results = []
                 for idx in tqdm(range(len(df)), desc="Processing (forced search)"):
                     row = df.iloc[idx]
                     polity = str(row.get(COL_TERRITORY_NAME, "Unknown"))
-                    name = str(row.get('name', "Unknown"))
+                    name = str(row.get(COL_LEADER_NAME, "Unknown"))
                     start_year = int(row[COL_START_YEAR])
                     end_year = None if pd.isna(row[COL_END_YEAR]) else int(row[COL_END_YEAR])
 
-                    pred = search_predictor.predict(polity, name, start_year, end_year)
+                    prediction = predictor.predict(polity, name, start_year, end_year)
                     result_dict = row.to_dict()
-                    result_dict.update(pred.to_dict())
+                    result_dict.update(prediction.to_dict())
+
+                    # Add search metadata from the tiered pre-search
+                    sr = _last_search[0]
+                    if sr:
+                        if sr.search_queries:
+                            result_dict['search_queries'] = ' | '.join(sr.search_queries)
+                        if sr.urls_used:
+                            result_dict['urls_used'] = ' | '.join(sr.urls_used)
+                        if is_single_or_seq and sr.context:
+                            result_dict['web_information'] = sr.context
+
                     results.append(result_dict)
                     time.sleep(args.delay)
 
                 results_df = pd.DataFrame(results)
                 os.makedirs(os.path.dirname(args.output) or '.', exist_ok=True)
-                results_df.to_csv(args.output, index=False)
+
+                # Save CSV (exclude web_information — too large for CSV)
+                csv_cols = [c for c in results_df.columns if c != 'web_information']
+                results_df[csv_cols].to_csv(args.output, index=False)
+
+                # Save JSON (includes web_information for single/sequential mode)
+                json_path = args.output.replace('.csv', '.json')
+                records = results_df.to_dict(orient='records')
+                with open(json_path, 'w', encoding='utf-8') as f:
+                    json.dump(records, f, ensure_ascii=False, indent=2, default=str)
+
+                # Save cost report
+                logs_dir = Path('data/logs')
+                logs_dir.mkdir(parents=True, exist_ok=True)
+                cost_path = logs_dir / f'{Path(args.output).stem}_costs.json'
+                predictor.cost_tracker.save_report(str(cost_path))
+
                 print(f"\nResults saved to: {args.output}")
+                print(f"JSON saved to: {json_path}")
+                predictor.cost_tracker.print_summary()
                 print("\nLeader-level pipeline (forced search) completed successfully!")
                 return
 
