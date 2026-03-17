@@ -293,6 +293,7 @@ constitution_llm/
     ├── Original_Data/             # Raw datasets
     ├── plt_leaders_data.csv       # Leader-level input data
     ├── plt_polity_data_v2.csv     # Polity-level input data
+    ├── temp/                      # Batch API debug files (requests/responses JSONL)
     ├── results/                   # Output directory
     └── logs/                      # Cost tracking logs
 ```
@@ -563,12 +564,13 @@ The pipeline supports three search modes for experimental comparison:
 - **Example**: `--search-mode agentic`
 
 #### 3. Forced
-- **How it works**: Always runs deterministic search before LLM answers
+- **How it works**: Always runs deterministic tiered pre-search before LLM answers (both with and without `--use-batch`)
 - **Search order**: Wikipedia API -> DuckDuckGo -> Serper (optional, tiered — lower tiers only run if previous tiers returned < 200 chars)
 - **Search query format**:
   - Leader pipeline: `"{leader_name} {polity} {start_year}-{end_year}"`
   - Polity pipeline: `"{polity} {start_year}-{end_year}"`
 - **Compatible with**: `--use-batch` (pre-search + batch)
+- **Output**: Both CSV and JSON with `search_queries`, `urls_used`, and `web_information` (single/sequential mode)
 - **Example**: `--search-mode forced`
 
 **Note on single vs. multiple mode with search:**
@@ -602,6 +604,10 @@ python main.py --pipeline leader --indicators sovereign assembly \
 - Example: 1000 rows, single mode → 2 batch jobs of 500 requests each
 - Example: 1000 rows, multiple mode (5 indicators) → 2 batch jobs of 2500 requests each
 - `--parallel-rows` has **no effect** with `--use-batch` (Gemini handles parallelism server-side)
+
+**Debug files** (saved to `data/temp/`):
+- `{stem}_batch_requests.jsonl` — full Gemini REST API format (model, system_instruction, contents, generationConfig, safetySettings)
+- `{stem}_batch_responses.jsonl` — raw LLM responses per request
 
 **Constraints:**
 - Only works with Gemini models
@@ -662,7 +668,7 @@ With verification:
 With search mode (leader pipeline, all modes — row-level):
 - `search_queries` - Pipe-delimited search queries with source markers (e.g., `[Wikipedia] query | [Serper] query`)
 - `urls_used` - Pipe-delimited URLs with source markers (e.g., `[Wikipedia] https://... | [Serper] https://...`)
-- `web_information` - Actual retrieved text content (single/sequential mode only, JSON output only)
+- `web_information` - Actual retrieved text content (single/sequential mode only; included in both CSV and JSON output)
 
 With search mode (polity pipeline):
 - `search_queries_{model}` - Pipe-delimited search queries with source markers

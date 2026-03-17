@@ -525,14 +525,17 @@ class GeminiBatchRunner:
     def _save_requests_jsonl(self, all_requests: List[_BatchRequest]) -> None:
         """Save all batch requests to JSONL in Gemini REST API format for debugging.
 
+        Saved to ``data/temp/`` for easy inspection.
+
         Note: The JSONL uses REST API naming conventions (camelCase: generationConfig,
         maxOutputTokens, etc.) for readability and cross-referencing with Gemini docs.
         The actual SDK call in _submit_and_poll() uses the google-genai Python SDK
         conventions (snake_case: max_output_tokens, response_mime_type, etc.).
         """
         stem = Path(self.output_path).stem
-        out_dir = Path(self.output_path).parent
-        path = out_dir / f"{stem}_batch_requests.jsonl"
+        temp_dir = Path("data/temp")
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        path = temp_dir / f"{stem}_batch_requests.jsonl"
 
         model_name = self.predictor.config.model
         temperature = self.predictor.config.temperature
@@ -575,10 +578,14 @@ class GeminiBatchRunner:
         print(f"[Batch] Saved requests JSONL: {path}")
 
     def _save_responses_jsonl(self, raw_results: Dict[str, str]) -> None:
-        """Save all batch responses to JSONL for debugging."""
+        """Save all batch responses to JSONL for debugging.
+
+        Saved to ``data/temp/`` alongside the requests JSONL.
+        """
         stem = Path(self.output_path).stem
-        out_dir = Path(self.output_path).parent
-        path = out_dir / f"{stem}_batch_responses.jsonl"
+        temp_dir = Path("data/temp")
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        path = temp_dir / f"{stem}_batch_responses.jsonl"
         with open(path, "w", encoding="utf-8") as f:
             for custom_id, response_text in raw_results.items():
                 record = {

@@ -1129,8 +1129,18 @@ Examples:
 
             results_df = pd.DataFrame(results)
             os.makedirs(os.path.dirname(args.output) or '.', exist_ok=True)
+
+            # Save CSV
             results_df.to_csv(args.output, index=False)
+
+            # Save JSON
+            json_path = args.output.replace('.csv', '.json')
+            records = results_df.to_dict(orient='records')
+            with open(json_path, 'w', encoding='utf-8') as f:
+                json.dump(records, f, ensure_ascii=False, indent=2, default=str)
+
             print(f"\nResults saved to: {args.output}")
+            print(f"JSON saved to: {json_path}")
             print("\nLeader-level pipeline (agentic search) completed successfully!")
             return
 
@@ -1295,9 +1305,8 @@ Examples:
                 results_df = pd.DataFrame(results)
                 os.makedirs(os.path.dirname(args.output) or '.', exist_ok=True)
 
-                # Save CSV (exclude web_information — too large for CSV)
-                csv_cols = [c for c in results_df.columns if c != 'web_information']
-                results_df[csv_cols].to_csv(args.output, index=False)
+                # Save CSV
+                results_df.to_csv(args.output, index=False)
 
                 # Save JSON (includes web_information for single/sequential mode)
                 json_path = args.output.replace('.csv', '.json')

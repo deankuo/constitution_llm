@@ -90,3 +90,4 @@ env/
 
 # Temporary files
 *.tmp
+data/temp/
