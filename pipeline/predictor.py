@@ -33,6 +33,7 @@ from utils.json_parser import (
     validate_constitution_response
 )
 from utils.cost_tracker import CostTracker
+from utils.langsmith_utils import traceable
 
 
 @dataclass
@@ -227,6 +228,7 @@ class Predictor:
 
         return verifiers
 
+    @traceable(name="Predictor.predict")
     def predict(
         self,
         polity: str,

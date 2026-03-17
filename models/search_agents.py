@@ -20,13 +20,16 @@ from openai import OpenAI
 
 from config import DEFAULT_MAX_TOKENS
 from models.llm_clients import _create_bedrock_client
+from utils.langsmith_utils import traceable
 
 
+@traceable(name="perform_web_search", run_type="tool")
 def perform_web_search(
     query: str,
     serper_api_key: str,
     url_tracker: Optional[List[str]] = None,
     query_tracker: Optional[List[str]] = None,
+    content_tracker: Optional[List[str]] = None,
 ) -> str:
     """
     Perform a web search using the Serper API.
@@ -34,8 +37,9 @@ def perform_web_search(
     Args:
         query: The search query
         serper_api_key: API key for Serper
-        url_tracker: Optional list to append result URLs to
-        query_tracker: Optional list to append the query string to
+        url_tracker: Optional list to append result URLs to (with [Serper] prefix)
+        query_tracker: Optional list to append the query string to (with [Serper] prefix)
+        content_tracker: Optional list to append retrieved content text to
 
     Returns:
         A formatted string of search results or an error message
@@ -46,7 +50,7 @@ def perform_web_search(
         return "Error: Serper API key is not configured."
 
     if query_tracker is not None:
-        query_tracker.append(query)
+        query_tracker.append(f"[Serper] {query}")
 
     payload = json.dumps({"q": query})
     headers = {
@@ -82,14 +86,19 @@ def perform_web_search(
                 snippet = result.get("snippet", "")
                 output += f"{i}. Title: {title}\n   Link: {link}\n   Snippet: {snippet}\n\n"
                 if url_tracker is not None and link:
-                    url_tracker.append(link)
+                    url_tracker.append(f"[Serper] {link}")
 
-        return output if output else "No results found."
+        result_text = output if output else "No results found."
+        if content_tracker is not None and result_text and result_text != "No results found.":
+            content_tracker.append(f"[Serper]\n{result_text}")
+
+        return result_text
 
     except requests.exceptions.RequestException as e:
         return f"Error performing web search: {e}"
 
 
+@traceable(name="OpenAI.search_agent")
 def run_openai_search_agent(
     system_prompt: str,
     user_prompt: str,
@@ -99,6 +108,7 @@ def run_openai_search_agent(
     llm_params: Optional[Dict] = None,
     url_tracker: Optional[List[str]] = None,
     query_tracker: Optional[List[str]] = None,
+    content_tracker: Optional[List[str]] = None,
     force_search: bool = False,
 ) -> Optional[str]:
     """
@@ -173,6 +183,7 @@ def run_openai_search_agent(
                         query, serper_api_key,
                         url_tracker=url_tracker,
                         query_tracker=query_tracker,
+                        content_tracker=content_tracker,
                     )
 
                     messages.append({
@@ -209,6 +220,7 @@ def _extract_text_from_gemini_response(response) -> Optional[str]:
     return None
 
 
+@traceable(name="Gemini.search_agent")
 def run_gemini_search_agent(
     system_prompt: str,
     user_prompt: str,
@@ -218,6 +230,7 @@ def run_gemini_search_agent(
     llm_params: Optional[Dict] = None,
     url_tracker: Optional[List[str]] = None,
     query_tracker: Optional[List[str]] = None,
+    content_tracker: Optional[List[str]] = None,
     force_search: bool = False,
 ) -> Optional[str]:
     """
@@ -330,6 +343,7 @@ def run_gemini_search_agent(
                     query, serper_api_key,
                     url_tracker=url_tracker,
                     query_tracker=query_tracker,
+                    content_tracker=content_tracker,
                 )
 
                 print("INFO: Sending search results back to Gemini...")
@@ -376,6 +390,7 @@ def run_gemini_search_agent(
         return None
 
 
+@traceable(name="Bedrock.search_agent")
 def run_bedrock_search_agent(
     system_prompt: str,
     user_prompt: str,
@@ -385,6 +400,7 @@ def run_bedrock_search_agent(
     llm_params: Optional[Dict] = None,
     url_tracker: Optional[List[str]] = None,
     query_tracker: Optional[List[str]] = None,
+    content_tracker: Optional[List[str]] = None,
     force_search: bool = False,
 ) -> Optional[str]:
     """
@@ -464,6 +480,7 @@ def run_bedrock_search_agent(
                         query, serper_api_key,
                         url_tracker=url_tracker,
                         query_tracker=query_tracker,
+                        content_tracker=content_tracker,
                     )
 
                     messages.append({
@@ -496,6 +513,7 @@ def run_bedrock_search_agent(
         return None
 
 
+@traceable(name="Anthropic.search_agent")
 def run_anthropic_search_agent(
     system_prompt: str,
     user_prompt: str,
@@ -505,6 +523,7 @@ def run_anthropic_search_agent(
     llm_params: Optional[Dict] = None,
     url_tracker: Optional[List[str]] = None,
     query_tracker: Optional[List[str]] = None,
+    content_tracker: Optional[List[str]] = None,
     force_search: bool = False,
 ) -> Optional[str]:
     """
@@ -572,6 +591,7 @@ def run_anthropic_search_agent(
                     query, serper_api_key,
                     url_tracker=url_tracker,
                     query_tracker=query_tracker,
+                    content_tracker=content_tracker,
                 )
 
                 print("INFO: Making second call to Claude with search results")

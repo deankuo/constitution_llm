@@ -225,6 +225,9 @@ class GeminiBatchRunner:
         client = genai.Client(api_key=api_key)
 
         # Build inline request dicts (google-genai SDK format)
+        # Note: The batch API does NOT support safety_settings at the per-request
+        # level. Safety settings are only configurable in the sync API. The debug
+        # JSONL still records them for documentation purposes.
         inline_requests = []
         for req in batch_requests:
             request_dict = {
@@ -238,6 +241,7 @@ class GeminiBatchRunner:
                     'temperature': self.predictor.config.temperature,
                     'max_output_tokens': self.predictor.config.max_tokens,
                     'top_p': self.predictor.config.top_p,
+                    'response_mime_type': 'application/json',
                 },
             }
             inline_requests.append(request_dict)
@@ -400,6 +404,16 @@ class GeminiBatchRunner:
             if row_urls_used:
                 df.at[row_idx, "urls_used"] = " | ".join(row_urls_used)
 
+            # web_information: store search context for single/sequential mode
+            search_context = None
+            for req in requests_for_row:
+                ctx = req.metadata.get('search_context')
+                if ctx:
+                    search_context = ctx
+                    break
+            if search_context and self._is_single_or_sequential():
+                df.at[row_idx, "web_information"] = search_context
+
         return df
 
     # ------------------------------------------------------------------
@@ -484,6 +498,11 @@ class GeminiBatchRunner:
             return 1
         return len(self.predictor.config.indicators)
 
+    def _is_single_or_sequential(self) -> bool:
+        """Check if mode is single or sequential (one search per row)."""
+        from config import PromptMode
+        return self.predictor.config.mode in (PromptMode.SINGLE, PromptMode.SEQUENTIAL)
+
     @staticmethod
     def _get_state_str(batch_job) -> str:
         """Extract state as a string, handling both enum and raw string formats."""
@@ -504,19 +523,53 @@ class GeminiBatchRunner:
         return "SUCCEEDED" in state_str.upper()
 
     def _save_requests_jsonl(self, all_requests: List[_BatchRequest]) -> None:
-        """Save all batch requests to JSONL for debugging."""
+        """Save all batch requests to JSONL in Gemini REST API format for debugging.
+
+        Note: The JSONL uses REST API naming conventions (camelCase: generationConfig,
+        maxOutputTokens, etc.) for readability and cross-referencing with Gemini docs.
+        The actual SDK call in _submit_and_poll() uses the google-genai Python SDK
+        conventions (snake_case: max_output_tokens, response_mime_type, etc.).
+        """
         stem = Path(self.output_path).stem
         out_dir = Path(self.output_path).parent
         path = out_dir / f"{stem}_batch_requests.jsonl"
+
+        model_name = self.predictor.config.model
+        temperature = self.predictor.config.temperature
+        top_p = self.predictor.config.top_p
+        max_tokens = self.predictor.config.max_tokens
+
         with open(path, "w", encoding="utf-8") as f:
             for req in all_requests:
                 record = {
                     "custom_id": req.custom_id,
                     "row_idx": req.row_idx,
                     "indicators": req.indicators,
-                    "system_prompt": req.system_prompt,
-                    "user_prompt": req.user_prompt,
                     "metadata": req.metadata,
+                    "request": {
+                        "model": model_name,
+                        "system_instruction": {
+                            "parts": [{"text": req.system_prompt}]
+                        },
+                        "contents": [
+                            {
+                                "role": "user",
+                                "parts": [{"text": req.user_prompt}]
+                            }
+                        ],
+                        "generationConfig": {
+                            "temperature": temperature,
+                            "topP": top_p,
+                            "maxOutputTokens": max_tokens,
+                            "responseMimeType": "application/json",
+                        },
+                        "safetySettings": [
+                            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+                        ],
+                    },
                 }
                 f.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
         print(f"[Batch] Saved requests JSONL: {path}")

@@ -25,6 +25,8 @@ from typing import Dict, List, Optional
 
 import requests
 
+from utils.langsmith_utils import traceable
+
 
 # =============================================================================
 # Wikipedia Search (MediaWiki API)
@@ -98,12 +100,13 @@ def search_wikipedia(
             extract = page.get("extract", "")
             full_url = page.get("fullurl", f"https://en.wikipedia.org/?curid={page_id}")
 
-            if url_tracker is not None:
-                url_tracker.append(full_url)
+            tagged_url = f"[Wikipedia] {full_url}"
+            if url_tracker is not None and tagged_url not in url_tracker:
+                url_tracker.append(tagged_url)
 
             if extract:
                 output_parts.append(
-                    f"Wikipedia: {title}\n"
+                    f"[Wikipedia] {title}\n"
                     f"URL: {full_url}\n"
                     f"{extract}\n"
                 )
@@ -163,7 +166,7 @@ def search_duckduckgo(
             body = result.get("body", "")
 
             if url_tracker is not None and link:
-                url_tracker.append(link)
+                url_tracker.append(f"[DuckDuckGo] {link}")
 
             output_parts.append(
                 f"{i}. {title}\n"
@@ -171,7 +174,7 @@ def search_duckduckgo(
                 f"   {body}\n"
             )
 
-        return "DuckDuckGo Results:\n" + "\n".join(output_parts)
+        return "[DuckDuckGo] Results:\n" + "\n".join(output_parts)
 
     except Exception as e:
         print(f"WARNING: DuckDuckGo search failed for '{query}': {e}")
@@ -231,14 +234,14 @@ def search_serper(
             output += f"Answer Box: {snippet}\n\n"
 
         if "organic" in search_results:
-            output += "Serper Results:\n"
+            output += "[Serper] Results:\n"
             for i, result in enumerate(search_results["organic"][:max_results], 1):
                 title = result.get("title", "")
                 link = result.get("link", "")
                 snippet = result.get("snippet", "")
                 output += f"{i}. {title}\n   URL: {link}\n   {snippet}\n\n"
                 if url_tracker is not None and link:
-                    url_tracker.append(link)
+                    url_tracker.append(f"[Serper] {link}")
 
         return output
 
@@ -280,6 +283,7 @@ class PreSearcher:
     def __init__(self, serper_api_key: str = ''):
         self.serper_api_key = serper_api_key
 
+    @traceable(name="PreSearcher.search", run_type="retriever")
     def search(
         self,
         polity: str,

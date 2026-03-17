@@ -43,6 +43,8 @@ A sophisticated pipeline for analyzing historical polities to predict political 
 
 - **CSV & JSONL Input**: Accepts both CSV and JSONL input files (auto-detected by extension). Convert between formats with `scripts/csv_to_jsonl.py`.
 
+- **LangSmith Observability** (optional): Trace all LLM calls, prompts, and outputs in the [LangSmith](https://smith.langchain.com/) dashboard. Zero overhead when disabled. Set `LANGCHAIN_TRACING_V2=true` in `.env` to enable.
+
 - **Robust Processing**: Checkpoint system, automatic retries, cost tracking
 
 ## Table of Contents
@@ -99,6 +101,11 @@ AWS_REGION=us-east-1
 
 # Bedrock Verifier Model (for CoVe)
 BEDROCK_VERIFIER_MODEL=us.anthropic.claude-sonnet-4-5-20250929-v1:0
+
+# LangSmith Observability (optional)
+LANGCHAIN_TRACING_V2=true
+LANGCHAIN_API_KEY=your_langsmith_api_key
+LANGCHAIN_PROJECT=constitution-llm
 ```
 
 **📖 See [docs/BEDROCK_SETUP.md](docs/BEDROCK_SETUP.md) for detailed AWS Bedrock configuration**
@@ -261,6 +268,7 @@ constitution_llm/
 │   ├── data_loader.py             # Unified CSV/JSONL data loading
 │   ├── data_cleaner.py            # Data cleaning utilities
 │   ├── encoding_fix.py            # CSV encoding utilities
+│   ├── langsmith_utils.py         # LangSmith tracing (conditional, zero-overhead)
 │   └── sanity_check.py            # Failed row identification + reprocessing
 │
 ├── scripts/
@@ -356,6 +364,14 @@ constitution_llm/
 │  │  • CSV + JSON output       • Cost tracking             │  │
 │  │  • F1, accuracy, kappa     • Search metadata           │  │
 │  │  • Per-class metrics       • Experiment logging        │  │
+│  └────────────────────────────────────────────────────────┘  │
+│                                                              │
+│  ┌────────────────────────────────────────────────────────┐  │
+│  │  Observability (optional, LANGCHAIN_TRACING_V2=true)   │  │
+│  │                                                        │  │
+│  │  LangSmith: @traceable on all LLM calls, predict(),   │  │
+│  │  search agents. OpenAI/Anthropic clients auto-wrapped. │  │
+│  │  Zero overhead when disabled.                          │  │
 │  └────────────────────────────────────────────────────────┘  │
 │                                                              │
 └──────────────────────────────────────────────────────────────┘
@@ -643,17 +659,14 @@ With verification:
 - `{ind}_verified` - Final prediction after verification
 - `{ind}_verification` - Verification details
 
-With search mode (leader pipeline, agentic/forced):
-- `{ind}_search_queries` - JSON list of all search queries used
-- `{ind}_urls` - JSON list of all URLs retrieved
+With search mode (leader pipeline, all modes — row-level):
+- `search_queries` - Pipe-delimited search queries with source markers (e.g., `[Wikipedia] query | [Serper] query`)
+- `urls_used` - Pipe-delimited URLs with source markers (e.g., `[Wikipedia] https://... | [Serper] https://...`)
+- `web_information` - Actual retrieved text content (single/sequential mode only, JSON output only)
 
 With search mode (polity pipeline):
-- `search_queries_{model}` - Pipe-delimited search queries
-- `urls_used_{model}` - Pipe-delimited URLs retrieved
-
-With search mode (batch, forced):
-- `search_queries` - Pipe-delimited search queries for the row
-- `urls_used` - Pipe-delimited URLs retrieved for the row
+- `search_queries_{model}` - Pipe-delimited search queries with source markers
+- `urls_used_{model}` - Pipe-delimited URLs with source markers
 
 Additional columns:
 - `total_cost_usd` - Total API cost

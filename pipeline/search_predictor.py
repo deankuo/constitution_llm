@@ -5,13 +5,18 @@ This module provides SearchPredictor, which reuses the existing prompt builders
 (single/multiple/sequential) but routes LLM calls through web-search agents
 instead of plain LLM calls. Each prediction records the queries issued and the
 URLs returned by the search API.
+
+Output columns (row-level, not per-indicator):
+  - search_queries:   pipe-delimited list of queries (with [Source] prefix)
+  - urls_used:        pipe-delimited list of URLs (with [Source] prefix)
+  - web_information:  actual retrieved text (single/sequential mode only; JSON output only)
 """
 
 import json
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
-from config import INDICATOR_LABELS
+from config import INDICATOR_LABELS, PromptMode
 from models.llm_clients import detect_provider
 from models.search_agents import (
     run_openai_search_agent,
@@ -28,6 +33,7 @@ from utils.json_parser import (
     validate_indicator_response,
     validate_constitution_response,
 )
+from utils.langsmith_utils import traceable
 
 
 # =============================================================================
@@ -41,8 +47,6 @@ class SearchIndicatorResult:
     prediction: Optional[str]
     reasoning: str
     confidence_score: Optional[int]
-    search_queries: List[str] = field(default_factory=list)
-    urls_used: List[str] = field(default_factory=list)
     model_used: str = ''
     # Constitution-specific fields
     document_name: Optional[str] = None
@@ -57,28 +61,43 @@ class SearchPolityPrediction:
     start_year: int
     end_year: Optional[int]
     predictions: Dict[str, SearchIndicatorResult] = field(default_factory=dict)
+    # Row-level search metadata
+    search_queries: List[str] = field(default_factory=list)
+    urls_used: List[str] = field(default_factory=list)
+    web_information: Optional[str] = None  # Only populated for single/sequential mode
+    mode: str = 'multiple'
 
     def to_dict(self) -> Dict:
         """
         Flatten to a dict suitable for a DataFrame row.
 
         Columns added per indicator:
-          {ind}_prediction, {ind}_reasoning, {ind}_confidence,
-          {ind}_search_queries  (JSON list),
-          {ind}_urls            (JSON list)
+          {ind}_prediction, {ind}_reasoning, {ind}_confidence
         Constitution also adds constitution_document_name, constitution_year.
+
+        Row-level search columns:
+          search_queries, urls_used, web_information (single/sequential only)
         """
         result: Dict = {}
         for ind_name, ind_res in self.predictions.items():
             result[f'{ind_name}_prediction'] = ind_res.prediction
             result[f'{ind_name}_reasoning'] = ind_res.reasoning
             result[f'{ind_name}_confidence'] = ind_res.confidence_score
-            result[f'{ind_name}_search_queries'] = json.dumps(ind_res.search_queries)
-            result[f'{ind_name}_urls'] = json.dumps(ind_res.urls_used)
 
             if ind_name == 'constitution':
                 result['constitution_document_name'] = ind_res.document_name
                 result['constitution_year'] = ind_res.constitution_year
+
+        # Row-level search metadata
+        if self.search_queries:
+            result['search_queries'] = ' | '.join(self.search_queries)
+        if self.urls_used:
+            result['urls_used'] = ' | '.join(self.urls_used)
+
+        # web_information only for single/sequential modes (too large for CSV,
+        # but included here for JSON output)
+        if self.mode in ('single', 'sequential') and self.web_information:
+            result['web_information'] = self.web_information
 
         return result
 
@@ -163,6 +182,7 @@ class SearchPredictor:
         self.provider = detect_provider(model)
         self.reasoning = reasoning
         self.force_search = force_search
+        self.mode = mode
 
         default_indicators = [
             'sovereign', 'assembly', 'appointment', 'tenure',
@@ -182,6 +202,7 @@ class SearchPredictor:
     # Public API
     # ------------------------------------------------------------------
 
+    @traceable(name="SearchPredictor.predict")
     def predict(
         self,
         polity: str,
@@ -204,10 +225,16 @@ class SearchPredictor:
         prompts = self.prompt_builder.build(polity, name, start_year, end_year)
         predictions: Dict[str, SearchIndicatorResult] = {}
 
+        # Row-level trackers (aggregated across all prompts)
+        all_queries: List[str] = []
+        all_urls: List[str] = []
+        all_content: List[str] = []
+
         for prompt_idx, prompt in enumerate(prompts):
             print(f"\n🔍 Search prompt {prompt_idx+1}/{len(prompts)}: {prompt.indicators}")
             url_tracker: List[str] = []
             query_tracker: List[str] = []
+            content_tracker: List[str] = []
 
             try:
                 response_text = self._call_search_agent(
@@ -215,6 +242,7 @@ class SearchPredictor:
                     prompt.user_prompt,
                     url_tracker,
                     query_tracker,
+                    content_tracker,
                 )
 
                 parsed = parse_json_response(response_text or '', verbose=False)
@@ -223,8 +251,6 @@ class SearchPredictor:
                     ind_result = self._parse_indicator(
                         indicator=indicator,
                         parsed=parsed,
-                        search_queries=list(query_tracker),
-                        urls_used=list(url_tracker),
                     )
                     predictions[indicator] = ind_result
 
@@ -237,10 +263,18 @@ class SearchPredictor:
                         prediction=None,
                         reasoning=error_msg,
                         confidence_score=None,
-                        search_queries=list(query_tracker),
-                        urls_used=list(url_tracker),
                         model_used=self.model,
                     )
+
+            # Aggregate into row-level trackers
+            all_queries.extend(query_tracker)
+            all_urls.extend(url_tracker)
+            all_content.extend(content_tracker)
+
+        # Build web_information only for single/sequential mode
+        web_info = None
+        if self.mode in ('single', 'sequential') and all_content:
+            web_info = '\n---\n'.join(all_content)
 
         return SearchPolityPrediction(
             polity=polity,
@@ -248,6 +282,10 @@ class SearchPredictor:
             start_year=start_year,
             end_year=end_year,
             predictions=predictions,
+            search_queries=all_queries,
+            urls_used=all_urls,
+            web_information=web_info,
+            mode=self.mode,
         )
 
     # ------------------------------------------------------------------
@@ -260,6 +298,7 @@ class SearchPredictor:
         user_prompt: str,
         url_tracker: List[str],
         query_tracker: List[str],
+        content_tracker: List[str],
     ) -> Optional[str]:
         """Route the call to the correct provider's search agent."""
         kwargs = dict(
@@ -268,6 +307,7 @@ class SearchPredictor:
             serper_api_key=self.serper_api_key,
             url_tracker=url_tracker,
             query_tracker=query_tracker,
+            content_tracker=content_tracker,
             force_search=self.force_search,
         )
 
@@ -306,8 +346,6 @@ class SearchPredictor:
         self,
         indicator: str,
         parsed: Dict,
-        search_queries: List[str],
-        urls_used: List[str],
     ) -> SearchIndicatorResult:
         """Extract and validate a single indicator's fields from parsed JSON."""
         document_name = None
@@ -332,8 +370,6 @@ class SearchPredictor:
             prediction=prediction,
             reasoning=reasoning,
             confidence_score=confidence,
-            search_queries=search_queries,
-            urls_used=urls_used,
             model_used=self.model,
             document_name=document_name,
             constitution_year=constitution_year,

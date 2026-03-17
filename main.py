@@ -1191,7 +1191,8 @@ Examples:
                             indicators=p.indicators,
                             metadata={**p.metadata, 'search_queries': search_result.search_queries,
                                       'urls_used': search_result.urls_used,
-                                      'sources_used': search_result.sources_used},
+                                      'sources_used': search_result.sources_used,
+                                      'search_context': search_result.context},
                         ))
                     return enriched
 

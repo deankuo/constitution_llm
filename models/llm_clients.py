@@ -33,6 +33,7 @@ from config import (
     ANTHROPIC_MODELS,
     BEDROCK_ARN_PREFIX
 )
+from utils.langsmith_utils import traceable, wrap_openai_client, wrap_anthropic_client
 
 
 # =============================================================================
@@ -57,9 +58,10 @@ class OpenAILLM(BaseLLM):
         if self.client is None:
             if not self.api_key:
                 raise APIKeyError("OpenAI API key not provided")
-            self.client = OpenAI(api_key=self.api_key)
+            self.client = wrap_openai_client(OpenAI(api_key=self.api_key))
         return self.client
 
+    @traceable(name="OpenAI.call", run_type="llm")
     def call(
         self,
         system_prompt: str,
@@ -130,6 +132,7 @@ class GeminiLLM(BaseLLM):
             genai.configure(api_key=self.api_key)
             self._configured = True
 
+    @traceable(name="Gemini.call", run_type="llm")
     def call(
         self,
         system_prompt: str,
@@ -145,10 +148,15 @@ class GeminiLLM(BaseLLM):
             self._configure()
             model_to_use = model or self.model
 
+            # response_mime_type="application/json" enforces structured JSON output.
+            # Note: May be incompatible with Gemini 2.5 Pro/Flash thinking mode in
+            # some SDK versions. If errors occur, remove response_mime_type and rely
+            # on prompt-based JSON instruction instead.
             generation_config = genai.GenerationConfig(
                 temperature=temperature if temperature is not None else self.default_temperature,
                 top_p=top_p if top_p is not None else DEFAULT_TOP_P,
-                max_output_tokens=max_tokens or self.default_max_tokens
+                max_output_tokens=max_tokens or self.default_max_tokens,
+                response_mime_type="application/json",
             )
 
             # Safety settings - set to BLOCK_NONE for academic/historical analysis
@@ -252,9 +260,10 @@ class AnthropicLLM(BaseLLM):
         if self.client is None:
             if not self.api_key:
                 raise APIKeyError("Anthropic API key not provided")
-            self.client = Anthropic(api_key=self.api_key)
+            self.client = wrap_anthropic_client(Anthropic(api_key=self.api_key))
         return self.client
 
+    @traceable(name="Anthropic.call", run_type="llm")
     def call(
         self,
         system_prompt: str,
@@ -352,6 +361,7 @@ class BedrockLLM(BaseLLM):
 
         return self.client
 
+    @traceable(name="Bedrock.call", run_type="llm")
     def call(
         self,
         system_prompt: str,
