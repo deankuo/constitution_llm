@@ -567,8 +567,10 @@ The pipeline supports three search modes for experimental comparison:
 - **How it works**: Always runs deterministic tiered pre-search before LLM answers (both with and without `--use-batch`)
 - **Search order**: Wikipedia API -> DuckDuckGo -> Serper (optional, tiered — lower tiers only run if previous tiers returned < 200 chars)
 - **Search query format**:
-  - Leader pipeline: `"{leader_name} {polity} {start_year}-{end_year}"`
-  - Polity pipeline: `"{polity} {start_year}-{end_year}"`
+  - Leader pipeline: `"{leader_name} of {polity} during {start_year}-{end_year}"`
+  - Polity pipeline: `"{polity} during {start_year}-{end_year}"`
+  - If `end_year` is missing: `"{leader_name} of {polity} reign started in {start_year}"`
+  - If `start_year` is missing: `"{leader_name} of {polity} reign ended in {end_year}"`
 - **Compatible with**: `--use-batch` (pre-search + batch)
 - **Output**: Both CSV and JSON with `search_queries`, `urls_used`, and `web_information` (single/sequential mode)
 - **Example**: `--search-mode forced`

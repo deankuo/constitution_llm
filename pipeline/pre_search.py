@@ -308,42 +308,40 @@ class PreSearcher:
         sources: List[str] = []
         context_parts: List[str] = []
 
-        year_str = f"{start_year}" if end_year is None else f"{start_year}-{end_year}"
-
         # Build query components — skip empty name (polity pipeline)
         name_part = name.strip() if name else ""
 
-        # Base query: "{polity} {start_year}-{end_year}" or
-        #             "{leader} {polity} {start_year}-{end_year}"
+        # Build a clear, informative query string
         if name_part:
-            base_query = f"{name_part} {polity} {year_str}"
+            if start_year is not None and end_year is not None:
+                base_query = f"{name_part} of {polity} during {start_year}-{end_year}"
+            elif start_year is not None:
+                base_query = f"{name_part} of {polity} reign started in {start_year}"
+            elif end_year is not None:
+                base_query = f"{name_part} of {polity} reign ended in {end_year}"
+            else:
+                base_query = f"{name_part} of {polity}"
         else:
-            base_query = f"{polity} {year_str}"
+            if start_year is not None and end_year is not None:
+                base_query = f"{polity} during {start_year}-{end_year}"
+            elif start_year is not None:
+                base_query = f"{polity} from {start_year}"
+            elif end_year is not None:
+                base_query = f"{polity} until {end_year}"
+            else:
+                base_query = polity
 
         # --- Tier 1: Wikipedia ---
-        # Search for the polity (and leader if available)
-        wiki_polity = search_wikipedia(
+        wiki_result = search_wikipedia(
             base_query,
-            max_results=2,
-            extract_chars=3000,
+            max_results=3,
+            extract_chars=4000,
             url_tracker=url_tracker,
             query_tracker=query_tracker,
         )
-        if wiki_polity:
-            context_parts.append(wiki_polity)
+        if wiki_result:
+            context_parts.append(wiki_result)
             sources.append("wikipedia")
-
-        if name_part:
-            # Also search the leader name specifically
-            wiki_leader = search_wikipedia(
-                f"{name_part} {polity}",
-                max_results=1,
-                extract_chars=2000,
-                url_tracker=url_tracker,
-                query_tracker=query_tracker,
-            )
-            if wiki_leader:
-                context_parts.append(wiki_leader)
 
         total_context = "\n".join(context_parts)
 
