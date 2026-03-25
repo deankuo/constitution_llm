@@ -164,7 +164,7 @@ DEFAULT_OUTPUT_DIR = "data/results"
 import os
 
 # Default primary model for indicator prediction
-DEFAULT_PRIMARY_MODEL = "gemini-3.1-pro"
+DEFAULT_PRIMARY_MODEL = "gemini-3.1-pro-preview"
 
 # Bedrock Verifier Model Configuration
 # Users can customize by setting BEDROCK_VERIFIER_MODEL in .env
