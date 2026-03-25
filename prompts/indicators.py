@@ -32,8 +32,7 @@ OUTPUT_FORMAT_TEMPLATE = """
 
 Provide a JSON object with exactly these fields:
 - "{indicator}": Must be exactly {valid_labels} (string)
-- "reasoning": Your step-by-step reasoning following the analysis process (string)
-- "confidence_score": Integer from 1 to 100 based on evidence quality
+{reasoning_field}- "confidence_score": Integer from 1 to 100 based on evidence quality
 
 **CRITICAL OUTPUT FORMAT:**
 - Respond with ONLY a JSON object
@@ -41,6 +40,8 @@ Provide a JSON object with exactly these fields:
 - Do NOT include any text before or after the JSON
 - Your response must start with {{ and end with }}
 """
+
+_REASONING_FIELD = '- "reasoning": Your step-by-step reasoning following the analysis process (string)\n'
 
 SYSTEM_PROMPT_HEADER = """You are a professional political scientist and historian specializing in {specialization} across different historical periods.
 
@@ -58,7 +59,7 @@ USER_PROMPT_TEMPLATE = """Please analyze the {indicator_display} of the followin
 {coding_rule_reminder}
 
 Respond with a single JSON object:
-{{"{indicator}": "{label_format}", "reasoning": "your analysis", "confidence_score": 1-100}}
+{json_example}
 """
 
 
@@ -462,34 +463,36 @@ Remember:
 # PROMPT BUILDERS
 # =============================================================================
 
-def build_system_prompt(indicator: str) -> str:
+def build_system_prompt(indicator: str, reasoning: bool = True) -> str:
     """
     Build system prompt for an indicator.
-    
+
     Args:
         indicator: Name of the indicator
-        
+        reasoning: Whether to include reasoning field in the output spec (default True)
+
     Returns:
         Complete system prompt string
     """
     if indicator not in INDICATOR_CONFIGS:
         raise ValueError(f"Unknown indicator: {indicator}. Must be one of {list(INDICATOR_CONFIGS.keys())}")
-    
+
     config = INDICATOR_CONFIGS[indicator]
-    
+
     # Build header
     header = SYSTEM_PROMPT_HEADER.format(
         specialization=config.specialization,
         task_description=config.task_description
     )
-    
+
     # Build output format
     label_display = f'"{config.labels[0]}"' if len(config.labels) == 2 else f'one of {config.labels}'
     output_format = OUTPUT_FORMAT_TEMPLATE.format(
         indicator=config.name,
-        valid_labels=label_display
+        valid_labels=label_display,
+        reasoning_field=_REASONING_FIELD if reasoning else ""
     )
-    
+
     return header + config.definition + output_format
 
 
@@ -498,47 +501,59 @@ def build_user_prompt(
     polity: str,
     name: str,
     start_year: int,
-    end_year: int
+    end_year: Optional[int],
+    reasoning: bool = True
 ) -> str:
     """
     Build user prompt for an indicator with leader-level information.
-    
+
     Args:
         indicator: Name of the indicator
         polity: Name of the polity
         name: Name of the leader
         start_year: Start year of the leader's reign
-        end_year: End year of the leader's reign
-        
+        end_year: End year of the leader's reign (None if unknown)
+        reasoning: Whether to include reasoning field in the JSON example (default True)
+
     Returns:
         Complete user prompt string
     """
     if indicator not in INDICATOR_CONFIGS:
         raise ValueError(f"Unknown indicator: {indicator}. Must be one of {list(INDICATOR_CONFIGS.keys())}")
-    
+
     config = INDICATOR_CONFIGS[indicator]
-    
+
+    # Resolve end_year display — never show "None" to the LLM
+    end_year_str = str(end_year) if end_year is not None else "unknown"
+
     # Format label display for JSON example
     if len(config.labels) == 2:
         label_format = f"{config.labels[0]} or {config.labels[1]}"
     else:
         label_format = ", ".join(config.labels[:-1]) + f", or {config.labels[-1]}"
-    
+
     # Handle tenure's special coding rule reminder with years
     coding_rule = config.coding_rule_reminder
     if indicator == "tenure":
-        coding_rule = coding_rule.format(start_year=start_year, end_year=end_year)
-    
+        coding_rule = coding_rule.format(start_year=start_year, end_year=end_year_str)
+
+    # Build JSON example line
+    if reasoning:
+        json_example = f'{{"{config.name}": "{label_format}", "reasoning": "your analysis", "confidence_score": 1-100}}'
+    else:
+        json_example = f'{{"{config.name}": "{label_format}", "confidence_score": 1-100}}'
+
     return USER_PROMPT_TEMPLATE.format(
         indicator_display=config.display_name,
         polity=polity,
         name=name,
         start_year=start_year,
-        end_year=end_year,
+        end_year=end_year_str,
         task_instruction=config.task_instruction,
         coding_rule_reminder=coding_rule,
         indicator=config.name,
-        label_format=label_format
+        label_format=label_format,
+        json_example=json_example
     )
 
 
@@ -551,23 +566,25 @@ def get_prompt(
     polity: str,
     name: str,
     start_year: int,
-    end_year: int
+    end_year: Optional[int],
+    reasoning: bool = True
 ) -> Tuple[str, str]:
     """
     Get system and user prompts for a specific indicator (leader-level).
-    
+
     Args:
         indicator: One of sovereign, assembly, appointment, tenure, exit, collegiality, separate_powers
         polity: Name of the polity
         name: Name of the leader
         start_year: Start year of the leader's reign
-        end_year: End year of the leader's reign
-        
+        end_year: End year of the leader's reign (None if unknown)
+        reasoning: Whether to include reasoning fields in the output spec (default True)
+
     Returns:
         Tuple of (system_prompt, user_prompt)
     """
-    system_prompt = build_system_prompt(indicator)
-    user_prompt = build_user_prompt(indicator, polity, name, start_year, end_year)
+    system_prompt = build_system_prompt(indicator, reasoning=reasoning)
+    user_prompt = build_user_prompt(indicator, polity, name, start_year, end_year, reasoning=reasoning)
     return system_prompt, user_prompt
 
 

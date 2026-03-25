@@ -20,8 +20,8 @@ DEFAULT_TEMPERATURE = 0
 DEFAULT_MAX_TOKENS = 32768  # Increased from 2048 to handle single prompt mode with multiple indicators
                             # NOTE: Actual model limits vary by provider:
                             # - GPT-4o: 16,384 max_tokens
-                            # - Gemini 2.5 Pro: 8,192 output tokens (2M input context)
-                            # - Claude Sonnet 4.5: 8,192 max_tokens
+                            # - Gemini 2.5 Pro: 65536 output tokens (1M input context)
+                            # - Claude Sonnet 4.5: 64k max_tokens (1M input context)
                             # LLM clients should validate/cap this value before API calls
 DEFAULT_TOP_P = 1.0
 
@@ -163,7 +163,8 @@ DEFAULT_OUTPUT_DIR = "data/results"
 
 import os
 
-DEFAULT_PRIMARY_MODEL = "gemini-3-pro"
+# Default primary model for indicator prediction
+DEFAULT_PRIMARY_MODEL = "gemini-3.1-pro"
 
 # Bedrock Verifier Model Configuration
 # Users can customize by setting BEDROCK_VERIFIER_MODEL in .env
