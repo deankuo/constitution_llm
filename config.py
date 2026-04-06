@@ -51,10 +51,10 @@ TOP_SEARCH_RESULTS = 5
 # Data Column Names
 # =============================================================================
 
-COL_TERRITORY_NAME = 'territorynamehistorical'
-COL_LEADER_NAME = 'name'
-COL_START_YEAR = 'start_year'
-COL_END_YEAR = 'end_year'
+COL_TERRITORY_NAME = 'polity_name'
+COL_LEADER_NAME = 'leader_name'
+COL_START_YEAR = 'leader_first_year'
+COL_END_YEAR = 'leader_last_year'
 REQUIRED_COLUMNS = [COL_TERRITORY_NAME, COL_LEADER_NAME, COL_START_YEAR, COL_END_YEAR]
 
 # =============================================================================
@@ -78,37 +78,35 @@ BEDROCK_ARN_PREFIX = "arn:aws:bedrock"
 
 # All available indicators
 ALL_INDICATORS = [
-    'constitution',
-    'sovereign',
-    'assembly',
-    'appointment',
-    'tenure',
-    'exit',
-    'collegiality',
-    'separate_powers',
+    'polity_constitution',
+    'polity_sovereign',
+    'leader_assembly',
+    'leader_appointment',
+    'leader_exit',
+    'leader_collegiality',
+    'leader_separate_powers',
 ]
 
 # Indicators with ground truth for evaluation
 INDICATORS_WITH_GROUND_TRUTH = [
-    'sovereign',
-    'assembly',
-    'appointment',
-    'tenure',
-    'exit',
-    'collegiality',
-    'separate_powers',
+    'polity_constitution',
+    'polity_sovereign',
+    'leader_assembly',
+    'leader_appointment',
+    'leader_exit',
+    'leader_collegiality',
+    'leader_separate_powers',
 ]
 
 # Indicator valid labels
 INDICATOR_LABELS = {
-    'constitution': ['1', '0'],
-    'sovereign': ['0', '1'],
-    'assembly': ['0', '1'],
-    'appointment': ['0', '1', '2'],
-    'tenure': ['0', '1', '2'],
-    'exit': ['0', '1'],
-    'collegiality': ['0', '1'],
-    'separate_powers': ['0', '1'],
+    'polity_constitution': ['1', '0'],
+    'polity_sovereign': ['0', '1'],
+    'leader_assembly': ['0', '1'],
+    'leader_appointment': ['0', '1', '2'],
+    'leader_exit': ['0', '1'],
+    'leader_collegiality': ['0', '1'],
+    'leader_separate_powers': ['0', '1'],
 }
 
 # =============================================================================
