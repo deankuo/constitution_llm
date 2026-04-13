@@ -2,25 +2,29 @@
 Political Indicators Prompt Templates (Leader-Level)
 =====================================================
 
-This module contains prompt templates for 8 political indicators:
+This module contains prompt templates for 9 political indicators:
 - Sovereign
+- Powersharing
 - Assembly
 - Appointment
 - Tenure
 - Exit
 - Collegiality
 - Separate Powers
+- Elections (depends on Assembly = 1)
 
 Note: Constitution is handled separately with its own complex prompt.
 
 All prompts follow a unified structure for consistency and easy comparison.
 Output format is standardized for merging with Constitution results.
 
-Key Change: Now supports LEADER-LEVEL analysis with 'name' parameter.
+Key Features:
+- LEADER-LEVEL analysis with 'name' parameter
+- Two versions: FULL (individual) and COMPACT (combined prompt)
 """
 
 from typing import List, Tuple, Dict, Optional
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 # =============================================================================
@@ -32,7 +36,8 @@ OUTPUT_FORMAT_TEMPLATE = """
 
 Provide a JSON object with exactly these fields:
 - "{indicator}": Must be exactly {valid_labels} (string)
-{reasoning_field}- "confidence_score": Integer from 1 to 100 based on evidence quality
+- "reasoning": Your step-by-step reasoning following the analysis process (string)
+- "confidence_score": Integer from 1 to 100 based on evidence quality
 
 **CRITICAL OUTPUT FORMAT:**
 - Respond with ONLY a JSON object
@@ -40,8 +45,6 @@ Provide a JSON object with exactly these fields:
 - Do NOT include any text before or after the JSON
 - Your response must start with {{ and end with }}
 """
-
-_REASONING_FIELD = '- "reasoning": Your step-by-step reasoning following the analysis process (string)\n'
 
 SYSTEM_PROMPT_HEADER = """You are a professional political scientist and historian specializing in {specialization} across different historical periods.
 
@@ -59,17 +62,17 @@ USER_PROMPT_TEMPLATE = """Please analyze the {indicator_display} of the followin
 {coding_rule_reminder}
 
 Respond with a single JSON object:
-{json_example}
+{{"{indicator}": "{label_format}", "reasoning": "your analysis", "confidence_score": 1-100}}
 """
 
 
 # =============================================================================
-# INDICATOR CONFIGURATIONS
+# INDICATOR CONFIGURATIONS (FULL VERSION)
 # =============================================================================
 
 @dataclass
 class IndicatorConfig:
-    """Configuration for a political indicator."""
+    """Configuration for a political indicator (full version)."""
     name: str                      # Internal name (e.g., "sovereign")
     display_name: str              # Display name (e.g., "sovereign status")
     specialization: str            # LLM role specialization
@@ -78,6 +81,8 @@ class IndicatorConfig:
     task_description: str          # What the LLM needs to determine
     task_instruction: str          # User prompt instruction
     coding_rule_reminder: str      # Reminder about coding rules
+    compact_definition: str = ""   # Compact version for combined prompts
+    depends_on: Optional[Dict[str, str]] = None  # Dependencies (e.g., {"assembly": "1"})
 
 
 INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
@@ -127,7 +132,68 @@ Remember:
 - Sovereign (1): Independent foreign policy, no subordination to foreign power
 - Not Sovereign (0): Colony, protectorate, vassal, or tributary state""",
         
-        coding_rule_reminder="""⚠️ **IMPORTANT:** Focus on the status during THIS LEADER'S REIGN, not the entire polity history."""
+        coding_rule_reminder="""⚠️ **IMPORTANT:** Focus on the status during THIS LEADER'S REIGN, not the entire polity history.""",
+        
+        compact_definition=(
+            "Whether the polity has supreme authority over its affairs: "
+            "(0) colony, protectorate, vassal, or tributary - beholden to foreign power; "
+            "(1) sovereign - independent foreign policy, no external subordination."
+        )
+    ),
+    
+    # =========================================================================
+    # POWERSHARING
+    # =========================================================================
+    "powersharing": IndicatorConfig(
+        name="powersharing",
+        display_name="powersharing status",
+        specialization="executive power structures",
+        labels=["0", "1"],
+        task_description="whether a given polity had powersharing at the executive level during a specific leader's reign",
+        
+        definition="""
+## Definition of Powersharing
+
+Powersharing refers to whether **multiple individuals share power at the apex of a polity**. Where multiple individuals share power, we assume that executive power is to some extent constrained.
+
+**Powersharing (1):**
+- Two or more top leaders with comparable power
+- Examples: Roman consuls, regencies, military juntas, president and prime minister, collegial presidencies
+- Decisions must be vetted across multiple people rather than a single individual
+- These individuals may have independent bases of power or be part of a collegial body
+
+**No Powersharing (0):**
+- One top leader holds executive power
+- Collective leadership bodies dominated by a single member
+- Someone acting "behind the scenes" controls decision-making
+- Advisors exist but have no comparable executive authority
+
+## Important Notes
+
+- Powersharing does NOT imply inclusion/representation of distinct social groups
+- Focus on the apex of executive power, not lower levels of government
+- If a collective body is dominated by one person, code as "0"
+
+## Analysis Process
+
+1. Identify who held executive power during this leader's reign
+2. Determine if there were co-rulers or collegial bodies with comparable authority
+3. Assess whether decisions required vetting across multiple individuals
+""",
+        
+        task_instruction="""Determine whether this polity had executive powersharing (1) or single leadership (0) during this leader's reign.
+
+Remember:
+- Powersharing (1): Two or more leaders with comparable executive power
+- No Powersharing (0): One dominant leader (even if advisors or councils exist)""",
+        
+        coding_rule_reminder="""⚠️ **IMPORTANT:** Focus on the power structure during THIS LEADER'S REIGN.""",
+        
+        compact_definition=(
+            "Whether multiple individuals share power at the apex: "
+            "(0) one top leader holds executive power, or collective body dominated by single member; "
+            "(1) two or more top leaders with comparable power (e.g., consuls, regencies, juntas)."
+        )
     ),
     
     # =========================================================================
@@ -189,7 +255,13 @@ Remember:
 - Assembly (1): Popular assembly or parliament with (a) role in selection/taxation/policy, (b) independence from executive, (c) regular meetings
 - No Assembly (0): No such body, or only advisory councils without institutional power""",
         
-        coding_rule_reminder="""⚠️ **IMPORTANT:** Focus on whether an assembly existed and functioned during THIS LEADER'S REIGN."""
+        coding_rule_reminder="""⚠️ **IMPORTANT:** Focus on whether an assembly existed and functioned during THIS LEADER'S REIGN.""",
+        
+        compact_definition=(
+            "Whether a legislative assembly exists meeting ALL criteria: (a) role in leadership selection, "
+            "taxation, or policy; (b) independence from executive; (c) meets regularly. "
+            "(0) no such body or only advisory councils; (1) assembly exists (e.g., Parliament, Senate)."
+        )
     ),
     
     # =========================================================================
@@ -241,7 +313,14 @@ Categories:
 - 1: Royal council, head of state, head of government appointment
 - 2: Direct election or assembly selection""",
         
-        coding_rule_reminder="""⚠️ **IMPORTANT:** Focus on how THIS SPECIFIC LEADER was appointed/selected."""
+        coding_rule_reminder="""⚠️ **IMPORTANT:** Focus on how THIS SPECIFIC LEADER was appointed/selected.""",
+        
+        compact_definition=(
+            "How executives are selected: (0) through force, hereditary succession, foreign power, "
+            "military, or one-party selection (least constrained); (1) by royal council, head of state, "
+            "or head of government (moderately constrained); (2) through direct popular election or "
+            "assembly selection (most constrained)."
+        )
     ),
     
     # =========================================================================
@@ -290,7 +369,12 @@ Categories:
 - 1: Tenure 5-10 years (moderate constraint)
 - 2: Tenure > 10 years (low constraint)""",
         
-        coding_rule_reminder="""⚠️ **IMPORTANT:** Calculate based on the reign period provided ({start_year} to {end_year})."""
+        coding_rule_reminder="""⚠️ **IMPORTANT:** Calculate based on the reign period provided ({start_year} to {end_year}).""",
+        
+        compact_definition=(
+            "Length of executive's continuous service: (0) < 5 years (high constraint/instability); "
+            "(1) 5-10 years (moderate constraint); (2) > 10 years (low constraint, leader maintains power)."
+        )
     ),
     
     # =========================================================================
@@ -342,7 +426,13 @@ Categories:
 - 0: Irregular exit - died in office, removed by force, no institutional transition
 - 1: Regular exit - voluntary retirement, term limits, electoral defeat, peaceful transition""",
         
-        coding_rule_reminder="""⚠️ **IMPORTANT:** Focus on how THIS SPECIFIC LEADER left power (or is expected to, if still ruling at end of period)."""
+        coding_rule_reminder="""⚠️ **IMPORTANT:** Focus on how THIS SPECIFIC LEADER left power (or is expected to, if still ruling at end of period).""",
+        
+        compact_definition=(
+            "Circumstances of departure from office: (0) irregular - died in office, removed by force, "
+            "exile, no institutional mechanism; (1) regular - voluntary retirement, term limits, "
+            "electoral defeat, peaceful institutional transition."
+        )
     ),
     
     # =========================================================================
@@ -395,7 +485,13 @@ Remember:
 
 **CRITICAL:** Code based on de facto (actual) power, not de jure (formal) arrangements. If a body is formally collegial but one person dominates, code as 0.""",
         
-        coding_rule_reminder="""⚠️ **IMPORTANT:** Focus on ACTUAL decision-making practice during THIS LEADER'S REIGN, not formal structures."""
+        coding_rule_reminder="""⚠️ **IMPORTANT:** Focus on ACTUAL decision-making practice during THIS LEADER'S REIGN, not formal structures.""",
+        
+        compact_definition=(
+            "Whether decision-making is shared by a formally constituted body (de facto, not de jure): "
+            "(0) single actor dominates, or formally collegial body controlled by one person; "
+            "(1) decisions genuinely shared by collegial body (e.g., cabinet, junta, consuls, regency)."
+        )
     ),
     
     # =========================================================================
@@ -454,8 +550,98 @@ Remember:
 
 **CRITICAL:** Code based on de facto (actual) power, not de jure (formal) arrangements. If branches exist on paper but one organization controls everything, code as 0.""",
         
-        coding_rule_reminder="""⚠️ **IMPORTANT:** Focus on ACTUAL power relationships during THIS LEADER'S REIGN, not formal constitutional structures."""
+        coding_rule_reminder="""⚠️ **IMPORTANT:** Focus on ACTUAL power relationships during THIS LEADER'S REIGN, not formal constitutional structures.""",
+        
+        compact_definition=(
+            "Whether power is divided between multiple independent organizations (de facto, not de jure): "
+            "(0) unitary authority - power concentrated in one organization, or branches controlled by executive; "
+            "(1) separate powers - multiple independent bodies with policymaking authority (e.g., independent "
+            "legislature, judiciary, religious/military authority with checking power)."
+        )
     ),
+    
+    # =========================================================================
+    # ELECTIONS (DEPENDS ON ASSEMBLY = 1)
+    # =========================================================================
+    "elections": IndicatorConfig(
+        name="elections",
+        display_name="assembly elections status",
+        specialization="electoral systems and representative institutions",
+        labels=["0", "1", "2"],
+        task_description="whether members of the assembly were elected and whether elections were contested by factions or parties",
+        depends_on={"assembly": "1"},
+        
+        definition="""
+## Definition of Elections
+
+This indicator codes whether members of an existing assembly are **elected** to their positions. This indicator is only applicable when an assembly exists (assembly = 1).
+
+**An election** refers to a selection procedure in which:
+- Members are chosen by an electorate through defined rules (e.g., majority, proportionality)
+- These rules translate votes into seats
+- The electorate must be considerably larger than the body itself (though it may be far short of universal suffrage)
+
+## Election Categories
+
+**No Elections (0):**
+- Assembly members are NOT elected
+- Members are appointed, hereditary, or selected by other non-electoral means
+- Examples: appointed councils, hereditary nobility in legislature
+
+**Elections Exist (1):**
+- Most members of the assembly are elected
+- Elections follow defined rules translating votes into seats
+- Electorate is larger than the body itself
+- Elections may or may not be competitive
+
+**Competitive Elections (2):**
+- Elections exist AND are contested by organized factions or parties
+- Higher degree of constraint on executive power
+- Implies organized political competition
+
+## Important Notes
+
+- This indicator assumes assembly = 1 (assembly exists)
+- Focus on whether MOST members are elected, not all
+- The extent of suffrage (who can vote) is NOT relevant for coding
+- The key distinction for code 2 is organized factions/parties, not just competition
+
+## Analysis Process
+
+1. Confirm that an assembly exists during this leader's reign
+2. Determine how members of the assembly obtain their positions
+3. If elected: Are there defined rules translating votes to seats?
+4. If elections exist: Are they contested by organized factions or parties?
+""",
+        
+        task_instruction="""Determine the elections category (0, 1, or 2) for how assembly members are selected during this leader's reign.
+
+**This indicator assumes an assembly exists.**
+
+Categories:
+- 0: No elections - members appointed, hereditary, or non-electoral selection
+- 1: Elections exist - most members elected by an electorate through defined rules
+- 2: Competitive elections - elections contested by organized factions or parties""",
+        
+        coding_rule_reminder="""⚠️ **IMPORTANT:** This indicator is only applicable when assembly = 1. Focus on the selection method for assembly members during THIS LEADER'S REIGN.""",
+        
+        compact_definition=(
+            "Whether assembly members are elected (only if assembly exists): "
+            "(0) no elections - members appointed, hereditary, or non-electoral; "
+            "(1) elections exist - most members elected by electorate through defined rules; "
+            "(2) competitive elections - contested by organized factions or parties."
+        )
+    ),
+}
+
+
+# =============================================================================
+# COMPACT DEFINITIONS DICTIONARY (for combined prompts)
+# =============================================================================
+
+COMPACT_DEFINITIONS: Dict[str, str] = {
+    name: config.compact_definition
+    for name, config in INDICATOR_CONFIGS.items()
 }
 
 
@@ -463,36 +649,34 @@ Remember:
 # PROMPT BUILDERS
 # =============================================================================
 
-def build_system_prompt(indicator: str, reasoning: bool = True) -> str:
+def build_system_prompt(indicator: str) -> str:
     """
-    Build system prompt for an indicator.
-
+    Build system prompt for an indicator (FULL version).
+    
     Args:
         indicator: Name of the indicator
-        reasoning: Whether to include reasoning field in the output spec (default True)
-
+        
     Returns:
         Complete system prompt string
     """
     if indicator not in INDICATOR_CONFIGS:
         raise ValueError(f"Unknown indicator: {indicator}. Must be one of {list(INDICATOR_CONFIGS.keys())}")
-
+    
     config = INDICATOR_CONFIGS[indicator]
-
+    
     # Build header
     header = SYSTEM_PROMPT_HEADER.format(
         specialization=config.specialization,
         task_description=config.task_description
     )
-
+    
     # Build output format
     label_display = f'"{config.labels[0]}"' if len(config.labels) == 2 else f'one of {config.labels}'
     output_format = OUTPUT_FORMAT_TEMPLATE.format(
         indicator=config.name,
-        valid_labels=label_display,
-        reasoning_field=_REASONING_FIELD if reasoning else ""
+        valid_labels=label_display
     )
-
+    
     return header + config.definition + output_format
 
 
@@ -501,60 +685,147 @@ def build_user_prompt(
     polity: str,
     name: str,
     start_year: int,
-    end_year: Optional[int],
-    reasoning: bool = True
+    end_year: int
 ) -> str:
     """
-    Build user prompt for an indicator with leader-level information.
-
+    Build user prompt for an indicator with leader-level information (FULL version).
+    
     Args:
         indicator: Name of the indicator
         polity: Name of the polity
         name: Name of the leader
         start_year: Start year of the leader's reign
-        end_year: End year of the leader's reign (None if unknown)
-        reasoning: Whether to include reasoning field in the JSON example (default True)
-
+        end_year: End year of the leader's reign
+        
     Returns:
         Complete user prompt string
     """
     if indicator not in INDICATOR_CONFIGS:
         raise ValueError(f"Unknown indicator: {indicator}. Must be one of {list(INDICATOR_CONFIGS.keys())}")
-
+    
     config = INDICATOR_CONFIGS[indicator]
-
-    # Resolve end_year display — never show "None" to the LLM
-    end_year_str = str(end_year) if end_year is not None else "unknown"
-
+    
     # Format label display for JSON example
     if len(config.labels) == 2:
         label_format = f"{config.labels[0]} or {config.labels[1]}"
     else:
         label_format = ", ".join(config.labels[:-1]) + f", or {config.labels[-1]}"
-
+    
     # Handle tenure's special coding rule reminder with years
     coding_rule = config.coding_rule_reminder
     if indicator == "tenure":
-        coding_rule = coding_rule.format(start_year=start_year, end_year=end_year_str)
-
-    # Build JSON example line
-    if reasoning:
-        json_example = f'{{"{config.name}": "{label_format}", "reasoning": "your analysis", "confidence_score": 1-100}}'
-    else:
-        json_example = f'{{"{config.name}": "{label_format}", "confidence_score": 1-100}}'
-
+        coding_rule = coding_rule.format(start_year=start_year, end_year=end_year)
+    
     return USER_PROMPT_TEMPLATE.format(
         indicator_display=config.display_name,
         polity=polity,
         name=name,
         start_year=start_year,
-        end_year=end_year_str,
+        end_year=end_year,
         task_instruction=config.task_instruction,
         coding_rule_reminder=coding_rule,
         indicator=config.name,
-        label_format=label_format,
-        json_example=json_example
+        label_format=label_format
     )
+
+
+# =============================================================================
+# COMBINED PROMPT BUILDER (COMPACT VERSION)
+# =============================================================================
+
+COMBINED_SYSTEM_PROMPT = """You are a professional political scientist and historian specializing in comparative politics across different historical periods.
+
+Your task is to classify multiple political indicators for a specific leader's reign based on the polity name, leader name, and reign period provided.
+
+## General Guidelines
+
+1. **Independence**: Evaluate each indicator independently based on its specific definition
+2. **Evidence-based**: Base judgments on verifiable historical facts
+3. **De facto over de jure**: When actual power differs from formal arrangements, code based on actual practice
+4. **Leader-specific**: Focus on conditions during THIS SPECIFIC LEADER'S reign
+
+## Output Format
+
+Respond with ONLY a valid JSON object containing all requested indicators.
+Do NOT include markdown code fences or any text outside the JSON.
+"""
+
+
+def build_combined_prompt(
+    polity: str,
+    name: str,
+    start_year: int,
+    end_year: int,
+    indicators: List[str],
+    include_elections: bool = False,
+    assembly_value: Optional[str] = None
+) -> Tuple[str, str]:
+    """
+    Build a combined prompt for multiple indicators (COMPACT version).
+    
+    Args:
+        polity: Name of the polity
+        name: Name of the leader
+        start_year: Start year of the leader's reign
+        end_year: End year of the leader's reign
+        indicators: List of indicator names to include
+        include_elections: Whether to include elections (requires assembly_value)
+        assembly_value: Value of assembly indicator (needed if include_elections=True)
+        
+    Returns:
+        Tuple of (system_prompt, user_prompt)
+    """
+    # Validate indicators
+    valid_indicators = []
+    for ind in indicators:
+        if ind not in INDICATOR_CONFIGS:
+            raise ValueError(f"Unknown indicator: {ind}")
+        # Skip elections if assembly != 1 or not explicitly included
+        if ind == "elections":
+            if include_elections and assembly_value == "1":
+                valid_indicators.append(ind)
+        else:
+            valid_indicators.append(ind)
+    
+    # Build indicator definitions section
+    definitions_text = "## Indicator Definitions\n\n"
+    for ind in valid_indicators:
+        config = INDICATOR_CONFIGS[ind]
+        definitions_text += f"**{ind}**: {config.compact_definition}\n\n"
+    
+    # Build output schema
+    output_fields = []
+    for ind in valid_indicators:
+        config = INDICATOR_CONFIGS[ind]
+        labels_str = "/".join(config.labels)
+        output_fields.append(f'"{ind}": "{labels_str}"')
+    
+    output_schema = "{\n  " + ",\n  ".join(output_fields)
+    output_schema += ',\n  "reasoning": "brief reasoning for each indicator",\n  "confidence_score": 1-100\n}'
+    
+    # Build user prompt
+    user_prompt = f"""Please analyze the following leader's reign and classify each indicator:
+
+**Polity:** {polity}
+**Leader:** {name}
+**Reign Period:** {start_year}-{end_year}
+
+{definitions_text}
+
+## Required Output
+
+Provide a JSON object with classifications for all indicators:
+
+{output_schema}
+
+**Remember:**
+- Evaluate each indicator independently
+- Focus on THIS LEADER'S reign specifically
+- Code based on de facto (actual) practice, not de jure (formal) arrangements
+
+Your JSON response:"""
+
+    return COMBINED_SYSTEM_PROMPT, user_prompt
 
 
 # =============================================================================
@@ -566,31 +837,69 @@ def get_prompt(
     polity: str,
     name: str,
     start_year: int,
-    end_year: Optional[int],
-    reasoning: bool = True
+    end_year: int
 ) -> Tuple[str, str]:
     """
-    Get system and user prompts for a specific indicator (leader-level).
-
+    Get system and user prompts for a specific indicator (FULL version, leader-level).
+    
     Args:
-        indicator: One of sovereign, assembly, appointment, tenure, exit, collegiality, separate_powers
+        indicator: One of the indicator names
         polity: Name of the polity
         name: Name of the leader
         start_year: Start year of the leader's reign
-        end_year: End year of the leader's reign (None if unknown)
-        reasoning: Whether to include reasoning fields in the output spec (default True)
-
+        end_year: End year of the leader's reign
+        
     Returns:
         Tuple of (system_prompt, user_prompt)
     """
-    system_prompt = build_system_prompt(indicator, reasoning=reasoning)
-    user_prompt = build_user_prompt(indicator, polity, name, start_year, end_year, reasoning=reasoning)
+    system_prompt = build_system_prompt(indicator)
+    user_prompt = build_user_prompt(indicator, polity, name, start_year, end_year)
     return system_prompt, user_prompt
 
 
-def get_all_indicators() -> List[str]:
-    """Return list of all indicator names."""
-    return list(INDICATOR_CONFIGS.keys())
+def get_compact_definition(indicator: str) -> str:
+    """
+    Get the compact definition for an indicator (for combined prompts).
+    
+    Args:
+        indicator: Name of the indicator
+        
+    Returns:
+        Compact definition string
+    """
+    if indicator not in COMPACT_DEFINITIONS:
+        raise ValueError(f"Unknown indicator: {indicator}")
+    return COMPACT_DEFINITIONS[indicator]
+
+
+def get_all_indicators(include_dependent: bool = True) -> List[str]:
+    """
+    Return list of all indicator names.
+    
+    Args:
+        include_dependent: Whether to include indicators with dependencies (e.g., elections)
+        
+    Returns:
+        List of indicator names
+    """
+    if include_dependent:
+        return list(INDICATOR_CONFIGS.keys())
+    else:
+        return [name for name, config in INDICATOR_CONFIGS.items() if config.depends_on is None]
+
+
+def get_independent_indicators() -> List[str]:
+    """Return list of indicators without dependencies (can be run in first pass)."""
+    return get_all_indicators(include_dependent=False)
+
+
+def get_dependent_indicators() -> Dict[str, Dict[str, str]]:
+    """Return dictionary of dependent indicators and their dependencies."""
+    return {
+        name: config.depends_on
+        for name, config in INDICATOR_CONFIGS.items()
+        if config.depends_on is not None
+    }
 
 
 def get_indicator_labels(indicator: str) -> List[str]:
@@ -607,6 +916,32 @@ def get_indicator_config(indicator: str) -> IndicatorConfig:
     return INDICATOR_CONFIGS[indicator]
 
 
+def check_dependency(indicator: str, previous_results: Dict[str, str]) -> bool:
+    """
+    Check if an indicator's dependencies are satisfied.
+    
+    Args:
+        indicator: Name of the indicator to check
+        previous_results: Dictionary of previous indicator results
+        
+    Returns:
+        True if dependencies are satisfied (or no dependencies), False otherwise
+    """
+    config = INDICATOR_CONFIGS.get(indicator)
+    if config is None:
+        raise ValueError(f"Unknown indicator: {indicator}")
+    
+    if config.depends_on is None:
+        return True
+    
+    for dep_indicator, required_value in config.depends_on.items():
+        actual_value = previous_results.get(dep_indicator)
+        if actual_value != required_value:
+            return False
+    
+    return True
+
+
 # =============================================================================
 # CHAIN OF VERIFICATION (CoVe) QUESTIONS
 # =============================================================================
@@ -616,6 +951,11 @@ COVE_QUESTION_TEMPLATES: Dict[str, List[str]] = {
         "Was {polity} a colony, protectorate, or vassal of another power during {name}'s reign ({start_year}-{end_year})?",
         "Did {polity} conduct independent foreign policy under {name}?",
         "Did {polity} pay tribute to any external power during {name}'s rule?"
+    ],
+    "powersharing": [
+        "Who held executive power in {polity} during {name}'s reign ({start_year}-{end_year})?",
+        "Were there co-rulers, regents, or collegial bodies sharing executive authority with {name}?",
+        "Could {name} make major decisions unilaterally in {polity}?"
     ],
     "assembly": [
         "What legislative or deliberative bodies existed in {polity} during {name}'s reign ({start_year}-{end_year})?",
@@ -639,13 +979,22 @@ COVE_QUESTION_TEMPLATES: Dict[str, List[str]] = {
     ],
     "collegiality": [
         "What was the formal executive structure in {polity} during {name}'s reign ({start_year}-{end_year})?",
+        "Was there a cabinet, council, or collegial body that shared decision-making with {name}?",
         "Did {name} dominate decision-making, or were decisions genuinely shared among multiple actors?",
         "Were there co-rulers, regents, or formally constituted bodies sharing executive power with {name}?"
     ],
     "separate_powers": [
         "What independent institutions existed in {polity} during {name}'s reign ({start_year}-{end_year})?",
+        "Was the legislature independent from {name}'s control?",
         "Did an independent judiciary have the capacity to check {name}'s power?",
+        "Were there religious or military authorities with checking power over {name}?",
         "Did multiple independent organizations have authority over policymaking under {name}?"
+    ],
+    "elections": [
+        "How were members of the assembly selected in {polity} during {name}'s reign ({start_year}-{end_year})?",
+        "Were assembly members elected, appointed, or hereditary?",
+        "If elections existed, were they contested by organized factions or parties?",
+        "What was the size of the electorate relative to the assembly in {polity} under {name}?"
     ]
 }
 
@@ -688,7 +1037,8 @@ def get_all_prompts_for_leader(
     name: str,
     start_year: int,
     end_year: int,
-    indicators: Optional[List[str]] = None
+    indicators: Optional[List[str]] = None,
+    exclude_dependent: bool = False
 ) -> Dict[str, Tuple[str, str]]:
     """
     Get prompts for all (or specified) indicators for a single leader.
@@ -699,16 +1049,18 @@ def get_all_prompts_for_leader(
         start_year: Start year of the leader's reign
         end_year: End year of the leader's reign
         indicators: Optional list of indicators to include (default: all)
+        exclude_dependent: Whether to exclude indicators with dependencies
         
     Returns:
         Dictionary mapping indicator name to (system_prompt, user_prompt) tuple
     """
     if indicators is None:
-        indicators = get_all_indicators()
+        indicators = get_all_indicators(include_dependent=not exclude_dependent)
     
     return {
         ind: get_prompt(ind, polity, name, start_year, end_year)
         for ind in indicators
+        if ind in INDICATOR_CONFIGS
     }
 
 
@@ -731,7 +1083,8 @@ def get_expected_output_schema(indicators: Optional[List[str]] = None) -> Dict[s
                 ind: f"string, one of {get_indicator_labels(ind)}",
                 "reasoning": "string",
                 "confidence_score": "integer, 1-100"
-            }
+            },
+            "depends_on": INDICATOR_CONFIGS[ind].depends_on
         }
         for ind in indicators
     }

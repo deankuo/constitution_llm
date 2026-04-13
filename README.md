@@ -32,7 +32,10 @@ A sophisticated pipeline for analyzing historical polities to predict political 
 
 - **Parallel Row Processing**: Process N leader rows concurrently (`--parallel-rows N`) for faster batch runs. Works with all prompt modes.
 
-- **Assembly Extended Classifier** (`pipeline/classify_assembly.py`): Downstream post-processing script that upgrades binary assembly predictions (0/1) to a three-label scheme (0/1/2), where label 2 = competitive factions or parties.
+- **Downstream Classifiers** (`pipeline/classify_assembly.py`): Post-processing scripts that run after the main pipeline. Both depend on `assembly_prediction = 1`. Use `--task` to select which to run:
+  - `assembly_extended` (default): Upgrades assembly predictions (0/1) to (0/1/2) — label 2 = competitive factions or parties.
+  - `elections`: Codes whether assembly members are elected (0/1/2) — label 1 = elected, label 2 = competitive elections (organized factions/parties).
+  - `all`: Runs both classifiers in sequence.
 
 - **Search Modes** (`--search-mode`):
   - **None**: Pure LLM output, no web search (default)
@@ -254,7 +257,7 @@ constitution_llm/
 │   ├── batch_gemini.py            # Gemini Batch API runner (50% cost savings)
 │   ├── search_predictor.py        # Search-augmented predictions (agentic search)
 │   ├── pre_search.py              # Deterministic pre-search (Wikipedia/DDG/Serper)
-│   └── classify_assembly.py       # Assembly extended classifier (downstream)
+│   └── classify_assembly.py       # Downstream classifiers: assembly_extended + elections
 │
 ├── evaluation/
 │   ├── metrics.py                 # Accuracy, F1, Cohen's kappa
@@ -365,12 +368,28 @@ constitution_llm/
 │  │  • CSV + JSON output       • Cost tracking             │  │
 │  │  • F1, accuracy, kappa     • Search metadata           │  │
 │  │  • Per-class metrics       • Experiment logging        │  │
+│  └───────────────────────┬────────────────────────────────┘  │
+│                          │                                   │
+│                          ▼  (run separately after main)      │
+│  ┌────────────────────────────────────────────────────────┐  │
+│  │  Downstream Classifiers (pipeline/classify_assembly.py)│  │
+│  │                                                        │  │
+│  │  Depend on assembly_prediction = 1 from main pipeline  │  │
+│  │  assembly_prediction = 0 → pass-through label 0        │  │
+│  │                                                        │  │
+│  │  --task assembly_extended                              │  │
+│  │    0 = no assembly  1 = no factions  2 = factions      │  │
+│  │                                                        │  │
+│  │  --task elections                                      │  │
+│  │    0 = not elected  1 = elected  2 = competitive       │  │
+│  │                                                        │  │
+│  │  --task all  (runs both in sequence)                   │  │
 │  └────────────────────────────────────────────────────────┘  │
 │                                                              │
 │  ┌────────────────────────────────────────────────────────┐  │
 │  │  Observability (optional, LANGCHAIN_TRACING_V2=true)   │  │
 │  │                                                        │  │
-│  │  LangSmith: @traceable on all LLM calls, predict(),   │  │
+│  │  LangSmith: @traceable on all LLM calls, predict(),    │  │
 │  │  search agents. OpenAI/Anthropic clients auto-wrapped. │  │
 │  │  Zero overhead when disabled.                          │  │
 │  └────────────────────────────────────────────────────────┘  │
@@ -879,12 +898,17 @@ python utils/sanity_check.py \
 - Automatically detects new format: `{indicator}_prediction`, `{indicator}_confidence`, `{indicator}_reasoning`
 - Backward compatible with legacy format: `constitution_gemini`, `confidence_score_gemini`, `explanation_gemini`
 
-## Assembly Extended Classifier
+## Downstream Classifiers
 
-`pipeline/classify_assembly.py` is a **standalone downstream script** that extends binary assembly
-predictions to a three-label scheme. Run it **after** the main pipeline.
+`pipeline/classify_assembly.py` contains two **standalone downstream classifiers** that run
+**after** the main pipeline. Both depend on `assembly_prediction` from the main output.
+Rows where `assembly = 0` receive a pass-through label `0` (no API call).
 
-### Label Scheme
+Use `--task` to select which classifier(s) to run.
+
+### AssemblyExtended (`--task assembly_extended`, default)
+
+Extends binary assembly predictions (0/1) to a three-label scheme.
 
 | Label | Meaning |
 |-------|---------|
@@ -892,39 +916,48 @@ predictions to a three-label scheme. Run it **after** the main pipeline.
 | `1` | Assembly exists, no competitive factions or parties |
 | `2` | Assembly exists **with** competitive factions or parties |
 
-### Output Columns Added
+Output columns added: `assembly_extended_prediction`, `assembly_extended_confidence`, `assembly_extended_reasoning`
 
-- `assembly_extended_prediction` — `"0"`, `"1"`, or `"2"`
-- `assembly_extended_confidence` — integer 1–100 (null for label-0 rows)
-- `assembly_extended_reasoning` — reasoning text (null for label-0 rows)
+### Elections (`--task elections`)
 
-The original `assembly_prediction` column is **never modified**.
+For polities where an assembly exists, codes whether members are elected and whether
+elections are contested by organized factions or parties.
+
+| Label | Meaning |
+|-------|---------|
+| `0` | No assembly / members not elected (pass-through when assembly=0; LLM call when assembly=1 → not elected) |
+| `1` | Members elected, no organized factions or parties |
+| `2` | Competitive elections — contested by organized factions or parties |
+
+Output columns added: `elections_prediction`, `elections_confidence`, `elections_reasoning`
 
 ### Usage
 
 ```bash
-# Basic run
+# Assembly extended only (default)
 python pipeline/classify_assembly.py \
     --input  data/results/predictions.csv \
     --output data/results/predictions_extended.csv
 
-# With a different model
+# Elections only
 python pipeline/classify_assembly.py \
     --input  data/results/predictions.csv \
     --output data/results/predictions_extended.csv \
-    --model  gpt-4o
+    --task   elections
 
-# Process 4 rows in parallel
+# Both classifiers in sequence (recommended for full downstream pass)
 python pipeline/classify_assembly.py \
     --input  data/results/predictions.csv \
     --output data/results/predictions_extended.csv \
+    --task   all \
+    --model  gemini-2.5-pro \
     --parallel-rows 4
 
 # Test on first 10 rows only
 python pipeline/classify_assembly.py \
     --input  data/results/predictions.csv \
     --output data/results/predictions_extended.csv \
-    --test 10
+    --task   all --test 10
 ```
 
 ### CLI Options
@@ -933,6 +966,7 @@ python pipeline/classify_assembly.py \
 |----------|-------------|---------|
 | `--input` | Predictions file (CSV or JSONL) from the main pipeline | required |
 | `--output` | Output CSV path | required |
+| `--task` | `assembly_extended`, `elections`, or `all` | `assembly_extended` |
 | `--model` | LLM model identifier | `gemini-2.5-pro` |
 | `--assembly-col` | Column name with binary assembly predictions | `assembly_prediction` |
 | `--parallel-rows` | Concurrent rows to process | `1` |
