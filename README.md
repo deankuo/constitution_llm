@@ -32,7 +32,7 @@ A sophisticated pipeline for analyzing historical polities to predict political 
 
 - **Parallel Row Processing**: Process N leader rows concurrently (`--parallel-rows N`) for faster batch runs. Works with all prompt modes.
 
-- **Downstream Classifiers** (`pipeline/classify_assembly.py`): Post-processing scripts that run after the main pipeline. Both depend on `assembly_prediction = 1`. Use `--task` to select which to run:
+- **Downstream Classifiers** (`pipeline/post_processing.py`): Post-processing scripts that run after the main pipeline. Both depend on `assembly_prediction = 1`. Use `--task` to select which to run:
   - `assembly_extended` (default): Upgrades assembly predictions (0/1) to (0/1/2) — label 2 = competitive factions or parties.
   - `elections`: Codes whether assembly members are elected (0/1/2) — label 1 = elected, label 2 = competitive elections (organized factions/parties).
   - `all`: Runs both classifiers in sequence.
@@ -257,7 +257,7 @@ constitution_llm/
 │   ├── batch_gemini.py            # Gemini Batch API runner (50% cost savings)
 │   ├── search_predictor.py        # Search-augmented predictions (agentic search)
 │   ├── pre_search.py              # Deterministic pre-search (Wikipedia/DDG/Serper)
-│   └── classify_assembly.py       # Downstream classifiers: assembly_extended + elections
+│   └── post_processing.py       # Downstream classifiers: assembly_extended + elections
 │
 ├── evaluation/
 │   ├── metrics.py                 # Accuracy, F1, Cohen's kappa
@@ -372,7 +372,7 @@ constitution_llm/
 │                          │                                   │
 │                          ▼  (run separately after main)      │
 │  ┌────────────────────────────────────────────────────────┐  │
-│  │  Downstream Classifiers (pipeline/classify_assembly.py)│  │
+│  │  Downstream Classifiers (pipeline/post_processing.py)│  │
 │  │                                                        │  │
 │  │  Depend on assembly_prediction = 1 from main pipeline  │  │
 │  │  assembly_prediction = 0 → pass-through label 0        │  │
@@ -900,7 +900,7 @@ python utils/sanity_check.py \
 
 ## Downstream Classifiers
 
-`pipeline/classify_assembly.py` contains two **standalone downstream classifiers** that run
+`pipeline/post_processing.py` contains two **standalone downstream classifiers** that run
 **after** the main pipeline. Both depend on `assembly_prediction` from the main output.
 Rows where `assembly = 0` receive a pass-through label `0` (no API call).
 
@@ -935,18 +935,18 @@ Output columns added: `elections_prediction`, `elections_confidence`, `elections
 
 ```bash
 # Assembly extended only (default)
-python pipeline/classify_assembly.py \
+python pipeline/post_processing.py \
     --input  data/results/predictions.csv \
     --output data/results/predictions_extended.csv
 
 # Elections only
-python pipeline/classify_assembly.py \
+python pipeline/post_processing.py \
     --input  data/results/predictions.csv \
     --output data/results/predictions_extended.csv \
     --task   elections
 
 # Both classifiers in sequence (recommended for full downstream pass)
-python pipeline/classify_assembly.py \
+python pipeline/post_processing.py \
     --input  data/results/predictions.csv \
     --output data/results/predictions_extended.csv \
     --task   all \
@@ -954,7 +954,7 @@ python pipeline/classify_assembly.py \
     --parallel-rows 4
 
 # Test on first 10 rows only
-python pipeline/classify_assembly.py \
+python pipeline/post_processing.py \
     --input  data/results/predictions.csv \
     --output data/results/predictions_extended.csv \
     --task   all --test 10

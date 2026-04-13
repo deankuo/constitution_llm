@@ -40,19 +40,19 @@ Classifiers
 Usage
 -----
   # Run assembly_extended only (default)
-  python classify_assembly.py \\
+  python pipeline/post_processing.py \\
       --input  data/results/predictions.csv \\
       --output data/results/predictions_extended.csv \\
       --task   assembly_extended
 
   # Run elections only
-  python classify_assembly.py \\
+  python pipeline/post_processing.py \\
       --input  data/results/predictions.csv \\
       --output data/results/predictions_extended.csv \\
       --task   elections
 
   # Run both classifiers in sequence (assembly_extended first, then elections)
-  python classify_assembly.py \\
+  python pipeline/post_processing.py \\
       --input  data/results/predictions.csv \\
       --output data/results/predictions_extended.csv \\
       --task   all \\
@@ -67,7 +67,7 @@ import os
 import sys
 import time
 
-# Ensure project root is on sys.path when run as `python pipeline/classify_assembly.py`
+# Ensure project root is on sys.path when run as `python pipeline/post_processing.py`
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
@@ -681,24 +681,24 @@ def main():
         epilog="""
 Examples:
   # Assembly extended (default)
-  python classify_assembly.py \\
+  python pipeline/post_processing.py \\
       --input  data/results/predictions.csv \\
       --output data/results/predictions_extended.csv
 
   # Elections only
-  python classify_assembly.py \\
+  python pipeline/post_processing.py \\
       --input  data/results/predictions.csv \\
       --output data/results/predictions_extended.csv \\
       --task   elections
 
   # Both classifiers in sequence
-  python classify_assembly.py \\
+  python pipeline/post_processing.py \\
       --input  data/results/predictions.csv \\
       --output data/results/predictions_extended.csv \\
       --task   all
 
   # Use a different model, 4 rows in parallel
-  python classify_assembly.py \\
+  python pipeline/post_processing.py \\
       --input  data/results/predictions.csv \\
       --output data/results/predictions_extended.csv \\
       --task   all --model gpt-4o --parallel-rows 4
