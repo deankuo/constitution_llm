@@ -252,10 +252,28 @@ class AssemblyExtendedClassifier:
         Returns:
             (prediction, confidence_score, reasoning)
         """
-        polity = str(row.get("territorynamehistorical", "Unknown Polity"))
-        name = str(row.get("name", "Unknown Leader"))
-        start_year = row.get("start_year", "?")
-        end_year = row.get("end_year", "?")
+        polity = str(
+            row.get("territorynamehistorical")
+            or row.get("polity_name")
+            or "Unknown Polity"
+        )
+        name = str(
+            row.get("name")
+            or row.get("leader_name")
+            or "Unknown Leader"
+        )
+        start_year = (
+            row.get("start_year")
+            or row.get("entrydateyear")
+            or row.get("leader_first_year")
+            or "?"
+        )
+        end_year = (
+            row.get("end_year")
+            or row.get("exitdateyear")
+            or row.get("leader_last_year")
+            or "?"
+        )
 
         user_prompt = USER_PROMPT_TEMPLATE.format(
             polity=polity,
@@ -544,10 +562,28 @@ class ElectionsClassifier:
     # ------------------------------------------------------------------
 
     def _call_llm(self, row: pd.Series) -> Tuple[str, Optional[int], str]:
-        polity = str(row.get("territorynamehistorical", "Unknown Polity"))
-        name = str(row.get("name", "Unknown Leader"))
-        start_year = row.get("start_year", "?")
-        end_year = row.get("end_year", "?")
+        polity = str(
+            row.get("territorynamehistorical")
+            or row.get("polity_name")
+            or "Unknown Polity"
+        )
+        name = str(
+            row.get("name")
+            or row.get("leader_name")
+            or "Unknown Leader"
+        )
+        start_year = (
+            row.get("start_year")
+            or row.get("entrydateyear")
+            or row.get("leader_first_year")
+            or "?"
+        )
+        end_year = (
+            row.get("end_year")
+            or row.get("exitdateyear")
+            or row.get("leader_last_year")
+            or "?"
+        )
 
         user_prompt = ELECTIONS_USER_PROMPT_TEMPLATE.format(
             polity=polity,
