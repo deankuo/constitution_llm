@@ -44,6 +44,7 @@ Provide a JSON object with exactly these fields:
 - Do NOT include markdown code fences (```json)
 - Do NOT include any text before or after the JSON
 - Your response must start with {{ and end with }}
+- The "{indicator}" field MUST be a valid label ({valid_labels}). NEVER use null, empty string, or any other value. If uncertain, give your best estimate and lower the confidence_score.
 """
 
 SYSTEM_PROMPT_HEADER = """You are a professional political scientist and historian specializing in {specialization} across different historical periods.

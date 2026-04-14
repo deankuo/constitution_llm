@@ -383,13 +383,24 @@ def merge_reprocessed_results(
         Merged DataFrame with updated values
     """
     # Auto-detect key columns if not specified
+    # Try multiple naming conventions used across pipeline versions.
+    _CANDIDATE_KEY_SETS = [
+        ['unique_id'],
+        ['territorynamehistorical', 'start_year', 'end_year'],
+        ['polity_name', 'leader_first_year', 'leader_last_year'],
+        ['territorynamehistorical', 'entrydateyear', 'exitdateyear'],
+        ['polity_name', 'entrydateyear', 'exitdateyear'],
+    ]
     if key_columns is None:
-        if 'unique_id' in original_df.columns and 'unique_id' in reprocessed_df.columns:
-            key_columns = ['unique_id']
-            print("Auto-detected 'unique_id' column for merging")
-        else:
+        for candidate in _CANDIDATE_KEY_SETS:
+            if all(c in original_df.columns for c in candidate) and \
+               all(c in reprocessed_df.columns for c in candidate):
+                key_columns = candidate
+                print(f"Auto-detected key columns: {key_columns}")
+                break
+        if key_columns is None:
             key_columns = ['territorynamehistorical', 'start_year', 'end_year']
-            print("Using fallback key columns: territorynamehistorical, start_year, end_year")
+            print(f"No matching key columns found; falling back to {key_columns}")
 
     # Validate key columns exist in both dataframes
     missing_keys_orig = [col for col in key_columns if col not in original_df.columns]
@@ -710,48 +721,99 @@ def sanity_check_and_reprocess(
     print(f"Loaded {len(reprocessed_df)} reprocessed rows\n")
 
     # Step 6: Merge results
+    # Strategy: only update the specific indicator column(s) that failed for each row.
+    # In MULTIPLE mode this is a single merge for the one indicator being fixed.
+    # In SINGLE mode we do one merge per indicator so that a row with sovereign=null
+    # but assembly=valid never has its assembly columns overwritten.
     print("Step 6: Merging reprocessed results with original dataset...")
 
-    # Auto-detect which columns to update based on indicators
-    update_cols = []
-    for ind in indicators:
-        # Add prediction, reasoning, confidence columns
+    def _cols_for_indicator(ind: str, reproc: pd.DataFrame) -> List[str]:
+        """Return the prediction/reasoning/confidence (and extra) cols for `ind`."""
+        cols = []
         for suffix in ['_prediction', '_reasoning', '_confidence']:
             col = f'{ind}{suffix}'
+            if col in reproc.columns:
+                cols.append(col)
+        if ind == 'constitution':
+            for extra in ['constitution_document_name', 'constitution_year']:
+                if extra in reproc.columns:
+                    cols.append(extra)
+        return cols
+
+    final_df = df.copy()
+
+    if mode == 'single':
+        # indicator_failures maps indicator -> count; rebuild index sets here
+        # We already have `indicator_failures` dict from Step 2 (single-mode branch).
+        # Re-derive the index sets using the same logic so we can filter rows per ind.
+        _ind_failed_indices: dict = {}
+        for ind in check_indicators:
+            _check_unc = False if ind == 'constitution' else kwargs.get('check_uncodified', False)
+            _failed = identify_failed_rows(
+                df, indicator=ind,
+                min_confidence=min_confidence,
+                min_reasoning_length=min_reasoning_length,
+                check_uncodified=_check_unc,
+                **{k: v for k, v in kwargs.items() if k != 'check_uncodified'}
+            )
+            if len(_failed) > 0:
+                _ind_failed_indices[ind] = set(_failed.index.tolist())
+
+        for ind, failed_idx_set in _ind_failed_indices.items():
+            ind_cols = _cols_for_indicator(ind, reprocessed_df)
+            if not ind_cols:
+                continue
+            # Filter reprocessed_df to only rows that failed for *this* indicator.
+            # Match on original row indices preserved through the pipeline.
+            if 'original_index' in reprocessed_df.columns:
+                reproc_subset = reprocessed_df[
+                    reprocessed_df['original_index'].isin(failed_idx_set)
+                ]
+            else:
+                # Fall back: let merge_reprocessed_results match on key columns;
+                # pass the full reprocessed_df but restrict which columns are updated.
+                reproc_subset = reprocessed_df
+
+            print(f"  Merging indicator '{ind}': {len(ind_cols)} columns for "
+                  f"{len(failed_idx_set)} failed rows")
+            final_df = merge_reprocessed_results(
+                final_df, reproc_subset,
+                update_columns=ind_cols,
+                indicator=ind
+            )
+
+        # Add cost/token columns from reprocessed data (optional, row-level)
+        for col in ['total_cost_usd', 'total_tokens']:
             if col in reprocessed_df.columns:
+                final_df = merge_reprocessed_results(
+                    final_df, reprocessed_df,
+                    update_columns=[col],
+                    indicator=None
+                )
+    else:
+        # MULTIPLE mode: single indicator, straightforward merge.
+        update_cols = _cols_for_indicator(indicator, reprocessed_df)
+
+        # Fallback to legacy columns if no new columns found
+        if not update_cols:
+            legacy_cols = [
+                'constitution_gemini', 'constitution_year',
+                'constitution_name_gemini', 'explanation_gemini',
+                'confidence_score_gemini'
+            ]
+            update_cols = [col for col in legacy_cols if col in reprocessed_df.columns]
+
+        # Add cost/token columns
+        for col in ['total_cost_usd', 'total_tokens']:
+            if col in reprocessed_df.columns and col not in update_cols:
                 update_cols.append(col)
 
-        # Add constitution-specific columns
-        if ind == 'constitution':
-            if 'constitution_document_name' in reprocessed_df.columns:
-                update_cols.append('constitution_document_name')
-            if 'constitution_year' in reprocessed_df.columns:
-                update_cols.append('constitution_year')
-
-    # Add cost/token columns if present
-    for col in ['total_cost_usd', 'total_tokens']:
-        if col in reprocessed_df.columns and col not in update_cols:
-            update_cols.append(col)
-
-    # Fallback to legacy columns if no new columns found
-    if not update_cols:
-        legacy_cols = [
-            'constitution_gemini',
-            'constitution_year',
-            'constitution_name_gemini',
-            'explanation_gemini',
-            'confidence_score_gemini'
-        ]
-        update_cols = [col for col in legacy_cols if col in reprocessed_df.columns]
-
-    print(f"Columns to update: {update_cols}")
-
-    final_df = merge_reprocessed_results(
-        df,
-        reprocessed_df,
-        update_columns=update_cols,
-        indicator=indicator
-    )
+        print(f"Columns to update: {update_cols}")
+        final_df = merge_reprocessed_results(
+            final_df, reprocessed_df,
+            update_columns=update_cols,
+            indicator=indicator
+        )
 
     # Fix column types after merging
     final_df = fix_column_types(final_df)

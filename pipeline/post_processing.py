@@ -215,8 +215,8 @@ class AssemblyExtendedClassifier:
         df[self.CONF_COL] = None
         df[self.REASON_COL] = None
 
-        # Pass-through rows where assembly == 0
-        mask_no_assembly = df[self.assembly_col].astype(str) == "0"
+        # Pass-through rows where assembly == 0 (handles "0", "0.0", 0, 0.0)
+        mask_no_assembly = pd.to_numeric(df[self.assembly_col], errors="coerce") == 0
         df.loc[mask_no_assembly, self.PRED_COL] = "0"
 
         # Rows that need an LLM call
@@ -533,7 +533,8 @@ class ElectionsClassifier:
         df[self.REASON_COL] = None
 
         # Rows without an assembly → elections = 0 (pass-through, no LLM call)
-        mask_no_assembly = df[self.assembly_col].astype(str) == "0"
+        # Handles "0", "0.0", 0, 0.0 from CSV float serialisation
+        mask_no_assembly = pd.to_numeric(df[self.assembly_col], errors="coerce") == 0
         df.loc[mask_no_assembly, self.PRED_COL] = "0"
 
         rows_to_classify = df[~mask_no_assembly].copy()

@@ -146,26 +146,42 @@ def validate_indicator_response(
     """
     result = parsed.copy()
 
-    # Ensure indicator value exists and is valid
-    if indicator not in result:
-        result[indicator] = None
-    elif str(result[indicator]) not in [str(v) for v in valid_labels]:
-        # Try to convert numeric values
+    # ------------------------------------------------------------------
+    # Resolve the indicator value, trying several keys and formats.
+    # ------------------------------------------------------------------
+    # 1. Primary key is the bare indicator name (e.g. "appointment").
+    # 2. Fallback: "{indicator}_prediction" (LLM sometimes uses the column name).
+    raw_value = result.get(indicator)
+    if raw_value is None:
+        raw_value = result.get(f'{indicator}_prediction')
+
+    str_labels = [str(v) for v in valid_labels]
+
+    def _parse_label(val) -> 'float | None':
+        """Convert val to a float label, or return None if unresolvable."""
+        if val is None:
+            return None
+        # Direct string match ("0", "1", "2")
+        if str(val) in str_labels:
+            try:
+                return float(val)
+            except (ValueError, TypeError):
+                return None
+        # Numeric coercion (handles integers 0/1/2 and floats 0.0/1.0/2.0)
         try:
-            val = str(int(float(result[indicator])))
-            if val in valid_labels:
-                # Convert to float to match ground truth format (0.0, 1.0, 2.0)
-                result[indicator] = float(val)
-            else:
-                result[indicator] = None
+            coerced = str(int(float(val)))
+            if coerced in str_labels:
+                return float(coerced)
         except (ValueError, TypeError):
-            result[indicator] = None
-    else:
-        # Convert to float to match ground truth format (0.0, 1.0, 2.0)
-        try:
-            result[indicator] = float(result[indicator])
-        except (ValueError, TypeError):
-            result[indicator] = None
+            pass
+        # Leading-digit extraction for descriptive strings like "2 (by election)"
+        m = re.match(r'^\s*([0-9]+)', str(val))
+        if m and m.group(1) in str_labels:
+            return float(m.group(1))
+        return None
+
+    parsed_label = _parse_label(raw_value)
+    result[indicator] = parsed_label
 
     # Ensure reasoning exists (check both 'reasoning' and '{indicator}_reasoning')
     reasoning_key = f'{indicator}_reasoning'
