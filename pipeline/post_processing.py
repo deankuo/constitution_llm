@@ -18,9 +18,11 @@ Classifiers
     2  Assembly exists WITH competitive factions or parties
 
   Output columns added:
-    assembly_extended_prediction  : "0", "1", or "2"
-    assembly_extended_confidence  : integer 1-100 (null for pass-through rows)
-    assembly_extended_reasoning   : reasoning text  (null for pass-through rows)
+    assembly_extended_prediction      : "0", "1", or "2"
+    assembly_extended_confidence      : integer 1-100 (null for pass-through rows)
+    assembly_extended_reasoning       : reasoning text  (null for pass-through rows)
+    assembly_extended_search_queries  : pipe-delimited search queries (search mode only)
+    assembly_extended_urls_used       : pipe-delimited URLs with source tags (search mode only)
 
 **ElectionsClassifier** (``--task elections``)
   For polities where an assembly exists, codes whether assembly members are
@@ -33,9 +35,11 @@ Classifiers
     2  Members elected via competitive elections (organized factions/parties)
 
   Output columns added:
-    elections_prediction  : "0", "1", or "2"
-    elections_confidence  : integer 1-100 (null for pass-through rows)
-    elections_reasoning   : reasoning text  (null for pass-through rows)
+    elections_prediction      : "0", "1", or "2"
+    elections_confidence      : integer 1-100 (null for pass-through rows)
+    elections_reasoning       : reasoning text  (null for pass-through rows)
+    elections_search_queries  : pipe-delimited search queries (search mode only)
+    elections_urls_used       : pipe-delimited URLs with source tags (search mode only)
 
 Usage
 -----
@@ -159,6 +163,9 @@ class AssemblyExtendedClassifier:
     PRED_COL = "assembly_extended_prediction"
     CONF_COL = "assembly_extended_confidence"
     REASON_COL = "assembly_extended_reasoning"
+    # Search metadata columns (distinct from main pipeline's search_queries / urls_used)
+    SEARCH_QUERIES_COL = "assembly_extended_search_queries"
+    URLS_USED_COL = "assembly_extended_urls_used"
 
     def __init__(
         self,
@@ -214,6 +221,9 @@ class AssemblyExtendedClassifier:
         df[self.PRED_COL] = None
         df[self.CONF_COL] = None
         df[self.REASON_COL] = None
+        if self.search_mode != SearchMode.NONE:
+            df[self.SEARCH_QUERIES_COL] = None
+            df[self.URLS_USED_COL] = None
 
         # Pass-through rows where assembly == 0 (handles "0", "0.0", 0, 0.0)
         mask_no_assembly = pd.to_numeric(df[self.assembly_col], errors="coerce") == 0
@@ -234,10 +244,13 @@ class AssemblyExtendedClassifier:
         else:
             results = self._classify_sequential(rows_to_classify)
 
-        for orig_idx, pred, conf, reason in results:
+        for orig_idx, pred, conf, reason, queries_str, urls_str in results:
             df.at[orig_idx, self.PRED_COL] = pred
             df.at[orig_idx, self.CONF_COL] = conf
             df.at[orig_idx, self.REASON_COL] = reason
+            if self.search_mode != SearchMode.NONE:
+                df.at[orig_idx, self.SEARCH_QUERIES_COL] = queries_str or None
+                df.at[orig_idx, self.URLS_USED_COL] = urls_str or None
 
         return df
 
@@ -245,12 +258,13 @@ class AssemblyExtendedClassifier:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _call_llm(self, row: pd.Series) -> Tuple[str, Optional[int], str]:
+    def _call_llm(self, row: pd.Series) -> Tuple[str, Optional[int], str, str, str]:
         """
         Make a single LLM call for one row.
 
         Returns:
-            (prediction, confidence_score, reasoning)
+            (prediction, confidence_score, reasoning, search_queries_str, urls_used_str)
+            search_queries_str and urls_used_str are pipe-delimited strings (empty if no search).
         """
         polity = str(
             row.get("territorynamehistorical")
@@ -282,6 +296,9 @@ class AssemblyExtendedClassifier:
             end_year=end_year,
         )
 
+        queries_str = ""
+        urls_str = ""
+
         # Enrich prompt with pre-search context if forced search mode
         if self.pre_searcher is not None:
             try:
@@ -291,6 +308,8 @@ class AssemblyExtendedClassifier:
                 sy, ey = 0, None
             search_result = self.pre_searcher.search(polity, name, sy, ey)
             user_prompt = self.pre_searcher.enrich_prompt(user_prompt, search_result)
+            queries_str = " | ".join(search_result.search_queries)
+            urls_str = " | ".join(search_result.urls_used)
 
         # Agentic search: route through search agent
         if self.search_mode == SearchMode.AGENTIC:
@@ -331,35 +350,35 @@ class AssemblyExtendedClassifier:
             pred = "1"
         conf = parsed.get("confidence_score")
         reason = parsed.get("reasoning", "")
-        return pred, conf, reason
+        return pred, conf, reason, queries_str, urls_str
 
     def _classify_sequential(
         self, rows: pd.DataFrame
-    ) -> List[Tuple[int, str, Optional[int], str]]:
+    ) -> List[Tuple[int, str, Optional[int], str, str, str]]:
         """Classify rows one at a time."""
         results = []
         for orig_idx, row in tqdm(rows.iterrows(), total=len(rows), desc="Classifying"):
             try:
-                pred, conf, reason = self._call_llm(row)
+                pred, conf, reason, queries_str, urls_str = self._call_llm(row)
             except Exception as e:
                 print(f"\nError on row {orig_idx}: {e}")
-                pred, conf, reason = "1", None, f"Error: {e}"
-            results.append((orig_idx, pred, conf, reason))
+                pred, conf, reason, queries_str, urls_str = "1", None, f"Error: {e}", "", ""
+            results.append((orig_idx, pred, conf, reason, queries_str, urls_str))
             time.sleep(self.delay)
         return results
 
     def _classify_parallel(
         self, rows: pd.DataFrame
-    ) -> List[Tuple[int, str, Optional[int], str]]:
+    ) -> List[Tuple[int, str, Optional[int], str, str, str]]:
         """Classify rows in parallel windows of max_workers size."""
-        all_results: List[Tuple[int, str, Optional[int], str]] = []
+        all_results: List[Tuple[int, str, Optional[int], str, str, str]] = []
         indices = list(rows.index)
         windows = [indices[i:i + self.max_workers] for i in range(0, len(indices), self.max_workers)]
         lock = Lock()
 
         with tqdm(total=len(indices), desc="Classifying") as pbar:
             for window in windows:
-                window_results: List[Tuple[int, str, Optional[int], str]] = []
+                window_results: List[Tuple[int, str, Optional[int], str, str, str]] = []
 
                 with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
                     future_to_idx = {
@@ -369,11 +388,11 @@ class AssemblyExtendedClassifier:
                     for future in as_completed(future_to_idx):
                         orig_idx = future_to_idx[future]
                         try:
-                            pred, conf, reason = future.result()
+                            pred, conf, reason, queries_str, urls_str = future.result()
                         except Exception as e:
                             print(f"\nError on row {orig_idx}: {e}")
-                            pred, conf, reason = "1", None, f"Error: {e}"
-                        window_results.append((orig_idx, pred, conf, reason))
+                            pred, conf, reason, queries_str, urls_str = "1", None, f"Error: {e}", "", ""
+                        window_results.append((orig_idx, pred, conf, reason, queries_str, urls_str))
 
                 # Sort by original index to preserve order
                 window_results.sort(key=lambda x: x[0])
@@ -487,6 +506,9 @@ class ElectionsClassifier:
     PRED_COL = "elections_prediction"
     CONF_COL = "elections_confidence"
     REASON_COL = "elections_reasoning"
+    # Search metadata columns (distinct from main pipeline's search_queries / urls_used)
+    SEARCH_QUERIES_COL = "elections_search_queries"
+    URLS_USED_COL = "elections_urls_used"
 
     def __init__(
         self,
@@ -531,6 +553,9 @@ class ElectionsClassifier:
         df[self.PRED_COL] = None
         df[self.CONF_COL] = None
         df[self.REASON_COL] = None
+        if self.search_mode != SearchMode.NONE:
+            df[self.SEARCH_QUERIES_COL] = None
+            df[self.URLS_USED_COL] = None
 
         # Rows without an assembly → elections = 0 (pass-through, no LLM call)
         # Handles "0", "0.0", 0, 0.0 from CSV float serialisation
@@ -551,10 +576,13 @@ class ElectionsClassifier:
         else:
             results = self._classify_sequential(rows_to_classify)
 
-        for orig_idx, pred, conf, reason in results:
+        for orig_idx, pred, conf, reason, queries_str, urls_str in results:
             df.at[orig_idx, self.PRED_COL] = pred
             df.at[orig_idx, self.CONF_COL] = conf
             df.at[orig_idx, self.REASON_COL] = reason
+            if self.search_mode != SearchMode.NONE:
+                df.at[orig_idx, self.SEARCH_QUERIES_COL] = queries_str or None
+                df.at[orig_idx, self.URLS_USED_COL] = urls_str or None
 
         return df
 
@@ -562,7 +590,12 @@ class ElectionsClassifier:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _call_llm(self, row: pd.Series) -> Tuple[str, Optional[int], str]:
+    def _call_llm(self, row: pd.Series) -> Tuple[str, Optional[int], str, str, str]:
+        """
+        Returns:
+            (prediction, confidence_score, reasoning, search_queries_str, urls_used_str)
+            search_queries_str and urls_used_str are pipe-delimited strings (empty if no search).
+        """
         polity = str(
             row.get("territorynamehistorical")
             or row.get("polity_name")
@@ -593,6 +626,9 @@ class ElectionsClassifier:
             end_year=end_year,
         )
 
+        queries_str = ""
+        urls_str = ""
+
         if self.pre_searcher is not None:
             try:
                 sy = int(start_year) if start_year != "?" else 0
@@ -601,6 +637,8 @@ class ElectionsClassifier:
                 sy, ey = 0, None
             search_result = self.pre_searcher.search(polity, name, sy, ey)
             user_prompt = self.pre_searcher.enrich_prompt(user_prompt, search_result)
+            queries_str = " | ".join(search_result.search_queries)
+            urls_str = " | ".join(search_result.urls_used)
 
         if self.search_mode == SearchMode.AGENTIC:
             from models.llm_clients import detect_provider
@@ -639,33 +677,33 @@ class ElectionsClassifier:
             pred = "0"
         conf = parsed.get("confidence_score")
         reason = parsed.get("reasoning", "")
-        return pred, conf, reason
+        return pred, conf, reason, queries_str, urls_str
 
     def _classify_sequential(
         self, rows: pd.DataFrame
-    ) -> List[Tuple[int, str, Optional[int], str]]:
+    ) -> List[Tuple[int, str, Optional[int], str, str, str]]:
         results = []
         for orig_idx, row in tqdm(rows.iterrows(), total=len(rows), desc="Classifying elections"):
             try:
-                pred, conf, reason = self._call_llm(row)
+                pred, conf, reason, queries_str, urls_str = self._call_llm(row)
             except Exception as e:
                 print(f"\nError on row {orig_idx}: {e}")
-                pred, conf, reason = "0", None, f"Error: {e}"
-            results.append((orig_idx, pred, conf, reason))
+                pred, conf, reason, queries_str, urls_str = "0", None, f"Error: {e}", "", ""
+            results.append((orig_idx, pred, conf, reason, queries_str, urls_str))
             time.sleep(self.delay)
         return results
 
     def _classify_parallel(
         self, rows: pd.DataFrame
-    ) -> List[Tuple[int, str, Optional[int], str]]:
-        all_results: List[Tuple[int, str, Optional[int], str]] = []
+    ) -> List[Tuple[int, str, Optional[int], str, str, str]]:
+        all_results: List[Tuple[int, str, Optional[int], str, str, str]] = []
         indices = list(rows.index)
         windows = [indices[i:i + self.max_workers] for i in range(0, len(indices), self.max_workers)]
         lock = Lock()
 
         with tqdm(total=len(indices), desc="Classifying elections") as pbar:
             for window in windows:
-                window_results: List[Tuple[int, str, Optional[int], str]] = []
+                window_results: List[Tuple[int, str, Optional[int], str, str, str]] = []
 
                 with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
                     future_to_idx = {
@@ -675,11 +713,11 @@ class ElectionsClassifier:
                     for future in as_completed(future_to_idx):
                         orig_idx = future_to_idx[future]
                         try:
-                            pred, conf, reason = future.result()
+                            pred, conf, reason, queries_str, urls_str = future.result()
                         except Exception as e:
                             print(f"\nError on row {orig_idx}: {e}")
-                            pred, conf, reason = "0", None, f"Error: {e}"
-                        window_results.append((orig_idx, pred, conf, reason))
+                            pred, conf, reason, queries_str, urls_str = "0", None, f"Error: {e}", "", ""
+                        window_results.append((orig_idx, pred, conf, reason, queries_str, urls_str))
 
                 window_results.sort(key=lambda x: x[0])
                 all_results.extend(window_results)

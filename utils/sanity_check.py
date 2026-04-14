@@ -17,6 +17,11 @@ import pandas as pd
 from typing import List, Optional, Callable
 import warnings
 
+# Load .env BEFORE importing langsmith_utils so LANGCHAIN_TRACING_V2 is visible
+# when langsmith_utils evaluates _TRACING_ENABLED at import time.
+from dotenv import load_dotenv
+load_dotenv()
+
 # Import configuration from root config.py
 # Use try/except to handle both package import and direct script execution
 try:
@@ -27,6 +32,11 @@ except ImportError:
     if _parent_dir not in sys.path:
         sys.path.insert(0, _parent_dir)
     from config import DEFAULT_MAX_TOKENS
+
+try:
+    from utils.langsmith_utils import traceable
+except ImportError:
+    from langsmith_utils import traceable  # direct execution fallback
 
 # All available indicators
 ALL_INDICATORS = ['constitution', 'sovereign', 'assembly', 'appointment', 'tenure', 'exit', 'collegiality', 'separate_powers']
@@ -97,6 +107,7 @@ LEGACY_CONSTITUTION_NAME_COL = 'constitution_name_gemini'
 LEGACY_REASONING_COL = 'explanation_gemini'
 
 
+@traceable(name="identify_failed_rows", run_type="tool")
 def identify_failed_rows(
     df: pd.DataFrame,
     indicator: str = DEFAULT_INDICATOR,
@@ -359,6 +370,7 @@ def reprocess_with_main(
         return False
 
 
+@traceable(name="merge_reprocessed_results", run_type="tool")
 def merge_reprocessed_results(
     original_df: pd.DataFrame,
     reprocessed_df: pd.DataFrame,
@@ -487,6 +499,7 @@ def merge_reprocessed_results(
     return result_df
 
 
+@traceable(name="sanity_check_and_reprocess", run_type="chain")
 def sanity_check_and_reprocess(
     input_csv: str,
     output_csv: str,
@@ -541,6 +554,12 @@ def sanity_check_and_reprocess(
     # When reasoning is disabled, skip reasoning-length checks
     if not reasoning:
         min_reasoning_length = None
+
+    # In MULTIPLE mode, --indicators overrides --indicator so the user only needs
+    # to pass one flag.  Single-mode keeps all indicators in check_indicators.
+    if mode == 'multiple' and indicators:
+        indicator = indicators[0]
+
     print("="*80)
     print(f"STARTING SANITY CHECK AND REPROCESSING WORKFLOW (MODE: {mode.upper()})")
     print("="*80)
@@ -781,15 +800,6 @@ def sanity_check_and_reprocess(
                 update_columns=ind_cols,
                 indicator=ind
             )
-
-        # Add cost/token columns from reprocessed data (optional, row-level)
-        for col in ['total_cost_usd', 'total_tokens']:
-            if col in reprocessed_df.columns:
-                final_df = merge_reprocessed_results(
-                    final_df, reprocessed_df,
-                    update_columns=[col],
-                    indicator=None
-                )
     else:
         # MULTIPLE mode: single indicator, straightforward merge.
         update_cols = _cols_for_indicator(indicator, reprocessed_df)
@@ -802,11 +812,6 @@ def sanity_check_and_reprocess(
                 'confidence_score_gemini'
             ]
             update_cols = [col for col in legacy_cols if col in reprocessed_df.columns]
-
-        # Add cost/token columns
-        for col in ['total_cost_usd', 'total_tokens']:
-            if col in reprocessed_df.columns and col not in update_cols:
-                update_cols.append(col)
 
         print(f"Columns to update: {update_cols}")
         final_df = merge_reprocessed_results(
