@@ -83,8 +83,11 @@ def fix_column_types(df: pd.DataFrame) -> pd.DataFrame:
             df[conf_col] = pd.to_numeric(df[conf_col], errors='coerce')
             df[conf_col] = df[conf_col].astype('Int64')  # Nullable integer type
 
-    # Convert year columns to nullable integers
-    year_cols = ['start_year', 'end_year', 'constitution_year']
+    # Convert year columns to nullable integers.
+    # NOTE: constitution_year and constitution_year_gemini are intentionally excluded —
+    # they are string columns that may contain semicolon-separated years (e.g. "1789; 1791").
+    # Converting them with pd.to_numeric would silently destroy multi-year values.
+    year_cols = ['start_year', 'end_year']
     for col in year_cols:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce')
@@ -121,6 +124,7 @@ def identify_failed_rows(
     check_negative: bool = True,
     check_uncodified: bool = False,
     check_null_prediction: bool = True,
+    check_constitution_consistency: bool = True,
     custom_conditions: Optional[List[Callable]] = None,
     auto_detect_legacy: bool = True
 ) -> pd.DataFrame:
@@ -142,6 +146,7 @@ def identify_failed_rows(
         check_negative: Check for negative confidence scores (-1.0)
         check_uncodified: Check for uncodified/customary constitutions (constitution only)
         check_null_prediction: Check for None/null predictions
+        check_constitution_consistency: Check that constitution=1 rows have both name and year
         custom_conditions: List of custom condition functions (optional)
         auto_detect_legacy: Auto-detect legacy column names if new format not found
 
@@ -239,6 +244,47 @@ def identify_failed_rows(
         )
         conditions.append(condition_uncodified)
         print(f"Found {condition_uncodified.sum()} rows with uncodified/customary constitutions")
+
+    # Condition 7: Constitution consistency check
+    # If constitution_prediction == 1 but name or year is missing, flag as failed
+    if (check_constitution_consistency and
+            indicator == 'constitution' and
+            prediction_col and prediction_col in df.columns):
+
+        # Detect year column: new format first, then legacy
+        year_col = None
+        for _yc in ['constitution_year', 'constitution_year_gemini']:
+            if _yc in df.columns:
+                year_col = _yc
+                break
+
+        # Rows where constitution is predicted as 1
+        has_constitution = (pd.to_numeric(df[prediction_col], errors='coerce') == 1)
+
+        # '<na>' catches pd.NA from Int64 columns when cast to str
+        _MISSING_VALUES = {'', 'nan', 'none', 'n/a', 'na', 'null', '<na>'}
+
+        # Missing name: null or empty/placeholder string
+        name_missing = pd.Series(False, index=df.index)
+        if document_name_col and document_name_col in df.columns:
+            name_str = df[document_name_col].astype(str).str.strip().str.lower()
+            name_missing = has_constitution & (name_str.isin(_MISSING_VALUES))
+
+        # Missing year: null or empty/placeholder string
+        # Use astype(str) directly — Int64 columns reject fillna('')
+        year_missing = pd.Series(False, index=df.index)
+        if year_col:
+            year_str = df[year_col].astype(str).str.strip().str.lower()
+            year_missing = has_constitution & (year_str.isin(_MISSING_VALUES))
+
+        condition_inconsistent = name_missing | year_missing
+        if condition_inconsistent.any():
+            conditions.append(condition_inconsistent)
+            print(f"Found {condition_inconsistent.sum()} rows with constitution=1 but missing name or year")
+            if name_missing.any():
+                print(f"  - {name_missing.sum()} missing constitution name ({document_name_col})")
+            if year_missing.any():
+                print(f"  - {year_missing.sum()} missing constitution year ({year_col})")
 
     # Add custom conditions
     if custom_conditions:
@@ -482,7 +528,14 @@ def merge_reprocessed_results(
                 # Update the columns
                 for col in update_columns:
                     if col in reproc_row.index:
-                        result_df.loc[mask, col] = reproc_row[col]
+                        value = reproc_row[col]
+                        # Int64 (nullable integer) columns reject empty strings — coerce them to pd.NA
+                        if col in result_df.columns and str(result_df[col].dtype) == 'Int64':
+                            if isinstance(value, str) and value.strip() == '':
+                                value = pd.NA
+                            elif isinstance(value, float) and pd.isna(value):
+                                value = pd.NA
+                        result_df.loc[mask, col] = value
                 updated_count += 1
             else:
                 failed_count += 1

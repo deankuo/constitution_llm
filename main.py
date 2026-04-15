@@ -1403,14 +1403,27 @@ Examples:
     print(f"Input:    {args.input}")
 
     # Parse model specifications
+    # Accept either KEY=IDENTIFIER format or a bare model identifier.
+    # When no key is given, auto-derive one from known provider prefixes.
+    def _auto_key(model_id: str) -> str:
+        if any(model_id.startswith(p) for p in GEMINI_MODELS):
+            return "Gemini"
+        if any(model_id.startswith(p) for p in OPENAI_MODELS):
+            return "GPT"
+        if any(model_id.startswith(p) for p in ANTHROPIC_MODELS):
+            return "Claude"
+        if model_id.startswith(BEDROCK_ARN_PREFIX) or model_id.startswith("us.") or model_id.startswith("global."):
+            return "Bedrock"
+        # Fallback: use the identifier itself as the key
+        return model_id
+
     models_dict = {}
     for model_arg in args.models:
-        if '=' not in model_arg:
-            raise ValueError(
-                f"Invalid model format: '{model_arg}'. "
-                f"Must be in KEY=IDENTIFIER format (e.g., 'GPT=gpt-4o')."
-            )
-        key, value = model_arg.split('=', 1)
+        if '=' in model_arg:
+            key, value = model_arg.split('=', 1)
+        else:
+            value = model_arg
+            key = _auto_key(value)
         models_dict[key] = value
 
     # Collect LLM parameters
