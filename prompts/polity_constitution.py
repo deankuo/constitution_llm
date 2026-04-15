@@ -16,7 +16,7 @@ The Constitution indicator is special:
 
 SYSTEM_PROMPT = """You are a professional political scientist, historian, and constitutional expert specializing in constitutional history across different countries.
 
-Your task is to determine whether a given polity had a constitution during its period of existence based on the country name and the time period provided.
+Your task is to determine whether a given polity had a constitution during its period of existence based on the polity name, leader name, and the time period provided.
 
 ## Definition of Constitution
 
@@ -131,6 +131,7 @@ Maintain professional objectivity and base all judgments on verifiable historica
 USER_PROMPT_TEMPLATE = """Please analyze the constitutional status of the following polity:
 
 **Country/Polity:** {country}
+**Leader:** {name}
 **Start Year:** {start_year}
 **End Year:** {end_year}
 **Duration:** {start_year}-{end_year}
@@ -166,12 +167,13 @@ Respond with a single JSON object (no markdown, no extra text):
 # HELPER FUNCTIONS
 # =============================================================================
 
-def get_constitution_prompt(country: str, start_year: int, end_year: int) -> tuple:
+def get_constitution_prompt(country: str, name: str, start_year: int, end_year: int) -> tuple:
     """
     Get system and user prompts for constitution analysis.
 
     Args:
         country: Name of the polity
+        name: Name of the leader (use "Unknown" if not available)
         start_year: Start year of the period
         end_year: End year of the period
 
@@ -180,6 +182,7 @@ def get_constitution_prompt(country: str, start_year: int, end_year: int) -> tup
     """
     user_prompt = USER_PROMPT_TEMPLATE.format(
         country=country,
+        name=name,
         start_year=start_year,
         end_year=end_year
     )

@@ -101,12 +101,13 @@ load_dotenv()
 # BACKWARD COMPATIBLE FUNCTIONS
 # =============================================================================
 
-def create_prompt(country: str, start_year: int, end_year: int) -> Tuple[str, str]:
+def create_prompt(country: str, name: str, start_year: int, end_year: int) -> Tuple[str, str]:
     """
     Create system and user prompts for polity-level constitution analysis.
 
     Args:
         country: Country/polity name
+        name: Leader name (use "Unknown" if not available)
         start_year: Start year of the polity period
         end_year: End year of the polity period
 
@@ -115,6 +116,7 @@ def create_prompt(country: str, start_year: int, end_year: int) -> Tuple[str, st
     """
     user_prompt = USER_PROMPT_TEMPLATE.format(
         country=country,
+        name=name,
         start_year=start_year,
         end_year=end_year
     )
@@ -223,6 +225,7 @@ def _apply_polity_verification(
     system_prompt: str,
     user_prompt: str,
     country: str,
+    name: str,
     start_year: int,
     end_year: int,
     model_suffix: str,
@@ -309,7 +312,7 @@ def _apply_polity_verification(
                 initial_prediction=init_pred,
                 initial_reasoning=initial_reasoning or '',
                 polity=country,
-                name='N/A',          # no single leader at polity level
+                name=name,
                 start_year=start_year,
                 end_year=end_year,
             )
@@ -326,6 +329,7 @@ def _apply_polity_verification(
 
 def process_single_polity(
     country: str,
+    name: str,
     start_year: int,
     end_year: int,
     model_key: str,
@@ -356,7 +360,7 @@ def process_single_polity(
     Search metadata (URLs, queries) are returned under search_queries_{suffix}
     and urls_used_{suffix} columns when search mode is active.
     """
-    system_prompt, user_prompt = create_prompt(country, start_year, end_year)
+    system_prompt, user_prompt = create_prompt(country, name, start_year, end_year)
 
     input_tokens = 0
     output_tokens = 0
@@ -373,7 +377,7 @@ def process_single_polity(
             from pipeline.pre_search import PreSearcher
             pre_searcher = PreSearcher(serper_api_key=api_keys.get('serper', ''))
             search_result = pre_searcher.search(
-                polity=country, name="", start_year=start_year, end_year=end_year
+                polity=country, name=name, start_year=start_year, end_year=end_year
             )
             if search_result.context:
                 user_prompt = pre_searcher.enrich_prompt(user_prompt, search_result)
@@ -455,6 +459,7 @@ def process_single_polity(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             country=country,
+            name=name,
             start_year=start_year,
             end_year=end_year,
             model_suffix=model_suffix,
@@ -495,6 +500,7 @@ def _process_one_row(
     _model_identifier) are included for the caller to aggregate into CostTracker.
     """
     country = row[COL_TERRITORY_NAME]
+    name = str(row.get(COL_LEADER_NAME, "Unknown")) if COL_LEADER_NAME in row.index else "Unknown"
     start_year = int(row[COL_START_YEAR])
     end_year = int(row[COL_END_YEAR])
 
@@ -504,7 +510,7 @@ def _process_one_row(
         future_to_model = {
             executor.submit(
                 process_single_polity,
-                country, start_year, end_year,
+                country, name, start_year, end_year,
                 model_key, model_identifier,
                 api_keys, llm_params,
                 max_retries, retry_delay, use_search_flag,
