@@ -256,13 +256,16 @@ Types:
 
 **Code based on de facto functioning, not formal structures.**""",
 
-        coding_rule_reminder="""⚠️ **IMPORTANT:** Focus on the HIGHEST type of assembly that actually functioned during THIS LEADER'S REIGN. Code de facto, not de jure.""",
+        coding_rule_reminder="""⚠️ **IMPORTANT:** Focus on the HIGHEST type of assembly that actually functioned during THIS LEADER'S REIGN. Code de facto, not de jure. Default to Type 0 when evidence is absent — do NOT infer a council from regional or civilizational patterns alone.""",
 
         compact_definition=(
             "Type of assembly/council (de facto): "
-            "(0) no assembly — purely autocratic; "
-            "(1) small advisory council appointed by ruler, institutionalized (regular meetings, designated name, stable membership); "
-            "(2) large assembly with policymaking or leadership selection role (de jure or de facto)."
+            "(0) no assembly — purely autocratic rule; "
+            "(1) small advisory council appointed by ruler, institutionalized (regular meetings, designated name, stable membership) — "
+            "Examples: noble councils, royal privy councils, aristocratic councils; "
+            "(2) large assembly with a role in policymaking or leadership selection (de jure or de facto) — "
+            "Examples: Ecclesia in ancient Athens, Estates-General, estates assemblies in premodern Europe, legislatures in virtually all modern governments. "
+            "Default to 0 when evidence is absent — do NOT infer a council from regional or civilizational patterns alone."
         )
     ),
     
@@ -399,16 +402,15 @@ Categories:
 Collegiality refers to whether **decision-making within the executive is shared by members of a formally constituted body**. Where decision-making is collegial, we assume that executive power is to some extent constrained.
 
 **Collegial (1):**
-- Decision-making is shared by members of a formally constituted body
-- Examples: cabinets, military juntas, Roman consuls, regencies, Switzerland's presidency (all-party cabinet)
-- Decisions require collective deliberation and agreement
-- Power is distributed among multiple members of the executive body
+- Decision-making is genuinely shared by members of a formally constituted body
+- Examples: cabinets where ministers hold independent authority, military juntas, Roman consuls (each with mutual veto), regent councils, Switzerland's Federal Council (all-party cabinet)
+- Decisions require collective deliberation and agreement among multiple members
 
 **Non-Collegial (0):**
 - A single actor dominates decision-making
-- Executive body exists but is dominated by one person
-- Collective bodies that are formally collegial but actually controlled by a single actor
-- Advisory bodies without actual decision-making power
+- Formally collegial bodies that are actually controlled by one person → Code as **0**
+- Examples: Stalin dominating the Politburo, Hitler's cabinet (ministers as executors, not co-deciders), a sultan with a nominal advisory council
+- Advisory bodies without actual decision-making power → Code as **0**
 
 ## Critical Distinction: De Facto vs De Jure
 
@@ -423,22 +425,26 @@ Collegiality refers to whether **decision-making within the executive is shared 
 2. Determine if there was a formally constituted collegial body
 3. **Critically assess**: Was decision-making actually shared, or did one person dominate?
 4. Focus on de facto (actual) power, not de jure (formal) arrangements
+5. **Default to 0 when evidence of genuine power-sharing is absent** — formal structures alone are insufficient
 """,
-        
+
         task_instruction="""Determine whether decision-making in the executive was collegial (1) or non-collegial (0) during this leader's reign.
 
 Remember:
-- Collegial (1): Decisions shared by members of a formally constituted body (e.g., cabinet, junta, consuls)
-- Non-Collegial (0): Single actor dominates, OR collegial body is dominated by one person
+- Collegial (1): Decisions genuinely shared by members of a formally constituted body — Examples: cabinet with independent ministers, military junta, Roman consuls, regent council, Switzerland's Federal Council
+- Non-Collegial (0): Single actor dominates, OR collegial body is controlled by one person in practice — Examples: dominant party leader, sultan with nominal council, dictator with rubber-stamp cabinet
 
 **CRITICAL:** Code based on de facto (actual) power, not de jure (formal) arrangements. If a body is formally collegial but one person dominates, code as 0.""",
-        
-        coding_rule_reminder="""⚠️ **IMPORTANT:** Focus on ACTUAL decision-making practice during THIS LEADER'S REIGN, not formal structures.""",
-        
+
+        coding_rule_reminder="""⚠️ **IMPORTANT:** Focus on ACTUAL decision-making practice during THIS LEADER'S REIGN, not formal structures. Default to 0 when evidence of genuine power-sharing is absent.""",
+
         compact_definition=(
-            "Whether decision-making is shared by a formally constituted body (de facto, not de jure): "
-            "(0) single actor dominates, or formally collegial body controlled by one person; "
-            "(1) decisions genuinely shared by collegial body (e.g., cabinet, junta, consuls, regency)."
+            "Whether executive decision-making is genuinely shared by a formally constituted body (de facto, not de jure): "
+            "(1) collegial — decisions require collective deliberation among multiple members — "
+            "Examples: cabinets where ministers hold independent authority, military juntas, Roman consuls (each with veto power), regent councils, Switzerland's Federal Council; "
+            "(0) non-collegial — a single actor dominates, OR a formally collegial body is controlled by one person in practice — "
+            "Examples: Stalin dominating the Politburo, Hitler's cabinet, a sultan with nominal advisory council. "
+            "Default to 0 when evidence of genuine power-sharing is absent."
         )
     ),
     

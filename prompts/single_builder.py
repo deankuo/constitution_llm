@@ -27,9 +27,11 @@ INDICATOR_SUMMARIES: Dict[str, str] = {
 
     "assembly": (
         "Type of assembly/council (de facto): "
-        "(0) no assembly — purely autocratic; "
-        "(1) small advisory council appointed by ruler, institutionalized (regular meetings, designated name, stable membership); "
-        "(2) large assembly with policymaking or leadership selection role (de jure or de facto). "
+        "(0) no assembly — purely autocratic rule; "
+        "(1) small advisory council appointed by ruler, institutionalized (regular meetings, designated name, stable membership) — "
+        "Examples: noble councils, royal privy councils, aristocratic councils; "
+        "(2) large assembly with a role in policymaking or leadership selection (de jure or de facto) — "
+        "Examples: Ecclesia in ancient Athens, Estates-General, estates assemblies in premodern Europe, legislatures in virtually all modern governments. "
         "Default to 0 when evidence is absent — do NOT infer a council from regional or civilizational patterns alone."
     ),
 
@@ -47,10 +49,12 @@ INDICATOR_SUMMARIES: Dict[str, str] = {
     ),
 
     "collegiality": (
-        "Collegiality (1) means decision-making is shared by members of a formally constituted body "
-        "(e.g., cabinets, juntas, Roman consuls, regencies). Non-collegial (0) means a single actor "
-        "dominates, or a formally collegial body is in practice controlled by one person. "
-        "Code based on de facto (actual) power, not de jure (formal) arrangements."
+        "Whether executive decision-making is genuinely shared by a formally constituted body (de facto, not de jure): "
+        "(1) collegial — decisions require collective deliberation among multiple members — "
+        "Examples: cabinets where ministers hold independent authority, military juntas, Roman consuls (each with veto power), regent councils, Switzerland’s Federal Council (all-party cabinet); "
+        "(0) non-collegial — a single actor dominates, OR a formally collegial body is controlled by one person in practice — "
+        "Examples: Stalin dominating the Politburo, Hitler’s cabinet, a sultan with nominal advisory council. "
+        "Default to 0 when evidence of genuine power-sharing is absent."
     ),
 
     "separate_powers": (

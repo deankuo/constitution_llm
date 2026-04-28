@@ -192,11 +192,11 @@ We assume that where a council or assembly exists, executive power is to some ex
   * Meets regularly
   * Has a designated name
   * Has a fairly stable membership
-- Examples: noble councils, aristocratic councils, royal councils, privy councils
+- Examples: noble councils, royal privy councils, aristocratic councils
 
 ### Type 2 — Large Assembly
 - A large assembly that plays some role in **policymaking or leadership selection** — de jure or de facto
-- Examples: Ecclesia in ancient Athens, estates assemblies in premodern Europe, legislatures in virtually all modern governments
+- Examples: Ecclesia in ancient Athens, Estates-General, estates assemblies in premodern Europe, legislatures in virtually all modern governments
 
 ## Coding Rules
 
@@ -235,9 +235,9 @@ ASSEMBLY_USER_PROMPT = """Please analyze the assembly status of the following po
 Determine the HIGHEST assembly type (0, 1, or 2) that existed at ANY point during this period.
 
 Types:
-- 0: No assembly or council of any kind
-- 1: Small advisory council — institutionalized (regular meetings, designated name, stable membership)
-- 2: Large assembly with a role in policymaking or leadership selection
+- 0: No assembly or council of any kind — purely autocratic rule
+- 1: Small advisory council — institutionalized (regular meetings, designated name, stable membership) — Examples: noble councils, royal privy councils, aristocratic councils
+- 2: Large assembly with a role in policymaking or leadership selection — Examples: Ecclesia in ancient Athens, Estates-General, estates assemblies, modern legislatures
 
 ⚠️ **IMPORTANT CODING RULE:**
 - Code as **2** if a large assembly EVER existed during this period
