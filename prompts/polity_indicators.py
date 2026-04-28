@@ -202,6 +202,7 @@ We assume that where a council or assembly exists, executive power is to some ex
 
 - Code based on **de facto** (actual) practice, not de jure (formal) arrangements
 - A body that nominally exists but never meets or has no stable membership → Type 0
+- **Default to Type 0 when evidence is absent.** Regional or civilizational generalizations alone (e.g., "Islamic polities typically had councils", "monarchies usually consulted nobles") are NOT sufficient — require specific historical evidence that an institutionalized body existed in THIS polity.
 
 ## ⚠️ CRITICAL: Polity-Level Coding Rule ⚠️
 

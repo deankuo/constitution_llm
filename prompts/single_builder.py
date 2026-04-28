@@ -29,7 +29,8 @@ INDICATOR_SUMMARIES: Dict[str, str] = {
         "Type of assembly/council (de facto): "
         "(0) no assembly — purely autocratic; "
         "(1) small advisory council appointed by ruler, institutionalized (regular meetings, designated name, stable membership); "
-        "(2) large assembly with policymaking or leadership selection role (de jure or de facto)."
+        "(2) large assembly with policymaking or leadership selection role (de jure or de facto). "
+        "Default to 0 when evidence is absent — do NOT infer a council from regional or civilizational patterns alone."
     ),
 
     "appointment": (

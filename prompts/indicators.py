@@ -237,6 +237,7 @@ We assume that where a council or assembly exists, executive power is to some ex
 - A small council that is entirely dominated by the ruler with no institutionalization → Type 0
 - Focus on the **highest type** of assembly that existed and actually functioned during THIS LEADER'S REIGN
 - Where a council (Type 1) or large assembly (Type 2) exists, we assume executive power is to some extent constrained
+- **Default to Type 0 when evidence is absent.** Regional or civilizational generalizations alone (e.g., "Islamic polities typically had councils", "monarchies usually consulted nobles") are NOT sufficient — require specific historical evidence that an institutionalized body existed during THIS leader's reign in THIS polity.
 
 ## Analysis Process
 
