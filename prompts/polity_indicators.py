@@ -176,57 +176,46 @@ Respond with a single JSON object:
 
 ASSEMBLY_SYSTEM_PROMPT = """You are a professional political scientist and historian specializing in legislative institutions across different historical periods.
 
-Your task is to determine whether a given polity EVER had a legislative assembly during its period of existence.
+Your task is to determine the HIGHEST TYPE of assembly or council that EVER existed in a given polity during its period of existence.
 
-## Definition of Assembly
+## Three-Type Assembly Classification
 
-An assembly is understood as a **large popular assembly or representative parliament** that meets ALL of the following criteria:
+We assume that where a council or assembly exists, executive power is to some extent constrained or perhaps entirely displaced.
 
-**(a) Has a role in at least ONE of:**
-- Leadership selection
-- Taxation decisions
-- Public policy
+### Type 0 — No Assembly
+- No deliberative or advisory body of any kind
+- Purely autocratic rule with no institutionalized council structure
 
-**(b) Has some degree of independence:**
-- NOT simply a king's council or advisory body
-- Has institutional autonomy from the executive
+### Type 1 — Small Advisory Council
+- A small advisory council appointed by the ruler
+- May not enjoy much autonomy but is nonetheless **institutionalized**:
+  * Meets regularly
+  * Has a designated name
+  * Has a fairly stable membership
+- Examples: noble councils, aristocratic councils, royal councils, privy councils
 
-**(c) Meets regularly or semi-regularly:**
-- Not an ad-hoc or one-time gathering
-- Has established patterns of convening
+### Type 2 — Large Assembly
+- A large assembly that plays some role in **policymaking or leadership selection** — de jure or de facto
+- Examples: Ecclesia in ancient Athens, estates assemblies in premodern Europe, legislatures in virtually all modern governments
 
-## Assembly Status
+## Coding Rules
 
-**Assembly Exists (1):**
-- A body meeting all three criteria (a), (b), and (c) exists
-- Examples: Roman Senate, English Parliament, Greek assemblies, Estates-General
-- The assembly constrains or even displaces executive power
-
-**No Assembly (0):**
-- No such body exists
-- Only advisory councils without independent power
-- Assemblies that meet rarely or irregularly
-- Bodies that lack any role in selection, taxation, or policy
-
-## Important Notes
-
-- We assume where such a body exists, executive power is to some extent constrained
-- Focus on institutional characteristics, not effectiveness
+- Code based on **de facto** (actual) practice, not de jure (formal) arrangements
+- A body that nominally exists but never meets or has no stable membership → Type 0
 
 ## ⚠️ CRITICAL: Polity-Level Coding Rule ⚠️
 
-This is POLITY-LEVEL classification. You must report the HIGHEST level achieved at ANY point during the given period.
+This is POLITY-LEVEL classification. You must report the HIGHEST type achieved at ANY point during the given period.
 
 **Coding Rule:**
-- If the polity had an assembly for ANY portion of the period → Code as **1**
-- If the polity NEVER had an assembly during the entire period → Code as **0**
-
-**The question is NOT "Did this polity have an assembly throughout?" but rather "Did this polity EVER have an assembly during this period?"**
+- If the polity EVER had a large assembly (Type 2) → Code as **2**
+- If never Type 2 but EVER had a small advisory council (Type 1) → Code as **1**
+- If NEVER had any council or assembly → Code as **0**
 
 ## Output Requirements
 
 Provide a JSON object with exactly these fields:
-- "assembly": Must be exactly "1" or "0" (string)
+- "assembly": Must be exactly "0", "1", or "2" (string)
 - "reasoning": Your step-by-step reasoning following the analysis process (string)
 - "confidence_score": Integer from 1 to 100 based on evidence quality
 
@@ -242,14 +231,20 @@ ASSEMBLY_USER_PROMPT = """Please analyze the assembly status of the following po
 **Polity:** {polity}
 **Period:** {start_year}-{end_year}
 
-Determine whether this polity EVER had a legislative assembly (1) or NEVER had one (0) during this period.
+Determine the HIGHEST assembly type (0, 1, or 2) that existed at ANY point during this period.
+
+Types:
+- 0: No assembly or council of any kind
+- 1: Small advisory council — institutionalized (regular meetings, designated name, stable membership)
+- 2: Large assembly with a role in policymaking or leadership selection
 
 ⚠️ **IMPORTANT CODING RULE:**
-- Code as **1** if the polity had an assembly for ANY part of the period (even if it was later dissolved)
-- Code as **0** ONLY if the polity NEVER had an assembly during the entire period
+- Code as **2** if a large assembly EVER existed during this period
+- Code as **1** if only a small advisory council ever existed (but never a large assembly)
+- Code as **0** ONLY if the polity NEVER had any council or assembly
 
 Respond with a single JSON object:
-{{"assembly": "1 or 0", "reasoning": "your analysis", "confidence_score": 1-100}}
+{{"assembly": "0, 1, or 2", "reasoning": "your analysis", "confidence_score": 1-100}}
 """
 
 

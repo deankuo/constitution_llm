@@ -99,14 +99,28 @@ INDICATORS_WITH_GROUND_TRUTH = [
 ]
 
 # Indicator valid labels
+# Bare names are used by predictor.py / batch_gemini.py; leader_* names by evaluation/ground-truth code.
 INDICATOR_LABELS = {
-    'polity_constitution': ['1', '0'],
+    # Polity-level
+    'polity_constitution': ['0', '1', '2'],
     'polity_sovereign': ['0', '1'],
-    'leader_assembly': ['0', '1'],
+    # Leader-level — prefixed (evaluation / ground-truth column names)
+    'leader_sovereign': ['0', '1'],
+    'leader_assembly': ['0', '1', '2'],
     'leader_appointment': ['0', '1', '2'],
+    'leader_tenure': ['0', '1', '2'],
     'leader_exit': ['0', '1'],
     'leader_collegiality': ['0', '1'],
     'leader_separate_powers': ['0', '1'],
+    # Leader-level — bare names (used by predictor / batch_gemini label lookup)
+    'sovereign': ['0', '1'],
+    'assembly': ['0', '1', '2'],
+    'appointment': ['0', '1', '2'],
+    'tenure': ['0', '1', '2'],
+    'exit': ['0', '1'],
+    'collegiality': ['0', '1'],
+    'separate_powers': ['0', '1'],
+    'elections': ['0', '1', '2'],
 }
 
 # =============================================================================

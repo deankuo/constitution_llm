@@ -245,8 +245,7 @@ def identify_failed_rows(
         conditions.append(condition_uncodified)
         print(f"Found {condition_uncodified.sum()} rows with uncodified/customary constitutions")
 
-    # Condition 7: Constitution consistency check
-    # If constitution_prediction == 1 but name or year is missing, flag as failed
+    # Condition 7: Constitution consistency checks (new three-type scheme)
     if (check_constitution_consistency and
             indicator == 'constitution' and
             prediction_col and prediction_col in df.columns):
@@ -258,33 +257,86 @@ def identify_failed_rows(
                 year_col = _yc
                 break
 
-        # Rows where constitution is predicted as 1
-        has_constitution = (pd.to_numeric(df[prediction_col], errors='coerce') == 1)
+        doc_types_col = 'constitution_document_types' if 'constitution_document_types' in df.columns else None
+
+        # Rows where constitution is predicted as 1 or 2 (has a document)
+        pred_numeric = pd.to_numeric(df[prediction_col], errors='coerce')
+        has_document = pred_numeric.isin([1, 2])
 
         # '<na>' catches pd.NA from Int64 columns when cast to str
         _MISSING_VALUES = {'', 'nan', 'none', 'n/a', 'na', 'null', '<na>'}
 
-        # Missing name: null or empty/placeholder string
+        # 7a. Missing document name when prediction > 0
         name_missing = pd.Series(False, index=df.index)
         if document_name_col and document_name_col in df.columns:
             name_str = df[document_name_col].astype(str).str.strip().str.lower()
-            name_missing = has_constitution & (name_str.isin(_MISSING_VALUES))
+            name_missing = has_document & name_str.isin(_MISSING_VALUES)
 
-        # Missing year: null or empty/placeholder string
-        # Use astype(str) directly — Int64 columns reject fillna('')
+        # 7b. Missing year when prediction > 0
         year_missing = pd.Series(False, index=df.index)
         if year_col:
             year_str = df[year_col].astype(str).str.strip().str.lower()
-            year_missing = has_constitution & (year_str.isin(_MISSING_VALUES))
+            year_missing = has_document & year_str.isin(_MISSING_VALUES)
 
         condition_inconsistent = name_missing | year_missing
         if condition_inconsistent.any():
             conditions.append(condition_inconsistent)
-            print(f"Found {condition_inconsistent.sum()} rows with constitution=1 but missing name or year")
+            print(f"Found {condition_inconsistent.sum()} rows with constitution>0 but missing name or year")
             if name_missing.any():
                 print(f"  - {name_missing.sum()} missing constitution name ({document_name_col})")
             if year_missing.any():
                 print(f"  - {year_missing.sum()} missing constitution year ({year_col})")
+
+        # 7c. Parallel length check: document_name, document_types, and constitution_year
+        #     must all have the same number of semicolon-separated entries
+        def _count_parts(s: str) -> int:
+            """Count semicolon-separated parts in a string."""
+            cleaned = str(s).strip()
+            if cleaned.lower() in _MISSING_VALUES:
+                return 0
+            return len([p for p in cleaned.split(';') if p.strip()])
+
+        if (document_name_col and document_name_col in df.columns and
+                year_col and doc_types_col):
+            name_counts = df[document_name_col].apply(_count_parts)
+            year_counts = df[year_col].apply(_count_parts)
+            types_counts = df[doc_types_col].apply(_count_parts)
+
+            # Only check rows that have documents (prediction > 0)
+            length_mismatch = (
+                has_document & (
+                    (name_counts != year_counts) |
+                    (name_counts != types_counts)
+                )
+            )
+            if length_mismatch.any():
+                conditions.append(length_mismatch)
+                print(f"Found {length_mismatch.sum()} rows where document_name / document_types / "
+                      f"constitution_year have different numbers of semicolon-separated entries")
+
+        # 7d. Max(document_types) consistency with constitution_prediction
+        if doc_types_col and doc_types_col in df.columns:
+            def _max_type(s) -> Optional[float]:
+                cleaned = str(s).strip()
+                if cleaned.lower() in _MISSING_VALUES:
+                    return None
+                parts = [p.strip() for p in cleaned.split(';') if p.strip()]
+                try:
+                    vals = [int(float(p)) for p in parts]
+                    return float(max(vals)) if vals else None
+                except (ValueError, TypeError):
+                    return None
+
+            derived_max = df[doc_types_col].apply(_max_type)
+            # Flag rows where derived max disagrees with stated prediction (both non-null)
+            max_mismatch = (
+                has_document &
+                derived_max.notna() &
+                (derived_max != pred_numeric)
+            )
+            if max_mismatch.any():
+                conditions.append(max_mismatch)
+                print(f"Found {max_mismatch.sum()} rows where max(document_types) != constitution_prediction")
 
     # Add custom conditions
     if custom_conditions:

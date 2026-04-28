@@ -26,10 +26,10 @@ INDICATOR_SUMMARIES: Dict[str, str] = {
     ),
 
     "assembly": (
-        "An assembly (1) is a large popular assembly or representative parliament that: (a) has a "
-        "role in leadership selection, taxation, or policy; (b) has independence from the executive; "
-        "(c) meets regularly. No assembly (0) if no such body exists or only advisory councils "
-        "without institutional power."
+        "Type of assembly/council (de facto): "
+        "(0) no assembly — purely autocratic; "
+        "(1) small advisory council appointed by ruler, institutionalized (regular meetings, designated name, stable membership); "
+        "(2) large assembly with policymaking or leadership selection role (de jure or de facto)."
     ),
 
     "appointment": (
@@ -37,11 +37,6 @@ INDICATOR_SUMMARIES: Dict[str, str] = {
         "military, or one-party selection (least constrained); (1) by royal council, head of state, "
         "or head of government (moderately constrained); (2) through direct popular election or "
         "assembly selection (most constrained)."
-    ),
-
-    "tenure": (
-        "Length of leader's reign indicating constraint level: (0) less than 5 years (high constraint), "
-        "(1) 5-10 years (moderate constraint), (2) more than 10 years (low constraint)."
     ),
 
     "exit": (
@@ -64,8 +59,6 @@ INDICATOR_SUMMARIES: Dict[str, str] = {
         "branches exist on paper but are controlled by the executive. Code based on de facto power."
     ),
 }
-
-
 class SinglePromptBuilder(BasePromptBuilder):
     """
     Combines all selected indicators into a single prompt.

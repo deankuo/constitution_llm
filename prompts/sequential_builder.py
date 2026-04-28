@@ -181,7 +181,7 @@ You MUST provide predictions for ALL {len(sequence)} indicators in a SINGLE JSON
                 prompt += system_prompt
             else:
                 # Use indicator's system prompt from indicators.py
-                system_prompt, _ = get_indicator_prompt(indicator, polity, name, start_year, end_year, reasoning=self.reasoning)
+                system_prompt, _ = get_indicator_prompt(indicator, polity, name, start_year, end_year)
                 prompt += system_prompt
 
             prompt += "\n\n═══════════════════════════════════════════════════════════════════════\n\n"
@@ -214,9 +214,10 @@ You have analyzed {len(sequence)} indicators above. Now provide a SINGLE JSON ob
             prompt += "\n  "
 
             if indicator == 'constitution':
-                prompt += f'"constitution": "Yes or No",\n  '
-                prompt += f'"document_name": "name or N/A",\n  '
-                prompt += f'"constitution_year": "exact integer year(s) or N/A (no circa/c.)",\n  '
+                prompt += f'"constitution": 0, 1, or 2,\n  '
+                prompt += f'"document_name": "name(s) or N/A (semicolon-separated)",\n  '
+                prompt += f'"document_types": "type integers or N/A (semicolon-separated, same order as document_name)",\n  '
+                prompt += f'"constitution_year": "exact integer year(s) or N/A (semicolon-separated, same order, no circa/c.)",\n  '
                 prompt += f'"constitution_reasoning": "your constitutional analysis",\n  '
                 prompt += f'"constitution_confidence_score": 1-100'
             else:
@@ -292,7 +293,7 @@ You will analyze these indicators in sequence:
                 prompt += user_prompt
             else:
                 # Use indicator's user prompt from indicators.py
-                _, user_prompt = get_indicator_prompt(indicator, polity, name, start_year, end_year, reasoning=self.reasoning)
+                _, user_prompt = get_indicator_prompt(indicator, polity, name, start_year, end_year)
                 prompt += user_prompt
 
             prompt += f"\n\n{'='*70}\n\n"

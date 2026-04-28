@@ -73,7 +73,8 @@ class IndicatorPrediction:
     cost_usd: float = 0.0
     # Constitution-specific fields
     document_name: Optional[str] = None
-    constitution_year: Optional[str] = None  # String to handle "N/A" or "1789; 1791"
+    constitution_year: Optional[str] = None  # String: "N/A" or "1789; 1791"
+    document_types: Optional[str] = None    # String: "N/A" or "1; 2" (parallel to document_name)
 
 
 @dataclass
@@ -110,6 +111,7 @@ class PolityPrediction:
             if ind_name == 'constitution':
                 result['constitution_document_name'] = ind_pred.document_name
                 result['constitution_year'] = ind_pred.constitution_year
+                result['constitution_document_types'] = ind_pred.document_types
 
             if ind_pred.was_verified:
                 result[f'{ind_name}_verified'] = ind_pred.verified_prediction
@@ -362,13 +364,17 @@ class Predictor:
             confidence = validated.get('confidence_score')
             document_name = validated.get('document_name')
             constitution_year = validated.get('constitution_year')
-            valid_labels = [1, 0]
+            document_types = validated.get('document_types')
+            valid_labels = [0, 1, 2]
         else:
             valid_labels = INDICATOR_LABELS.get(indicator, ['0', '1'])
             validated = validate_indicator_response(parsed, indicator, valid_labels)
             prediction = validated.get(indicator)
             reasoning = validated.get('reasoning', '')
             confidence = validated.get('confidence_score')
+            document_name = None
+            constitution_year = None
+            document_types = None
 
         # Apply verification if configured for this indicator
         verified_prediction = None
@@ -415,7 +421,8 @@ class Predictor:
             tokens_used=tokens_per_indicator,
             cost_usd=cost_per_indicator,
             document_name=document_name,
-            constitution_year=constitution_year
+            constitution_year=constitution_year,
+            document_types=document_types if indicator == 'constitution' else None
         )
 
     def _calculate_cost(self, response: ModelResponse) -> float:

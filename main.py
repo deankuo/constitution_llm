@@ -274,7 +274,7 @@ def _apply_polity_verification(
             majority_pred, majority_count = counter.most_common(1)[0]
             agreement = majority_count / len(sc_preds)
             verified_int = int(majority_pred)
-            current_status = 'Yes' if verified_int else 'No'
+            current_status = verified_int  # numeric 0/1/2
             result[f'constitution_{model_suffix}'] = verified_int
             result[f'constitution_sc_agreement_{model_suffix}'] = round(agreement, 3)
             result[f'constitution_sc_verification_{model_suffix}'] = str({
@@ -298,17 +298,19 @@ def _apply_polity_verification(
                 config=CoVeConfig(questions_per_element=cove_questions_per_element),
                 cost_tracker=CostTracker()
             )
-            # Normalise initial prediction to 'Yes' / 'No'
-            if current_status is not None:
-                init_pred = 'Yes' if str(current_status).lower() in ('yes', '1', 'true') else 'No'
+            # Normalise initial prediction to '0' / '1' / '2'
+            if current_status is not None and str(current_status) in ('0', '1', '2'):
+                init_pred = str(int(current_status))
+            elif current_status is not None and str(current_status).lower() in ('yes', 'true'):
+                init_pred = '1'
             else:
-                init_pred = 'No'
+                init_pred = '0'
 
             verify_result = cove.verify(
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 indicator='constitution',
-                valid_labels=['Yes', 'No'],
+                valid_labels=['0', '1', '2'],
                 initial_prediction=init_pred,
                 initial_reasoning=initial_reasoning or '',
                 polity=country,
@@ -320,8 +322,8 @@ def _apply_polity_verification(
             result[f'constitution_cove_verification_{model_suffix}'] = str(
                 verify_result.verification_details
             )
-            if verified_pred in ('Yes', 'No'):
-                result[f'constitution_{model_suffix}'] = 1 if verified_pred == 'Yes' else 0
+            if verified_pred in ('0', '1', '2'):
+                result[f'constitution_{model_suffix}'] = int(verified_pred)
         except Exception as e:
             print(f"  CoVe verification failed: {e}")
             result[f'constitution_cove_verification_{model_suffix}'] = f'Error: {e}'
@@ -429,18 +431,20 @@ def process_single_polity(
         return None
 
     parsed_result = parse_llm_response(response_content, max_retries, retry_delay)
+    validated = validate_constitution_response(parsed_result)
 
     model_suffix = model_key.lower().replace("-", "_")
-    status = parsed_result.get('constitution_status') or parsed_result.get('constitution')
-    explanation = parsed_result.get('explanation') or parsed_result.get('reasoning', "No explanation provided")
+    status = validated.get('constitution')  # float 0.0, 1.0, or 2.0, or None
+    explanation = validated.get('reasoning') or 'No explanation provided'
 
     result = {
-        f'constitution_{model_suffix}': 1 if status and str(status).lower() == 'yes' else 0,
-        'constitution_year': parsed_result.get('constitution_year', None),
-        f'constitution_name_{model_suffix}': parsed_result.get('document_name', "N/A"),
+        f'constitution_{model_suffix}': int(status) if status is not None else 0,
+        'constitution_year': validated.get('constitution_year', None),
+        f'constitution_name_{model_suffix}': validated.get('document_name', "N/A"),
+        f'constitution_document_types_{model_suffix}': validated.get('document_types', None),
         f'explanation_{model_suffix}': explanation,
         f'explanation_length_{model_suffix}': len(explanation) if explanation else 0,
-        f'confidence_score_{model_suffix}': parsed_result.get('confidence_score', None),
+        f'confidence_score_{model_suffix}': validated.get('confidence_score', None),
         # Search metadata
         f'search_queries_{model_suffix}': ' | '.join(query_tracker) if query_tracker else None,
         f'urls_used_{model_suffix}': ' | '.join(url_tracker) if url_tracker else None,
@@ -469,7 +473,7 @@ def process_single_polity(
             sc_n_samples=sc_n_samples,
             sc_temperatures=sc_temperatures or [0.0, 0.5, 1.0],
             cove_questions_per_element=cove_questions_per_element,
-            initial_status=status or '',
+            initial_status=status if status is not None else 0,
             initial_reasoning=explanation,
         )
 

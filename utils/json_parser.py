@@ -257,52 +257,119 @@ def validate_constitution_response(parsed: Dict[str, Any]) -> Dict[str, Any]:
     """
     Validate that the parsed response contains expected fields for constitution.
 
-    Args:
-        parsed: Parsed JSON response
+    Three-type scheme:
+      0 = no written code of law or constitution
+      1 = code of law for subjects/citizens only
+      2 = full constitution (code of law + governance rules + limitations)
 
-    Returns:
-        Validated response with defaults filled in if needed.
-        Constitution prediction is returned as float (0.0 or 1.0) to match ground truth
-        format and properly handle NaN values.
+    Constitution prediction is returned as float (0.0, 1.0, or 2.0) to match
+    the ground-truth format and properly handle NaN values.
+
+    Also parses 'document_types' — a semicolon-separated list of per-document
+    type integers parallel to 'document_name'. Cross-checks that
+    max(document_types) == constitution prediction.
     """
     result = parsed.copy()
 
-    # Handle constitution status - normalize "constitution" or "constitution_status"
-    constitution_value = result.get('constitution') or result.get('constitution_status')
-    if constitution_value:
-        constitution_value = str(constitution_value).strip().lower()
-        if constitution_value in ['yes', '1', 'true']:
-            result['constitution'] = 1.0  # Float instead of string
-        elif constitution_value in ['no', '0', 'false']:
-            result['constitution'] = 0.0  # Float instead of string
+    # ------------------------------------------------------------------
+    # 1. Parse 'constitution' as primary integer field (0, 1, or 2)
+    # ------------------------------------------------------------------
+    # Use explicit None check — 0 is a valid value and must not be dropped by `or`
+    _raw = result.get('constitution')
+    constitution_value = _raw if _raw is not None else result.get('constitution_status')
+    parsed_label: Optional[float] = None
+
+    if constitution_value is not None:
+        val_str = str(constitution_value).strip().lower()
+        # New format: integer 0/1/2
+        if val_str in ('0', '1', '2'):
+            parsed_label = float(val_str)
+        # Old binary fallback: "yes"/"no" (backwards compat)
+        elif val_str in ('yes', 'true'):
+            parsed_label = 2.0
+        elif val_str in ('no', 'false'):
+            parsed_label = 0.0
         else:
-            result['constitution'] = None
-    else:
-        result['constitution'] = None
+            # Try numeric coercion
+            try:
+                coerced = int(float(val_str))
+                if coerced in (0, 1, 2):
+                    parsed_label = float(coerced)
+            except (ValueError, TypeError):
+                pass
 
-    # Ensure document_name exists
-    if 'document_name' not in result:
+    result['constitution'] = parsed_label
+
+    # ------------------------------------------------------------------
+    # 2. Parse 'document_name'
+    # ------------------------------------------------------------------
+    if 'document_name' not in result or result.get('document_name') is None:
         result['document_name'] = 'N/A'
+    else:
+        result['document_name'] = str(result['document_name']).strip() or 'N/A'
 
-    # Ensure constitution_year exists
-    # Keep as string to preserve "N/A" or semicolon-separated years like "1789; 1791"
-    if 'constitution_year' not in result:
-        result['constitution_year'] = None
-    elif result['constitution_year'] is None:
+    # ------------------------------------------------------------------
+    # 3. Parse 'document_types' (new field: semicolon-separated integers)
+    # ------------------------------------------------------------------
+    raw_doc_types = result.get('document_types')
+    document_types_parsed: Optional[list] = None
+
+    if raw_doc_types is not None:
+        raw_str = str(raw_doc_types).strip()
+        if raw_str.lower() not in ('n/a', 'none', '', 'null'):
+            parts = [p.strip() for p in raw_str.split(';') if p.strip()]
+            types = []
+            all_valid = True
+            for part in parts:
+                try:
+                    t = int(float(part))
+                    if t in (0, 1, 2):
+                        types.append(t)
+                    else:
+                        all_valid = False
+                        break
+                except (ValueError, TypeError):
+                    all_valid = False
+                    break
+            if all_valid and types:
+                document_types_parsed = types
+                result['document_types'] = '; '.join(str(t) for t in types)
+            else:
+                result['document_types'] = None
+        else:
+            result['document_types'] = None
+    else:
+        result['document_types'] = None
+
+    # ------------------------------------------------------------------
+    # 4. Cross-check: max(document_types) should equal constitution
+    #    If constitution field is absent but document_types is valid, derive it.
+    # ------------------------------------------------------------------
+    if document_types_parsed:
+        derived_max = float(max(document_types_parsed))
+        if result['constitution'] is None:
+            result['constitution'] = derived_max
+        elif result['constitution'] != derived_max:
+            # Trust 'constitution' field; log discrepancy silently
+            pass
+
+    # ------------------------------------------------------------------
+    # 5. Parse 'constitution_year'
+    # ------------------------------------------------------------------
+    if 'constitution_year' not in result or result['constitution_year'] is None:
         result['constitution_year'] = None
     else:
-        # Convert to string and clean up
         year_str = str(result['constitution_year']).strip()
-        # Handle "null" string or empty string
-        if year_str.lower() in ['null', 'none', '', 'n/a']:
+        if year_str.lower() in ('null', 'none', '', 'n/a'):
             result['constitution_year'] = None
         else:
-            # Clean approximation prefixes (e.g., "c. 1240", "circa 1240", "approx. 1240")
             result['constitution_year'] = _clean_constitution_year(year_str)
 
-    # Ensure reasoning/explanation exists (check multiple field names)
+    # ------------------------------------------------------------------
+    # 6. Reasoning
+    # ------------------------------------------------------------------
     if 'reasoning' in result:
-        result['reasoning'] = result['reasoning']
+        pass
     elif 'constitution_reasoning' in result:
         result['reasoning'] = result['constitution_reasoning']
     elif 'explanation' in result:
@@ -310,23 +377,14 @@ def validate_constitution_response(parsed: Dict[str, Any]) -> Dict[str, Any]:
     else:
         result['reasoning'] = ''
 
-    # Ensure confidence_score exists and is in valid range (1-100 for constitution)
-    # Check both 'confidence_score' and 'constitution_confidence_score'
-    if 'confidence_score' in result:
-        score_value = result['confidence_score']
-    elif 'constitution_confidence_score' in result:
-        score_value = result['constitution_confidence_score']
-    else:
-        score_value = None
-
+    # ------------------------------------------------------------------
+    # 7. Confidence score
+    # ------------------------------------------------------------------
+    score_value = result.get('confidence_score') or result.get('constitution_confidence_score')
     if score_value is not None:
         try:
             score = int(score_value)
-            if score < 1:
-                score = 1
-            elif score > 100:
-                score = 100
-            result['confidence_score'] = score
+            result['confidence_score'] = max(1, min(100, score))
         except (ValueError, TypeError):
             result['confidence_score'] = None
     else:

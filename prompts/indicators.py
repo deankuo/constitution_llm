@@ -204,64 +204,64 @@ Remember:
         name="assembly",
         display_name="assembly status",
         specialization="legislative institutions",
-        labels=["0", "1"],
-        task_description="whether a given polity had a legislative assembly during a specific leader's reign",
-        
+        labels=["0", "1", "2"],
+        task_description="the type of assembly or council that existed during a specific leader's reign",
+
         definition="""
 ## Definition of Assembly
 
-An assembly is understood as a **large popular assembly or representative parliament** that meets ALL of the following criteria:
+We assume that where a council or assembly exists, executive power is to some extent constrained or perhaps entirely displaced (as in the case of ancient Greek assemblies).
 
-**(a) Has a role in at least ONE of:**
-- Leadership selection
-- Taxation decisions
-- Public policy
+## Assembly Types
 
-**(b) Has some degree of independence:**
-- NOT simply a king's council or advisory body
-- Has institutional autonomy from the executive
+**Type 0 — No Assembly:**
+- No deliberative or advisory body of any kind
+- Purely autocratic rule with no institutionalized council structure
 
-**(c) Meets regularly or semi-regularly:**
-- Not an ad-hoc or one-time gathering
-- Has established patterns of convening
+**Type 1 — Small Advisory Council:**
+- A small advisory council appointed by the ruler
+- May not enjoy much autonomy but is nonetheless **institutionalized**:
+  * Meets regularly
+  * Has a designated name
+  * Has a fairly stable membership
+- Examples: noble councils, aristocratic councils, royal councils, privy councils
 
-## Assembly Status
+**Type 2 — Large Assembly:**
+- A large assembly that plays some role in **policymaking or leadership selection** — de jure or de facto
+- Examples: Ecclesia in ancient Athens, estates assemblies in premodern Europe, legislatures in virtually all modern governments
 
-**Assembly Exists (1):**
-- A body meeting all three criteria (a), (b), and (c) exists
-- Examples: Roman Senate, English Parliament, Greek assemblies, Estates-General
-- The assembly constrains or even displaces executive power
+## Coding Rules
 
-**No Assembly (0):**
-- No such body exists
-- Only advisory councils without independent power
-- Assemblies that meet rarely or irregularly
-- Bodies that lack any role in selection, taxation, or policy
-
-## Important Notes
-
-- We assume where such a body exists, executive power is to some extent constrained
-- Focus on institutional characteristics, not effectiveness
+- Code based on **de facto** (actual) practice, not de jure (formal) arrangements
+- A body that nominally exists but never meets or has no stable membership → Type 0
+- A small council that is entirely dominated by the ruler with no institutionalization → Type 0
+- Focus on the **highest type** of assembly that existed and actually functioned during THIS LEADER'S REIGN
+- Where a council (Type 1) or large assembly (Type 2) exists, we assume executive power is to some extent constrained
 
 ## Analysis Process
 
-1. Identify any legislative or deliberative bodies during this leader's reign
-2. Check if the body meets criteria (a), (b), and (c)
-3. Determine if the assembly functioned during this reign
+1. Identify any deliberative or advisory bodies during this leader's reign
+2. Determine if the body is institutionalized (regular meetings, designated name, stable membership)
+3. Assess whether it is a small advisory council (Type 1) or a large assembly with policymaking/selection role (Type 2)
+4. Code based on actual (de facto) functioning, not formal arrangements
 """,
-        
-        task_instruction="""Determine whether this polity had a legislative assembly (1) or not (0) during this leader's reign.
 
-Remember:
-- Assembly (1): Popular assembly or parliament with (a) role in selection/taxation/policy, (b) independence from executive, (c) regular meetings
-- No Assembly (0): No such body, or only advisory councils without institutional power""",
-        
-        coding_rule_reminder="""⚠️ **IMPORTANT:** Focus on whether an assembly existed and functioned during THIS LEADER'S REIGN.""",
-        
+        task_instruction="""Determine the assembly type (0, 1, or 2) for this leader's reign.
+
+Types:
+- 0: No assembly or council — purely autocratic rule
+- 1: Small advisory council — institutionalized (regular meetings, designated name, stable membership), appointed by ruler
+- 2: Large assembly with a role in policymaking or leadership selection (de jure or de facto)
+
+**Code based on de facto functioning, not formal structures.**""",
+
+        coding_rule_reminder="""⚠️ **IMPORTANT:** Focus on the HIGHEST type of assembly that actually functioned during THIS LEADER'S REIGN. Code de facto, not de jure.""",
+
         compact_definition=(
-            "Whether a legislative assembly exists meeting ALL criteria: (a) role in leadership selection, "
-            "taxation, or policy; (b) independence from executive; (c) meets regularly. "
-            "(0) no such body or only advisory councils; (1) assembly exists (e.g., Parliament, Senate)."
+            "Type of assembly/council (de facto): "
+            "(0) no assembly — purely autocratic; "
+            "(1) small advisory council appointed by ruler, institutionalized (regular meetings, designated name, stable membership); "
+            "(2) large assembly with policymaking or leadership selection role (de jure or de facto)."
         )
     ),
     
@@ -321,60 +321,6 @@ Categories:
             "military, or one-party selection (least constrained); (1) by royal council, head of state, "
             "or head of government (moderately constrained); (2) through direct popular election or "
             "assembly selection (most constrained)."
-        )
-    ),
-    
-    # =========================================================================
-    # TENURE
-    # =========================================================================
-    "tenure": IndicatorConfig(
-        name="tenure",
-        display_name="tenure length",
-        specialization="executive tenure patterns",
-        labels=["0", "1", "2"],
-        task_description="the tenure length of a specific leader",
-        
-        definition="""
-## Definition of Tenure
-
-Tenure refers to the executive's length of continuous service. Longer tenure is presumably a signal of fewer constraints on executive power.
-
-## Tenure Categories
-
-**Category 0 - Short Tenure (< 5 years):**
-- Leader's reign is less than 5 years
-- Suggests higher constraints on executive power or instability
-
-**Category 1 - Medium Tenure (5-10 years):**
-- Leader's reign is between 5 and 10 years
-- Moderate constraints on executive power
-
-**Category 2 - Long Tenure (> 10 years):**
-- Leader's reign exceeds 10 years
-- Suggests fewer constraints on executive power
-- Leader can maintain power for extended periods
-
-## Analysis Process
-
-1. Calculate the length of this leader's reign (end_year - start_year)
-2. Categorize based on tenure length:
-   - < 5 years → 0
-   - 5-10 years → 1
-   - > 10 years → 2
-""",
-        
-        task_instruction="""Determine the tenure category (0, 1, or 2) based on this leader's reign length.
-
-Categories:
-- 0: Tenure < 5 years (high constraint)
-- 1: Tenure 5-10 years (moderate constraint)
-- 2: Tenure > 10 years (low constraint)""",
-        
-        coding_rule_reminder="""⚠️ **IMPORTANT:** Calculate based on the reign period provided ({start_year} to {end_year}).""",
-        
-        compact_definition=(
-            "Length of executive's continuous service: (0) < 5 years (high constraint/instability); "
-            "(1) 5-10 years (moderate constraint); (2) > 10 years (low constraint, leader maintains power)."
         )
     ),
     
@@ -562,20 +508,20 @@ Remember:
     ),
     
     # =========================================================================
-    # ELECTIONS (DEPENDS ON ASSEMBLY = 1)
+    # ELECTIONS (DEPENDS ON ASSEMBLY = 2)
     # =========================================================================
     "elections": IndicatorConfig(
         name="elections",
         display_name="assembly elections status",
         specialization="electoral systems and representative institutions",
         labels=["0", "1", "2"],
-        task_description="whether members of the assembly were elected and whether elections were contested by factions or parties",
-        depends_on={"assembly": "1"},
-        
+        task_description="whether members of the large assembly were elected and whether elections were contested by factions or parties",
+        depends_on={"assembly": "2"},
+
         definition="""
 ## Definition of Elections
 
-This indicator codes whether members of an existing assembly are **elected** to their positions. This indicator is only applicable when an assembly exists (assembly = 1).
+This indicator codes whether members of an existing **large assembly** (assembly = 2) are **elected** to their positions. It is only applicable when a large assembly exists.
 
 **An election** refers to a selection procedure in which:
 - Members are chosen by an electorate through defined rules (e.g., majority, proportionality)
@@ -593,44 +539,44 @@ This indicator codes whether members of an existing assembly are **elected** to 
 - Most members of the assembly are elected
 - Elections follow defined rules translating votes into seats
 - Electorate is larger than the body itself
-- Elections may or may not be competitive
+- Elections exist but are NOT organized by factions or parties
 
 **Competitive Elections (2):**
 - Elections exist AND are contested by organized factions or parties
-- Higher degree of constraint on executive power
-- Implies organized political competition
+- Distinct blocs, factions, or parties compete for seats
+- Examples: Roman Optimates vs Populares, English Whigs vs Tories, modern multi-party elections
 
 ## Important Notes
 
-- This indicator assumes assembly = 1 (assembly exists)
+- This indicator assumes assembly = 2 (large assembly exists)
 - Focus on whether MOST members are elected, not all
 - The extent of suffrage (who can vote) is NOT relevant for coding
-- The key distinction for code 2 is organized factions/parties, not just competition
+- The key distinction for code 2 is organized factions/parties, not just informal competition
 
 ## Analysis Process
 
-1. Confirm that an assembly exists during this leader's reign
+1. Confirm that a large assembly (Type 2) exists during this leader's reign
 2. Determine how members of the assembly obtain their positions
-3. If elected: Are there defined rules translating votes to seats?
+3. If elected: Are there defined rules translating votes to seats? Is the electorate larger than the body?
 4. If elections exist: Are they contested by organized factions or parties?
 """,
-        
+
         task_instruction="""Determine the elections category (0, 1, or 2) for how assembly members are selected during this leader's reign.
 
-**This indicator assumes an assembly exists.**
+**This indicator only applies when a large assembly (assembly = 2) exists.**
 
 Categories:
-- 0: No elections - members appointed, hereditary, or non-electoral selection
-- 1: Elections exist - most members elected by an electorate through defined rules
-- 2: Competitive elections - elections contested by organized factions or parties""",
-        
-        coding_rule_reminder="""⚠️ **IMPORTANT:** This indicator is only applicable when assembly = 1. Focus on the selection method for assembly members during THIS LEADER'S REIGN.""",
-        
+- 0: No elections — members appointed, hereditary, or selected by non-electoral means
+- 1: Elections exist — most members elected by an electorate through defined rules, NOT organized by factions/parties
+- 2: Competitive elections — elections contested by organized factions or parties""",
+
+        coding_rule_reminder="""⚠️ **IMPORTANT:** This indicator only applies when assembly = 2. Focus on the selection method for assembly members during THIS LEADER'S REIGN.""",
+
         compact_definition=(
-            "Whether assembly members are elected (only if assembly exists): "
-            "(0) no elections - members appointed, hereditary, or non-electoral; "
-            "(1) elections exist - most members elected by electorate through defined rules; "
-            "(2) competitive elections - contested by organized factions or parties."
+            "Whether large assembly members are elected (only if assembly = 2): "
+            "(0) no elections — members appointed, hereditary, or non-electoral; "
+            "(1) elections exist — most members elected by electorate through defined rules; "
+            "(2) competitive elections — contested by organized factions or parties."
         )
     ),
 }
@@ -781,9 +727,9 @@ def build_combined_prompt(
     for ind in indicators:
         if ind not in INDICATOR_CONFIGS:
             raise ValueError(f"Unknown indicator: {ind}")
-        # Skip elections if assembly != 1 or not explicitly included
+        # Skip elections if assembly != 2 or not explicitly included
         if ind == "elections":
-            if include_elections and assembly_value == "1":
+            if include_elections and assembly_value == "2":
                 valid_indicators.append(ind)
         else:
             valid_indicators.append(ind)
@@ -959,9 +905,10 @@ COVE_QUESTION_TEMPLATES: Dict[str, List[str]] = {
         "Could {name} make major decisions unilaterally in {polity}?"
     ],
     "assembly": [
-        "What legislative or deliberative bodies existed in {polity} during {name}'s reign ({start_year}-{end_year})?",
-        "Did any assembly have authority over taxation, legislation, or leader selection under {name}?",
-        "How frequently did legislative bodies convene during {name}'s rule?"
+        "What deliberative or advisory bodies existed in {polity} during {name}'s reign ({start_year}-{end_year})?",
+        "Was any such body a small advisory council appointed by the ruler (institutionalized, regular meetings, designated name)?",
+        "Was there a large assembly that played a role in policymaking or leadership selection under {name}?",
+        "Did these bodies actually meet and function, or were they merely nominal?"
     ],
     "appointment": [
         "How did {name} come to power in {polity}?",
@@ -992,8 +939,8 @@ COVE_QUESTION_TEMPLATES: Dict[str, List[str]] = {
         "Did multiple independent organizations have authority over policymaking under {name}?"
     ],
     "elections": [
-        "How were members of the assembly selected in {polity} during {name}'s reign ({start_year}-{end_year})?",
-        "Were assembly members elected, appointed, or hereditary?",
+        "How were members of the large assembly selected in {polity} during {name}'s reign ({start_year}-{end_year})?",
+        "Were assembly members elected by an electorate considerably larger than the body itself?",
         "If elections existed, were they contested by organized factions or parties?",
         "What was the size of the electorate relative to the assembly in {polity} under {name}?"
     ]

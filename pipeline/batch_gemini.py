@@ -386,6 +386,7 @@ class GeminiBatchRunner:
                         confidence = validated.get("confidence_score")
                         df.at[row_idx, "constitution_document_name"] = validated.get("document_name")
                         df.at[row_idx, "constitution_year"] = validated.get("constitution_year")
+                        df.at[row_idx, "constitution_document_types"] = validated.get("document_types")
                     else:
                         valid_labels = INDICATOR_LABELS.get(indicator, ["0", "1"])
                         validated = validate_indicator_response(parsed, indicator, valid_labels)
@@ -456,7 +457,7 @@ class GeminiBatchRunner:
                     continue
 
                 if indicator == "constitution":
-                    valid_labels = [1, 0]
+                    valid_labels = [0, 1, 2]
                 else:
                     valid_labels = INDICATOR_LABELS.get(indicator, ["0", "1"])
 
