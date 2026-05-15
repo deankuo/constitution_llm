@@ -425,8 +425,8 @@ Examples:
     )
     parser.add_argument(
         "--model", "-m",
-        default="gemini-2.5-pro",
-        help="LLM model identifier (default: gemini-2.5-pro)"
+        default="gemini-3.1-pro-preview",
+        help="LLM model identifier (default: gemini-3.1-pro-preview)"
     )
     parser.add_argument(
         "--assembly-col",
