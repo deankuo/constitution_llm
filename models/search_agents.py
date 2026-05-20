@@ -242,7 +242,7 @@ def run_gemini_search_agent(
     Args:
         system_prompt: System prompt for the model
         user_prompt: User prompt for the model
-        model: Model name (e.g., 'gemini-2.5-pro')
+        model: Model name (e.g., 'gemini-3.1-pro-preview')
         api_key: Google Gemini API key
         serper_api_key: Serper API key for web search
         llm_params: Dictionary with parameters (unused, kept for API consistency)
