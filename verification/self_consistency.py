@@ -28,7 +28,7 @@ class SelfConsistencyConfig:
 
     def __post_init__(self):
         if self.temperatures is None:
-            self.temperatures = [0.0, 0.5, 1.0]
+            self.temperatures = [1.0, 1.0, 1.0]  # Default to 3 samples at temperature 1.0
         # Ensure we have enough temperatures for n_samples
         if len(self.temperatures) < self.n_samples:
             # Interpolate additional temperatures

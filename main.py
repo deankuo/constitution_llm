@@ -445,9 +445,6 @@ def process_single_polity(
         f'explanation_{model_suffix}': explanation,
         f'explanation_length_{model_suffix}': len(explanation) if explanation else 0,
         f'confidence_score_{model_suffix}': validated.get('confidence_score', None),
-        # Search metadata
-        f'search_queries_{model_suffix}': ' | '.join(query_tracker) if query_tracker else None,
-        f'urls_used_{model_suffix}': ' | '.join(url_tracker) if url_tracker else None,
         # Private cost fields — stripped before CSV output
         f'_input_tokens_{model_suffix}': input_tokens,
         f'_output_tokens_{model_suffix}': output_tokens,
@@ -455,6 +452,12 @@ def process_single_polity(
         f'_thinking_tokens_{model_suffix}': thinking_tokens,
         '_model_identifier': model_identifier,
     }
+
+    # Only emit search columns when search was actually used (keep output clean for pure-LLM runs)
+    if query_tracker:
+        result[f'search_queries_{model_suffix}'] = ' | '.join(query_tracker)
+    if url_tracker:
+        result[f'urls_used_{model_suffix}'] = ' | '.join(url_tracker)
 
     # Apply verification if requested
     if verify_type != 'none' and llm is not None:
@@ -864,7 +867,7 @@ Examples:
     parser.add_argument(
         '--models', '-m',
         nargs='+',
-        default=['Gemini=gemini-2.5-pro'],
+        default=['Gemini=gemini-3.1-pro-preview'],
         help='Space-separated list of models in KEY=IDENTIFIER format'
     )
     parser.add_argument(
@@ -1037,6 +1040,16 @@ Examples:
         default=True,
         help='Include reasoning in predictions for 6 indicators (default: True). Set to False for prediction-only output. Constitution always includes reasoning.'
     )
+    parser.add_argument(
+        '--logprobs',
+        action='store_true',
+        default=False,
+        help=(
+            'Request token-level log probabilities from Gemini for uncertainty quantification.\n'
+            'Adds {indicator}_logprob columns to output (one per indicator).\n'
+            'Supported models: gemini-2.5-flash, gemini-2.5-pro (default: off).'
+        )
+    )
 
     args = parser.parse_args()
 
@@ -1088,6 +1101,15 @@ Examples:
                 "Agentic search requires multi-turn LLM calls which batch API does not support.\n"
                 "Use --search-mode forced --use-batch instead (pre-search + batch)."
             )
+
+    # Logprobs support notice
+    if args.logprobs:
+        model_arg_for_check = args.models[0]
+        model_id_for_check = model_arg_for_check.split('=', 1)[-1] if '=' in model_arg_for_check else model_arg_for_check
+        if not any(model_id_for_check.startswith(p) for p in GEMINI_MODELS):
+            print(f"WARN: --logprobs is only supported by Gemini models (got '{model_id_for_check}'). Logprobs will be skipped.")
+        elif not any(kw in model_id_for_check for kw in ('2.5', '3.5', '3.0', '3.1')):
+            print(f"INFO: --logprobs: supported models are gemini-2.5-flash and gemini-2.5-pro. Other Gemini models will fall back silently.")
 
     if args.pipeline == 'leader':
         print("Pipeline: LEADER level (modular, all 7 indicators supported)")
@@ -1177,6 +1199,7 @@ Examples:
                     sequence=args.sequence,
                     random_sequence=args.random_sequence,
                     reasoning=args.reasoning,
+                    use_logprobs=args.logprobs,
                 )
                 predictor = Predictor(config, api_keys)
                 batch_config = BatchConfig(
@@ -1251,6 +1274,7 @@ Examples:
                     sequence=args.sequence,
                     random_sequence=args.random_sequence,
                     reasoning=args.reasoning,
+                    use_logprobs=args.logprobs,
                 )
                 predictor = Predictor(config, api_keys)
 
@@ -1354,7 +1378,8 @@ Examples:
             sc_temperatures=args.sc_temperatures,
             sequence=args.sequence,
             random_sequence=args.random_sequence,
-            reasoning=args.reasoning
+            reasoning=args.reasoning,
+            use_logprobs=args.logprobs,
         )
 
         # Create predictor
@@ -1464,7 +1489,7 @@ Examples:
     # Always create LLM instances — needed for cost tracking AND verification
     print("Creating LLM instances for cost tracking...")
     for model_key, model_identifier in models_dict.items():
-        model_llms[model_key] = create_llm(model_identifier, api_keys)
+        model_llms[model_key] = create_llm(model_identifier, api_keys, use_logprobs=args.logprobs)
 
     if args.verify in ('cove', 'both'):
         if args.verifier_model:

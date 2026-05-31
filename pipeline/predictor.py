@@ -40,7 +40,7 @@ from utils.langsmith_utils import traceable
 class PredictionConfig:
     """Configuration for prediction pipeline."""
     mode: PromptMode = PromptMode.MULTIPLE
-    indicators: List[str] = field(default_factory=lambda: ['sovereign', 'assembly', 'appointment', 'tenure', 'exit', 'collegiality', 'separate_powers'])
+    indicators: List[str] = field(default_factory=lambda: ['sovereign', 'federalism', 'checks', 'collegiality', 'assembly', 'entry', 'entry_4', 'exit', 'exit_4'])
     verify: VerificationType = VerificationType.NONE
     verify_indicators: List[str] = field(default_factory=list)
     model: str = DEFAULT_PRIMARY_MODEL
@@ -49,13 +49,15 @@ class PredictionConfig:
     max_tokens: int = DEFAULT_MAX_TOKENS
     top_p: float = DEFAULT_TOP_P
     sc_n_samples: int = 3
-    sc_temperatures: List[float] = field(default_factory=lambda: [0.0, 0.5, 1.0])
+    sc_temperatures: List[float] = field(default_factory=lambda: [0.7, 0.7, 0.7])
     cove_questions_per_element: int = 1  # Changed from 2 to 1 (4 questions total for constitution)
     # Sequential mode parameters
     sequence: Optional[List[str]] = None  # Specific order for sequential mode
     random_sequence: bool = False  # Randomize order in sequential mode
     # Reasoning control
     reasoning: bool = True  # Include reasoning for non-constitution indicators
+    # Uncertainty quantification (gemini-2.5-* models only)
+    use_logprobs: bool = False
 
 
 @dataclass
@@ -75,6 +77,8 @@ class IndicatorPrediction:
     document_name: Optional[str] = None
     constitution_year: Optional[str] = None  # String: "N/A" or "1789; 1791"
     document_types: Optional[str] = None    # String: "N/A" or "1; 2" (parallel to document_name)
+    # Uncertainty quantification
+    logprob: Optional[float] = None  # Log probability of chosen value token (Gemini only; ≤ 0)
 
 
 @dataclass
@@ -106,6 +110,10 @@ class PolityPrediction:
                 result[f'{ind_name}_reasoning'] = ind_pred.reasoning
 
             result[f'{ind_name}_confidence'] = ind_pred.confidence_score
+
+            # Log probability of the chosen value token (Gemini only; None for other providers)
+            if ind_pred.logprob is not None:
+                result[f'{ind_name}_logprob'] = ind_pred.logprob
 
             # Constitution-specific fields
             if ind_name == 'constitution':
@@ -164,7 +172,7 @@ class Predictor:
         self.cost_tracker = cost_tracker or CostTracker()
 
         # Initialize LLM
-        self.llm = create_llm(config.model, api_keys)
+        self.llm = create_llm(config.model, api_keys, use_logprobs=config.use_logprobs)
 
         # Initialize verifier LLM if needed
         self.verifier_llm = None
@@ -285,6 +293,23 @@ class Predictor:
                 # Parse response
                 parsed = parse_json_response(response.content, verbose=False)
 
+                # Extract per-indicator logprobs from token stream (Gemini only)
+                logprobs_by_indicator = {}
+                if response.logprobs_result is not None:
+                    from utils.logprob_utils import extract_indicator_logprobs
+                    ind_label_map = {
+                        ind: INDICATOR_LABELS.get(ind, [])
+                        for ind in prompt.indicators
+                    }
+                    try:
+                        logprobs_by_indicator = extract_indicator_logprobs(
+                            logprobs_result=response.logprobs_result,
+                            json_text=response.content,
+                            indicator_valid_labels=ind_label_map,
+                        )
+                    except Exception:
+                        pass  # logprobs are best-effort; never block predictions
+
                 # Calculate cost per indicator if multiple indicators in one prompt
                 num_indicators = len(prompt.indicators)
                 cost_per_indicator = self._calculate_cost(response) / num_indicators
@@ -302,7 +327,8 @@ class Predictor:
                         end_year=end_year,
                         prompt=prompt,
                         cost_per_indicator=cost_per_indicator,
-                        tokens_per_indicator=tokens_per_indicator
+                        tokens_per_indicator=tokens_per_indicator,
+                        logprob=logprobs_by_indicator.get(indicator),
                     )
 
                     predictions[indicator] = ind_prediction
@@ -350,7 +376,8 @@ class Predictor:
         end_year: int,
         prompt: PromptOutput,
         cost_per_indicator: float = 0.0,
-        tokens_per_indicator: int = 0
+        tokens_per_indicator: int = 0,
+        logprob: Optional[float] = None,
     ) -> IndicatorPrediction:
         """Process a single indicator from parsed response."""
         # Validate response based on indicator type
@@ -422,7 +449,8 @@ class Predictor:
             cost_usd=cost_per_indicator,
             document_name=document_name,
             constitution_year=constitution_year,
-            document_types=document_types if indicator == 'constitution' else None
+            document_types=document_types if indicator == 'constitution' else None,
+            logprob=logprob,
         )
 
     def _calculate_cost(self, response: ModelResponse) -> float:

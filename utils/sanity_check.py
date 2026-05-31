@@ -38,8 +38,8 @@ try:
 except ImportError:
     from langsmith_utils import traceable  # direct execution fallback
 
-# All available indicators
-ALL_INDICATORS = ['constitution', 'sovereign', 'assembly', 'appointment', 'tenure', 'exit', 'collegiality', 'separate_powers']
+# All available indicators (new single_builder.py schema)
+ALL_INDICATORS = ['constitution', 'sovereign', 'federalism', 'checks', 'collegiality', 'assembly', 'entry', 'entry_4', 'exit', 'exit_4', 'elections']
 
 
 def fix_column_types(df: pd.DataFrame) -> pd.DataFrame:
@@ -686,8 +686,8 @@ def sanity_check_and_reprocess(
 
         # Determine which indicators to check
         if indicators is None:
-            # Auto-detect: check all 6 standard indicators
-            check_indicators = ['sovereign', 'assembly', 'appointment', 'tenure', 'exit', 'collegiality', 'separate_powers']
+            # Auto-detect: check all standard indicators (new pipeline schema)
+            check_indicators = ['sovereign', 'federalism', 'checks', 'collegiality', 'assembly', 'entry', 'entry_4', 'exit', 'exit_4']
             # Also check constitution if columns exist
             if 'constitution_prediction' in df.columns or 'constitution_confidence' in df.columns:
                 check_indicators.insert(0, 'constitution')
@@ -785,8 +785,8 @@ def sanity_check_and_reprocess(
         # For multiple mode: reprocess only specified indicators
         if indicators is None:
             if mode == 'single':
-                indicators = ['sovereign', 'assembly', 'appointment', 'tenure', 'exit', 'collegiality', 'separate_powers']
-                print(f"Single mode: Will reprocess all 7 indicators together: {indicators}")
+                indicators = ['sovereign', 'federalism', 'checks', 'collegiality', 'assembly', 'entry', 'entry_4', 'exit', 'exit_4']
+                print(f"Single mode: Will reprocess all 9 indicators together: {indicators}")
             else:
                 indicators = [indicator]
                 print(f"Multiple mode: Will reprocess indicator: {indicator}")
@@ -987,7 +987,7 @@ Examples:
                        ))
     parser.add_argument('--mode', choices=['single', 'multiple', 'sequential'], default='multiple',
                        help='Prompt mode for reprocessing (leader pipeline only): single, multiple, or sequential')
-    parser.add_argument('--model', default='Gemini=gemini-2.5-pro', help='Model to use (default: gemini-2.5-pro)')
+    parser.add_argument('--model', default='gemini-3.1-pro-preview', help='Model to use (default: gemini-3.1-pro-preview)')
     parser.add_argument('--verify', choices=['none', 'self_consistency', 'cove', 'both'],
                        default='none', help='Verification method (default: none)')
     parser.add_argument('--temperature', type=float, default=0.0, help='Temperature (default: 0.0)')

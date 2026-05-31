@@ -23,11 +23,16 @@ class ModelResponse:
         model: Model identifier that generated the response
         usage: Token usage and cost information
         raw_response: Optional raw response object from the provider
+        logprobs_result: Token-level log probability data (Gemini only).
+                         This is the raw logprobs_result object from
+                         response.candidates[0].logprobs_result.
+                         Use utils.logprob_utils to extract per-indicator values.
     """
     content: str
     model: str
     usage: Dict[str, Any] = field(default_factory=dict)
     raw_response: Optional[Any] = None
+    logprobs_result: Optional[Any] = None
 
     @property
     def input_tokens(self) -> int:

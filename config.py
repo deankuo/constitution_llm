@@ -16,7 +16,7 @@ from typing import List
 # API Configuration
 # =============================================================================
 
-DEFAULT_TEMPERATURE = 0
+DEFAULT_TEMPERATURE = 1.0  # Gemini recommended default
 DEFAULT_MAX_TOKENS = 32768  # Increased from 2048 to handle single prompt mode with multiple indicators
                             # NOTE: Actual model limits vary by provider:
                             # - GPT-4o: 16,384 max_tokens
@@ -104,23 +104,28 @@ INDICATOR_LABELS = {
     # Polity-level
     'polity_constitution': ['0', '1', '2'],
     'polity_sovereign': ['0', '1'],
-    # Leader-level — prefixed (evaluation / ground-truth column names)
+    # Leader-level — prefixed (evaluation / ground-truth column names, old pipeline)
     'leader_sovereign': ['0', '1'],
     'leader_assembly': ['0', '1', '2'],
     'leader_appointment': ['0', '1', '2'],
-    'leader_tenure': ['0', '1', '2'],
     'leader_exit': ['0', '1'],
     'leader_collegiality': ['0', '1'],
     'leader_separate_powers': ['0', '1'],
-    # Leader-level — bare names (used by predictor / batch_gemini label lookup)
+    # Leader-level — bare names (single_builder.py / new pipeline)
     'sovereign': ['0', '1'],
-    'assembly': ['0', '1', '2'],
-    'appointment': ['0', '1', '2'],
-    'tenure': ['0', '1', '2'],
-    'exit': ['0', '1'],
+    'federalism': ['0', '1'],
+    'checks': ['0', '1', '2'],
     'collegiality': ['0', '1'],
-    'separate_powers': ['0', '1'],
+    'assembly': ['0', '1', '2', '3'],
+    'entry': ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10'],
+    'entry_4': ['0', '1', '2', '3'],
+    'exit': ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15'],
+    'exit_4': ['0', '1', '2', '3'],
     'elections': ['0', '1', '2'],
+    # Old pipeline bare names kept for backward compat
+    'appointment': ['0', '1', '2'],
+    'separate_powers': ['0', '1'],
+    'constitution': ['0', '1', '2'],
 }
 
 # =============================================================================
@@ -153,7 +158,7 @@ class SearchMode(Enum):
 DEFAULT_VERIFICATION_CONFIG = {
     "self_consistency": {
         "n_samples": 3,
-        "temperatures": [0.0, 0.5, 1.0],
+        "temperatures": [0.7, 0.7, 0.7],
         "min_agreement": 0.6
     },
     "cove": {

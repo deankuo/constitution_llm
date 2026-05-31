@@ -1,96 +1,420 @@
 """
 Single Prompt Builder
 
-This module provides a prompt builder that combines multiple indicators
-into a single prompt for efficiency. This approach may reduce API costs
-but could potentially cause cross-indicator contamination.
+Combines multiple indicators into a single prompt.
+Efficient (fewer API calls) but may cause cross-indicator contamination.
+
+Indicators (based on "Growth of Executive Constraints" paper):
+- sovereign (0/1)
+- federalism (0/1)
+- checks (0/1/2)
+- collegiality (0/1)
+- assembly (0/1/2/3)
+- entry (0-10) — fine-grained, 11 categories
+- entry_4 (0-3) — coarse, independent query for robustness check
+- exit (0-15) — fine-grained, 16 categories
+- exit_4 (0-3) — coarse, independent query for robustness check
+
+NOTE: elections is a downstream indicator derived via post_processing.py.
+      It is NOT included in this prompt (hard-coded 0 when assembly != 2).
+NOTE: tenure is excluded — it is a continuous variable, not a categorical label.
 """
 
-from typing import List, Optional, Dict
-
-from prompts.base_builder import BasePromptBuilder, PromptOutput
-from prompts.constitution import get_prompt as get_constitution_prompt
-from prompts.indicators import INDICATOR_CONFIGS
+from typing import List, Optional, Dict, Tuple
+from dataclasses import dataclass
 
 
 # =============================================================================
-# INDICATOR DEFINITION SUMMARIES
+# INDICATOR CONFIGURATIONS
 # =============================================================================
-# Concise summaries of each indicator's definition for combined prompts
+
+@dataclass
+class IndicatorConfig:
+    """Configuration for a political indicator."""
+    name: str
+    display_name: str
+    labels: List[str]
+    summary: str
+
+
+INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
+
+    # =========================================================================
+    # SOVEREIGN
+    # =========================================================================
+    "sovereign": IndicatorConfig(
+        name="sovereign",
+        display_name="Sovereignty",
+        labels=["0", "1"],
+        summary=(
+            "Sovereignty refers to a polity's ability to conduct domestic affairs without foreign interference. "
+            "Because we are concerned with executive constraints that arise from within a polity, foreign influences are usually corrupting. "
+            "An executive obeisant to foreign diktats must be (ceteris paribus) less sensitive to domestic actors.\n\n"
+            "Coding:\n"
+            "• 0 = Semi-sovereign. Examples: colony, protectorate, distant or overseas territory (not fully incorporated into the metropole).\n"
+            "• 1 = Sovereign. Examples: city-states, nation-states, empires, republics, monarchies, tributary states "
+            "(so long as they held primary responsibility for domestic affairs), states within the Peloponnesian League, "
+            "the Hanseatic League, the Holy Roman Empire, and the European Union, any state recognized by European powers "
+            "or international law in the modern era, as well as a few that enjoy de facto sovereignty such as Somaliland and Taiwan."
+        )
+    ),
+
+    # =========================================================================
+    # FEDERALISM
+    # =========================================================================
+    "federalism": IndicatorConfig(
+        name="federalism",
+        display_name="Federalism",
+        labels=["0", "1"],
+        summary=(
+            "Federalism refers generally to a division of sovereignty between central and local units, "
+            "reserving some important powers to the latter and promising a relatively decentralized mode of governance. "
+            "Typically, rights enjoyed by local governance units are enshrined in a constitution. "
+            "Commonly, localities are represented in a legislative chamber at the polity level. "
+            "However constituted, a federal polity may be expected to impose constraints on the executive.\n\n"
+            "Coding:\n"
+            "• 0 = Non-federal.\n"
+            "• 1 = Federal. Includes confederations, leagues, and composite monarchies. "
+            "Historical examples: Achaean League, Aetolian League, Lycian League, Boeotian League, Old Swiss Confederacy, "
+            "Dutch Republic, Holy Roman Empire, Iroquois Confederacy, Hanseatic League, Polish-Lithuanian Commonwealth, Tokugawa Japan. "
+            "Contemporary examples: Canada, Germany, India, United States, and the European Union."
+        )
+    ),
+
+    # =========================================================================
+    # CHECKS
+    # =========================================================================
+    "checks": IndicatorConfig(
+        name="checks",
+        display_name="Checks",
+        labels=["0", "1", "2"],
+        summary=(
+            "Effective checks exist when independent bodies adjacent to the executive have the capacity to resist actions taken by the executive. "
+            "Countervailing powers might be exercised by legislative, judicial, religious, military, caste, aristocratic, or bureaucratic organizations, "
+            "by a privy council or council of elders, by a head of state (if not part of the executive), or by constituent units "
+            "(regional and local governments, tribes, clans et al.). "
+            "Actors such as the media, civil society groups, or ordinary citizens are not considered here as their influence is apt to be sporadic.\n\n"
+            "Coding:\n"
+            "• 0 = None. There are no independent organizations with the capacity to resist the executive.\n"
+            "• 1 = Partial. Independent organizations may, on occasion, resist the executive. But their power is informal and/or their interventions are rare.\n"
+            "• 2 = Full. Independent organizations have the capacity to regularly and effectively resist the executive. "
+            "This includes settings where the checking body must approve legislation or has veto rights (e.g., judicial review)."
+        )
+    ),
+
+    # =========================================================================
+    # COLLEGIALITY
+    # =========================================================================
+    "collegiality": IndicatorConfig(
+        name="collegiality",
+        display_name="Collegiality",
+        labels=["0", "1"],
+        summary=(
+            "Where power at the apex of a polity is exercised in a collegial manner, decisionmaking power is shared among a number of actors. "
+            "There may be a titular head (e.g., director or chair) but the other members of the group are regarded as co-equals, partners, collaborators. "
+            "Collegial decisionmaking is consultative – lateral rather than vertical. "
+            "Wherever de facto practices differs from de jure rules, it is the former that governs coding decisions. "
+            "That is, if a body is formally collegial but actually dominated by a single actor it should not be coded as collegial.\n\n"
+            "Coding:\n"
+            "• 0 = Non-collegial. Examples: most presidencies, monarchies, and dictatorships.\n"
+            "• 1 = Collegial. Examples: most cabinets, some military juntas, many regencies, Roman consuls, Switzerland's modern presidency."
+        )
+    ),
+
+    # =========================================================================
+    # ASSEMBLY
+    # =========================================================================
+    "assembly": IndicatorConfig(
+        name="assembly",
+        display_name="Assembly",
+        labels=["0", "1", "2", "3"],
+        summary=(
+            "An assembly is a body designed to govern (directly), to select leaders, or to assist in governing. "
+            "It may be advisory (a council of selected elites), representative (a legislature), or inclusive of all citizens (a popular assembly).\n\n"
+            "Coding:\n"
+            "• 0 = None.\n"
+            "• 1 = Council. A small advisory council appointed by the ruler, which may not enjoy much autonomy but is nonetheless institutionalized "
+            "(has a recognized name, meets regularly, and has a fairly stable membership). "
+            "Examples: noble or aristocratic councils, privy councils, dynastic councils, Ottoman divan.\n"
+            "• 2 = Legislature. A large representative body that plays some role in policymaking or leadership selection, de jure or de facto. "
+            "Examples: estates assemblies in premodern Europe, the Hwabaek Council in Korea during the Silla Dynasty, legislatures in modern governments.\n"
+            "• 3 = Popular assembly. An assembly that includes most citizens of the polity or a representative sample chosen by lot. "
+            "Examples: Ecclesia in ancient Athens, Landsgemeinden in modern Swiss cantons."
+        )
+    ),
+
+    # =========================================================================
+    # ENTRY (Fine-grained, 11 categories)
+    # =========================================================================
+    "entry": IndicatorConfig(
+        name="entry",
+        display_name="Entry",
+        labels=["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10"],
+        summary=(
+            "The manner in which executives enter office is widely regarded as a key to their power while in office. "
+            "Leader selection indicates the sorts of constraints executives are likely to face.\n\n"
+            "Coding:\n"
+            "• 0 = Through the threat or application of force, such as a coup or rebellion\n"
+            "• 1 = Appointed by a foreign power\n"
+            "• 2 = Appointed by the ruling party (in a one-party system)\n"
+            "• 3 = Appointed by a royal council (either members of the royal family or conclave of aristocrats)\n"
+            "• 4 = Through hereditary succession\n"
+            "• 5 = Appointed by the military\n"
+            "• 6 = Appointed by the legislature\n"
+            "• 7 = Appointed by the head of state\n"
+            "• 8 = Appointed by the head of government\n"
+            "• 9 = Directly through a popular election (regardless of the extension of the suffrage)\n"
+            "• 10 = Other (including clerical bodies such as the College of Cardinals)"
+        )
+    ),
+
+    # =========================================================================
+    # ENTRY_4 (Coarse, 4 categories - independent robustness query)
+    # =========================================================================
+    "entry_4": IndicatorConfig(
+        name="entry_4",
+        display_name="Entry (4-category)",
+        labels=["0", "1", "2", "3"],
+        summary=(
+            "Coarse classification of executive entry — an independent query for robustness check.\n\n"
+            "Coding:\n"
+            "• 0 = Irregular. By force, foreign actor, military junta.\n"
+            "• 1 = Hereditary. Institutionalized process by which a designated family heir inherits office.\n"
+            "• 2 = Appointment. Institutionalized process of appointment by a domestic body that is not democratically elected "
+            "such as a royal council, monarch, or ruling party in a one-party state.\n"
+            "• 3 = Election. Direct popular election, selection by elective body (e.g., legislature or electoral college), "
+            "by local governments, or by lot. The extent of suffrage or eligibility is irrelevant."
+        )
+    ),
+
+    # =========================================================================
+    # EXIT (Fine-grained, 16 categories)
+    # =========================================================================
+    "exit": IndicatorConfig(
+        name="exit",
+        display_name="Exit",
+        labels=["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15"],
+        summary=(
+            "The circumstances of an executive's departure from office says a lot about a leader's prerogative while in office.\n\n"
+            "Coding:\n"
+            "• 0 = Deposed by domestic actors\n"
+            "• 1 = Assassinated or forced suicide\n"
+            "• 2 = Died in battle in civil war\n"
+            "• 3 = Died in battle in foreign war\n"
+            "• 4 = Through deposition by a foreign state\n"
+            "• 5 = Transition to another office by irregular procedures\n"
+            "• 6 = Died (of disease or accident) on campaign in civil war\n"
+            "• 7 = Died (of disease or accident) on campaign in foreign war\n"
+            "• 8 = Died of other natural causes\n"
+            "• 9 = Retired due to ill health\n"
+            "• 10 = Suicide\n"
+            "• 11 = Abdicated/retired (voluntarily, but NOT due to ill health)\n"
+            "• 12 = Other regular exit (e.g., term limits or defeat in election)\n"
+            "• 13 = Transition to another office type/typology (by regular procedures)\n"
+            "• 14 = Unknown\n"
+            "• 15 = Still in office"
+        )
+    ),
+
+    # =========================================================================
+    # EXIT_4 (Coarse, 4 categories - independent robustness query)
+    # =========================================================================
+    "exit_4": IndicatorConfig(
+        name="exit_4",
+        display_name="Exit (4-category)",
+        labels=["0", "1", "2", "3"],
+        summary=(
+            "Coarse classification of executive exit — an independent query for robustness check.\n\n"
+            "Coding:\n"
+            "• 0 = Irregular. Executive is forcibly removed or retires under duress.\n"
+            "• 1 = Natural. Executive retires due to ill health or dies in office.\n"
+            "• 2 = Voluntary. Executive voluntarily retires or abdicates (not due to ill health).\n"
+            "• 3 = Institutionalized. Executive exits at (or near) the expiration of a term, after electoral defeat, "
+            "or as part of a transition to another government office."
+        )
+    ),
+}
+
+
+# =============================================================================
+# MAPPING TABLES (reference only — entry_4 and exit_4 are queried independently)
+# These tables are retained for post-hoc consistency checks and future use.
+# The pipeline does NOT use these mappings; it queries entry_4 and exit_4 directly.
+# =============================================================================
+
+ENTRY_TO_ENTRY_4: Dict[str, str] = {
+    "0": "0",   # Force → Irregular
+    "1": "0",   # Foreign power → Irregular
+    "2": "2",   # Ruling party → Appointment
+    "3": "2",   # Royal council → Appointment
+    "4": "1",   # Hereditary → Hereditary
+    "5": "0",   # Military → Irregular
+    "6": "3",   # Legislature → Election
+    "7": "2",   # Head of state → Appointment
+    "8": "2",   # Head of government → Appointment
+    "9": "3",   # Popular election → Election
+    "10": "3",  # Other (clerical) → Election
+}
+
+EXIT_TO_EXIT_4: Dict[str, str] = {
+    "0": "0",   # Deposed by domestic → Irregular
+    "1": "0",   # Assassinated → Irregular
+    "2": "0",   # Died in battle (civil) → Irregular
+    "3": "0",   # Died in battle (foreign) → Irregular
+    "4": "0",   # Deposed by foreign → Irregular
+    "5": "0",   # Irregular transition → Irregular
+    "6": "1",   # Died on campaign (civil) → Natural
+    "7": "1",   # Died on campaign (foreign) → Natural
+    "8": "1",   # Died natural causes → Natural
+    "9": "1",   # Retired ill health → Natural
+    "10": "1",  # Suicide → Natural
+    "11": "2",  # Abdicated voluntarily → Voluntary
+    "12": "3",  # Regular exit (term limits) → Institutionalized
+    "13": "3",  # Regular transition → Institutionalized
+    "14": None, # Unknown → N/A
+    "15": None, # Still in office → N/A
+}
+
+
+# =============================================================================
+# COMPACT SUMMARIES FOR COMBINED PROMPTS
+# =============================================================================
 
 INDICATOR_SUMMARIES: Dict[str, str] = {
     "sovereign": (
-        "A polity is sovereign (1) if it has supreme authority over internal and external affairs "
-        "without subordination to a foreign power. Not sovereign (0) if it's a colony, protectorate, "
-        "vassal, or tributary state where executive power is beholden to another polity."
+        "Sovereignty: ability to conduct domestic affairs without foreign interference. "
+        "(0) Semi-sovereign — colony, protectorate, overseas territory; "
+        "(1) Sovereign — city-states, nation-states, empires, tributary states with primary domestic responsibility."
     ),
 
-    "assembly": (
-        "Type of assembly/council (de facto): "
-        "(0) no assembly — purely autocratic rule; "
-        "(1) small advisory council appointed by ruler, institutionalized (regular meetings, designated name, stable membership) — "
-        "Examples: noble councils, royal privy councils, aristocratic councils; "
-        "(2) large assembly with a role in policymaking or leadership selection (de jure or de facto) — "
-        "Examples: Ecclesia in ancient Athens, Estates-General, estates assemblies in premodern Europe, legislatures in virtually all modern governments. "
-        "Default to 0 when evidence is absent — do NOT infer a council from regional or civilizational patterns alone."
+    "federalism": (
+        "Federalism: division of sovereignty between central and local units. "
+        "(0) Non-federal; "
+        "(1) Federal — includes confederations, leagues, composite monarchies. "
+        "Examples: Achaean League, Dutch Republic, Holy Roman Empire, Iroquois Confederacy, US, EU."
     ),
 
-    "appointment": (
-        "How executives are selected: (0) through force, hereditary succession, foreign power, "
-        "military, or one-party selection (least constrained); (1) by royal council, head of state, "
-        "or head of government (moderately constrained); (2) through direct popular election or "
-        "assembly selection (most constrained)."
-    ),
-
-    "exit": (
-        "How leaders leave power: (0) irregular exit - died in office or removed by force; "
-        "(1) regular exit - voluntary retirement, term limits, electoral defeat, or peaceful "
-        "institutional transition."
+    "checks": (
+        "Checks: capacity of independent bodies to resist executive actions. "
+        "(0) None — no independent organizations can resist the executive; "
+        "(1) Partial — independent organizations may occasionally resist, but informally or rarely; "
+        "(2) Full — independent organizations regularly and effectively resist, including veto rights or judicial review."
     ),
 
     "collegiality": (
-        "Whether executive decision-making is genuinely shared by a formally constituted body (de facto, not de jure): "
-        "(1) collegial — decisions require collective deliberation among multiple members — "
-        "Examples: cabinets where ministers hold independent authority, military juntas, Roman consuls (each with veto power), regent councils, Switzerland’s Federal Council (all-party cabinet); "
-        "(0) non-collegial — a single actor dominates, OR a formally collegial body is controlled by one person in practice — "
-        "Examples: Stalin dominating the Politburo, Hitler’s cabinet, a sultan with nominal advisory council. "
-        "Default to 0 when evidence of genuine power-sharing is absent."
+        "Collegiality: whether decisionmaking power is shared among multiple actors at the apex. "
+        "Code based on de facto practice, not de jure rules. "
+        "(0) Non-collegial — single actor dominates (most presidencies, monarchies, dictatorships); "
+        "(1) Collegial — power shared among co-equals (cabinets, juntas, regencies, Roman consuls, Swiss presidency)."
     ),
 
-    "separate_powers": (
-        "Separate powers (1) means power is divided between multiple independent organizations with "
-        "authority over policymaking (e.g., independent legislature, judiciary, or religious/military "
-        "authority). Unitary authority (0) means power is concentrated in one organization, or separate "
-        "branches exist on paper but are controlled by the executive. Code based on de facto power."
+    "assembly": (
+        "Assembly: body designed to govern, select leaders, or assist in governing. "
+        "(0) None; "
+        "(1) Council — small advisory council, institutionalized (privy councils, dynastic councils, Ottoman divan); "
+        "(2) Legislature — large representative body with policymaking role (estates assemblies, modern legislatures); "
+        "(3) Popular assembly — includes most citizens or chosen by lot (Athenian Ecclesia, Swiss Landsgemeinden)."
+    ),
+
+    "entry": (
+        "Entry: manner of executive entry into office. "
+        "(0) Force (coup, rebellion); (1) Foreign power; (2) Ruling party (one-party system); "
+        "(3) Royal council; (4) Hereditary succession; (5) Military; "
+        "(6) Legislature; (7) Head of state; (8) Head of government; "
+        "(9) Direct popular election; (10) Other (e.g., clerical bodies)."
+    ),
+
+    "entry_4": (
+        "Entry (4-category): coarse classification, queried independently for robustness. "
+        "(0) Irregular — force, foreign power, military; "
+        "(1) Hereditary — designated family heir; "
+        "(2) Appointment — royal council, head of state/government, ruling party; "
+        "(3) Election — popular election, legislature, lot."
+    ),
+
+    "exit": (
+        "Exit: circumstances of executive departure from office. "
+        "(0) Deposed by domestic actors; (1) Assassinated/forced suicide; "
+        "(2) Died in battle (civil war); (3) Died in battle (foreign war); "
+        "(4) Deposed by foreign state; (5) Irregular transition to another office; "
+        "(6) Died on campaign (civil war); (7) Died on campaign (foreign war); "
+        "(8) Died of natural causes; (9) Retired due to ill health; (10) Suicide; "
+        "(11) Abdicated/retired voluntarily; (12) Regular exit (term limits, electoral defeat); "
+        "(13) Regular transition to another office; (14) Unknown; (15) Still in office."
+    ),
+
+    "exit_4": (
+        "Exit (4-category): coarse classification, queried independently for robustness. "
+        "(0) Irregular — forcibly removed or under duress; "
+        "(1) Natural — died in office or retired due to ill health; "
+        "(2) Voluntary — voluntarily retired/abdicated (not ill health); "
+        "(3) Institutionalized — term expiration, electoral defeat, regular transition."
     ),
 }
-class SinglePromptBuilder(BasePromptBuilder):
+
+
+# =============================================================================
+# HELPER FUNCTIONS
+# =============================================================================
+
+def get_all_indicators(include_robustness: bool = True) -> List[str]:
+    """
+    Return the default indicator list.
+
+    Args:
+        include_robustness: Whether to include entry_4 and exit_4 (default True —
+                            both are queried independently as robustness checks).
+    """
+    base = ["sovereign", "federalism", "checks", "collegiality", "assembly", "entry", "exit"]
+
+    if include_robustness:
+        base.extend(["entry_4", "exit_4"])
+
+    return base
+
+
+def get_categorical_indicators() -> List[str]:
+    """Return all categorical (non-continuous) indicator names."""
+    return list(INDICATOR_CONFIGS.keys())
+
+
+def map_entry_to_4(entry_value: str) -> Optional[str]:
+    """Map fine-grained entry value to 4-category (reference only, not used by pipeline)."""
+    return ENTRY_TO_ENTRY_4.get(entry_value)
+
+
+def map_exit_to_4(exit_value: str) -> Optional[str]:
+    """Map fine-grained exit value to 4-category (reference only, not used by pipeline)."""
+    return EXIT_TO_EXIT_4.get(exit_value)
+
+
+# =============================================================================
+# VERSION 1 — SinglePromptBuilder (full definitions, concise framing)
+# =============================================================================
+
+class SinglePromptBuilder:
     """
     Combines all selected indicators into a single prompt.
 
-    This builder creates one comprehensive prompt that asks the LLM
-    to predict multiple indicators simultaneously. This is more
-    efficient (fewer API calls) but may cause indicators to influence
-    each other's predictions.
+    Builds one comprehensive prompt asking the LLM to predict multiple
+    indicators simultaneously. More efficient (fewer API calls) but may
+    allow indicators to influence each other's predictions.
 
     Example:
-        builder = SinglePromptBuilder(indicators=['sovereign', 'assembly', 'collegiality'])
-        prompts = builder.build("Roman Republic", -509, -27)
-        # Returns single PromptOutput covering all 3 indicators
+        builder = SinglePromptBuilder(indicators=['sovereign', 'assembly'])
+        system, user = builder.build("Roman Republic", "Julius Caesar", -49, -44)
     """
 
-    def __init__(self, indicators: Optional[List[str]] = None, reasoning: bool = True):
-        """
-        Initialize the single prompt builder.
-
-        Args:
-            indicators: List of indicators to include. If None, uses all non-constitution indicators.
-            reasoning: Whether to include reasoning in prompts for non-constitution indicators (default True).
-        """
-        # Default to all indicators except constitution (which has special handling)
+    def __init__(
+        self,
+        indicators: Optional[List[str]] = None,
+        reasoning: bool = True,
+        include_robustness: bool = True
+    ):
         if indicators is None:
-            indicators = ['sovereign', 'assembly', 'appointment', 'tenure', 'exit', 'collegiality', 'separate_powers']
-        super().__init__(indicators, reasoning)
+            indicators = get_all_indicators(include_robustness=include_robustness)
+        self.indicators = indicators
+        self.reasoning = reasoning
 
     def build(
         self,
@@ -98,136 +422,247 @@ class SinglePromptBuilder(BasePromptBuilder):
         name: str,
         start_year: int,
         end_year: Optional[int]
-    ) -> List[PromptOutput]:
-        """
-        Build a single combined prompt for all indicators.
+    ) -> Tuple[str, str]:
+        return self._build_system_prompt(), self._build_user_prompt(polity, name, start_year, end_year)
 
-        Args:
-            polity: Name of the polity
-            name: Name of the leader
-            start_year: Start year of the leader's reign
-            end_year: End year of the leader's reign (None if unknown/unavailable)
+    def _build_system_prompt(self) -> str:
+        prompt = (
+            "You are a political scientist coding executive constraints for historical leaders.\n\n"
+            "**Core rule:** Code de facto (actual) practice, not de jure (formal) arrangements. "
+            "Focus on THIS specific leader's reign. When evidence is uncertain, prefer the more conservative (lower) code.\n\n"
+            "## Indicator Definitions\n\n"
+        )
 
-        Returns:
-            List containing a single PromptOutput (or two if constitution is included)
-        """
-        prompts = []
-
-        # Handle constitution separately (always its own prompt due to complexity)
-        if 'constitution' in self.indicators:
-            system_prompt, user_prompt = get_constitution_prompt(
-                polity=polity,
-                name=name,
-                start_year=start_year,
-                end_year=end_year
-            )
-            prompts.append(PromptOutput(
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                indicators=['constitution'],
-                metadata={'mode': 'single', 'type': 'constitution'}
-            ))
-
-        # Combine other indicators
-        other_indicators = [ind for ind in self.indicators if ind != 'constitution']
-        if other_indicators:
-            system_prompt = self._build_combined_system_prompt(other_indicators)
-            user_prompt = self._build_combined_user_prompt(other_indicators, polity, name, start_year, end_year)
-            prompts.append(PromptOutput(
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                indicators=other_indicators,
-                metadata={'mode': 'single', 'type': 'combined'}
-            ))
-
-        return prompts
-
-    def _build_combined_system_prompt(self, indicators: List[str]) -> str:
-        """Build a combined system prompt for multiple indicators."""
-        prompt = """You are a professional political scientist and historian specializing in comparative politics across different historical periods.
-
-Your task is to analyze a given leader's reign and determine values for multiple political indicators.
-
-## Indicators to Analyze
-
-"""
-
-        # Add indicator definitions using pre-written summaries
-        for ind in indicators:
-            if ind in INDICATOR_CONFIGS and ind in INDICATOR_SUMMARIES:
-                config = INDICATOR_CONFIGS[ind]
-                prompt += f"**{config.display_name.upper()}**\n"
-                labels_str = " / ".join(config.labels)
-                prompt += f"Labels: {labels_str}\n"
-                # Use concise, well-written summary
-                prompt += f"{INDICATOR_SUMMARIES[ind]}\n\n"
-
-        prompt += """## Output Requirements
-
-Provide a JSON object with fields for EACH indicator:
-"""
-
-        for ind in indicators:
+        for ind in self.indicators:
             if ind in INDICATOR_CONFIGS:
-                labels = INDICATOR_CONFIGS[ind].labels
-                labels_str = " or ".join([f'"{l}"' for l in labels])
-                prompt += f'- "{ind}": Must be exactly {labels_str} (string)\n'
+                config = INDICATOR_CONFIGS[ind]
+                prompt += f"### {config.display_name}\n\n{config.summary}\n\n"
+
+        prompt += "## Output Format\n\nRespond with ONLY a valid JSON object — no markdown fences, no extra text.\n\nFields required:\n"
+
+        for ind in self.indicators:
+            if ind in INDICATOR_CONFIGS:
+                config = INDICATOR_CONFIGS[ind]
+                labels_str = ", ".join([f'"{l}"' for l in config.labels])
+                prompt += f'- "{ind}": one of {labels_str}\n'
                 if self.reasoning:
-                    prompt += f'- "{ind}_reasoning": Your analysis for this indicator (string)\n'
-                prompt += f'- "{ind}_confidence_score": Integer from 1 to 100 (integer)\n'
+                    prompt += f'- "{ind}_reasoning": brief justification (string)\n'
+                prompt += f'- "{ind}_confidence": integer 1–100\n'
 
-        if not self.reasoning:
-            prompt += """
-**DO NOT include any reasoning, analysis, or explanation fields in the JSON.**
-"""
-
-        prompt += """
-**CRITICAL OUTPUT FORMAT:**
-- Respond with ONLY a JSON object
-- Do NOT include markdown code fences (```json)
-- Do NOT include any text before or after the JSON
-- Your response must start with { and end with }
-"""
         return prompt
 
-    def _build_combined_user_prompt(
+    def _build_user_prompt(
         self,
-        indicators: List[str],
         polity: str,
         name: str,
         start_year: int,
         end_year: Optional[int]
     ) -> str:
-        """Build a combined user prompt for multiple indicators."""
-        # Format reign period (show "unknown" if end year is missing)
-        reign_period = f"{start_year}-{end_year if end_year is not None else 'unknown'}"
+        reign = f"{start_year}-{end_year if end_year is not None else 'present'}"
+        return (
+            f"Classify the following leader on all indicators:\n\n"
+            f"**Polity:** {polity}\n"
+            f"**Leader:** {name}\n"
+            f"**Reign:** {reign}\n\n"
+            f"Return a single JSON object with all required fields."
+        )
 
-        no_reasoning_note = "\n\n**Do NOT include reasoning or explanation fields. Output ONLY predictions and confidence scores.**" if not self.reasoning else ""
 
-        prompt = f"""Analyze these political indicators for the following leader's reign:
+# =============================================================================
+# VERSION 2 — SinglePromptBuilderV2 (directive framing, tabular definitions)
+# =============================================================================
 
-**Polity:** {polity}
-**Leader:** {name}
-**Reign Period:** {reign_period}{no_reasoning_note}
+class SinglePromptBuilderV2:
+    """
+    Alternative prompt framing: authoritative expert annotator role with
+    tabular indicator reference and explicit step-by-step instructions.
+    Keeps all definitions; varies structure and persona.
+    """
 
-Respond with ONLY a valid JSON object (no markdown, no extra text):
+    def __init__(
+        self,
+        indicators: Optional[List[str]] = None,
+        reasoning: bool = True,
+        include_robustness: bool = True
+    ):
+        if indicators is None:
+            indicators = get_all_indicators(include_robustness=include_robustness)
+        self.indicators = indicators
+        self.reasoning = reasoning
 
-{{"""
+    def build(
+        self,
+        polity: str,
+        name: str,
+        start_year: int,
+        end_year: Optional[int]
+    ) -> Tuple[str, str]:
+        return self._build_system_prompt(), self._build_user_prompt(polity, name, start_year, end_year)
 
-        # Build example structure
-        for i, ind in enumerate(indicators):
+    def _build_system_prompt(self) -> str:
+        prompt = (
+            "You are an expert annotator for the \"Growth of Executive Constraints\" dataset. "
+            "Your job is to assign precise numerical codes to historical leaders based on the indicator "
+            "definitions below. These codes will be used in academic research, so accuracy is paramount.\n\n"
+            "**Annotation Rules:**\n"
+            "1. Always code actual (de facto) behavior, never formal (de jure) arrangements.\n"
+            "2. Evaluate conditions as they existed during THIS leader's specific reign.\n"
+            "3. When evidence is ambiguous or insufficient, assign the more conservative (lower) code.\n"
+            "4. Each indicator is independent — do not let your assessment of one influence another.\n\n"
+            "## Indicator Reference\n\n"
+        )
+
+        for ind in self.indicators:
             if ind in INDICATOR_CONFIGS:
-                labels = INDICATOR_CONFIGS[ind].labels
-                example_label = labels[0]  # Use first valid label as example
+                config = INDICATOR_CONFIGS[ind]
+                prompt += f"**{config.display_name}** (`{ind}`)\n"
+                prompt += f"{config.summary}\n\n"
 
-                prompt += f'\n  "{ind}": "{example_label}",'
+        prompt += (
+            "## Step-by-Step Instructions\n\n"
+            "For each indicator:\n"
+            "1. Recall relevant historical facts about this leader's reign.\n"
+            "2. Match those facts to the indicator definitions above.\n"
+            "3. Assign the appropriate code.\n"
+            "4. Record your confidence (1–100) based on quality of evidence.\n\n"
+            "## Required JSON Output\n\n"
+            "Output ONLY a JSON object with these fields (no markdown, no preamble):\n"
+        )
+
+        for ind in self.indicators:
+            if ind in INDICATOR_CONFIGS:
+                config = INDICATOR_CONFIGS[ind]
+                labels_str = " | ".join(config.labels)
+                prompt += f'- "{ind}": "{labels_str}" (string)\n'
                 if self.reasoning:
-                    prompt += f'\n  "{ind}_reasoning": "Your step-by-step analysis for {ind}",'
-                prompt += f'\n  "{ind}_confidence_score": 30'  # Example confidence score
-
-                if i < len(indicators) - 1:
-                    prompt += ','
-
-        prompt += "\n}"
+                    prompt += f'- "{ind}_reasoning": concise evidence-based justification\n'
+                prompt += f'- "{ind}_confidence": 1–100 (integer)\n'
 
         return prompt
+
+    def _build_user_prompt(
+        self,
+        polity: str,
+        name: str,
+        start_year: int,
+        end_year: Optional[int]
+    ) -> str:
+        reign = f"{start_year}–{end_year if end_year is not None else 'present'}"
+        return (
+            f"Annotate the following leader:\n\n"
+            f"Polity: {polity}\n"
+            f"Leader: {name}\n"
+            f"Reign: {reign}\n\n"
+            f"Apply the indicator definitions strictly. Return your annotation as a single JSON object."
+        )
+
+
+# =============================================================================
+# VERSION 3 — SinglePromptBuilderV3 (compact/minimal, uses summary strings)
+# =============================================================================
+
+class SinglePromptBuilderV3:
+    """
+    Token-efficient prompt using compact one-line indicator summaries.
+    Trades verbosity for brevity — useful for cost/token sensitivity testing.
+    All definitions are preserved but condensed to single lines per indicator.
+    """
+
+    def __init__(
+        self,
+        indicators: Optional[List[str]] = None,
+        reasoning: bool = True,
+        include_robustness: bool = True
+    ):
+        if indicators is None:
+            indicators = get_all_indicators(include_robustness=include_robustness)
+        self.indicators = indicators
+        self.reasoning = reasoning
+
+    def build(
+        self,
+        polity: str,
+        name: str,
+        start_year: int,
+        end_year: Optional[int]
+    ) -> Tuple[str, str]:
+        return self._build_system_prompt(), self._build_user_prompt(polity, name, start_year, end_year)
+
+    def _build_system_prompt(self) -> str:
+        prompt = (
+            "You are a political historian classifying executive constraints for historical leaders. "
+            "Code based on de facto (actual) practice, not de jure arrangements. "
+            "Focus on this specific leader's reign. Prefer conservative codes when uncertain.\n\n"
+            "## Indicator Definitions\n\n"
+        )
+
+        for ind in self.indicators:
+            if ind in INDICATOR_SUMMARIES:
+                prompt += f"**{ind}**: {INDICATOR_SUMMARIES[ind]}\n\n"
+            elif ind in INDICATOR_CONFIGS:
+                config = INDICATOR_CONFIGS[ind]
+                labels_str = "/".join(config.labels)
+                prompt += f"**{ind}** ({labels_str}): {config.summary[:200]}...\n\n"
+
+        prompt += "## Output\n\nRespond with ONLY a valid JSON object (no markdown fences).\n"
+
+        return prompt
+
+    def _build_user_prompt(
+        self,
+        polity: str,
+        name: str,
+        start_year: int,
+        end_year: Optional[int]
+    ) -> str:
+        reign = f"{start_year}-{end_year if end_year is not None else 'present'}"
+
+        fields = []
+        for ind in self.indicators:
+            if ind in INDICATOR_CONFIGS:
+                config = INDICATOR_CONFIGS[ind]
+                labels_str = "/".join(config.labels)
+                fields.append(f'"{ind}" ({labels_str})')
+                if self.reasoning:
+                    fields.append(f'"{ind}_reasoning"')
+                fields.append(f'"{ind}_confidence" (1-100)')
+
+        fields_str = ", ".join(fields)
+
+        return (
+            f"Classify: **{polity}** | **{name}** | **{reign}**\n\n"
+            f"Return JSON with: {fields_str}"
+        )
+
+
+# =============================================================================
+# COMPACT BUILDER FUNCTION (convenience wrapper around V3)
+# =============================================================================
+
+def build_compact_prompt(
+    polity: str,
+    name: str,
+    start_year: int,
+    end_year: Optional[int],
+    indicators: Optional[List[str]] = None,
+    include_reasoning: bool = False
+) -> Tuple[str, str]:
+    """
+    Build a compact combined prompt (token-efficient, uses summary strings).
+
+    Args:
+        polity: Name of the polity
+        name: Name of the leader
+        start_year: Start year of reign
+        end_year: End year of reign
+        indicators: List of indicators (default: all)
+        include_reasoning: Whether to request reasoning fields
+
+    Returns:
+        Tuple of (system_prompt, user_prompt)
+    """
+    builder = SinglePromptBuilderV3(
+        indicators=indicators,
+        reasoning=include_reasoning
+    )
+    return builder.build(polity, name, start_year, end_year)

@@ -7,20 +7,26 @@ Post-processing script that runs AFTER the main pipeline. Depends on the
 
 Dependency
 ----------
-assembly = 2 (large assembly) is required for an LLM call.
-  - assembly = 0 or 1 → pass-through with elections_prediction = "0" (no API call)
+Assembly uses a 4-level schema (0/1/2/3):
+  0 = None
+  1 = Council (small advisory)
+  2 = Legislature (large representative body) → LLM call for elections
+  3 = Popular assembly (all citizens or chosen by lot)
+
+Only assembly = 2 (Legislature) can have legislative elections.
+  - assembly = 0, 1, or 3 → pass-through with elections_prediction = "0" (no API call)
   - assembly = 2 → LLM call to determine 0/1/2
 
 Classifier
 ----------
 
 **ElectionsClassifier** (``--task elections``)
-  For polities where a large assembly exists (assembly = 2), codes whether
+  For polities where a Legislature exists (assembly = 2), codes whether
   assembly members are elected and whether elections are contested by organized
   factions or parties.
 
   Label meanings:
-    0  No large assembly / members not elected
+    0  No legislature / members not elected (also: assembly = 0, 1, or 3)
     1  Members elected, no organized factions/parties
     2  Competitive elections (organized factions/parties)
 
@@ -156,12 +162,14 @@ class ElectionsClassifier:
     an API call (elections_prediction = "0").
     assembly = 0: no assembly at all
     assembly = 1: small advisory council only — elections not applicable
-    assembly = 2: large assembly → LLM call to determine 0/1/2
+    assembly = 2: Legislature (large representative body) → LLM call to determine 0/1/2
+    assembly = 3: popular assembly — not a legislature, so elections = 0 (pass-through)
     """
 
     PRED_COL = "elections_prediction"
     CONF_COL = "elections_confidence"
     REASON_COL = "elections_reasoning"
+    LOGPROB_COL = "elections_logprob"
     SEARCH_QUERIES_COL = "elections_search_queries"
     URLS_USED_COL = "elections_urls_used"
 
@@ -174,9 +182,11 @@ class ElectionsClassifier:
         delay: float = 1.0,
         search_mode: SearchMode = SearchMode.NONE,
         serper_api_key: str = "",
+        use_logprobs: bool = False,
     ):
         self.model = model
-        self.llm = create_llm(model, api_keys)
+        self.use_logprobs = use_logprobs
+        self.llm = create_llm(model, api_keys, use_logprobs=use_logprobs)
         self.api_keys = api_keys
         self.assembly_col = assembly_col
         self.max_workers = max_workers
@@ -204,6 +214,8 @@ class ElectionsClassifier:
         df[self.PRED_COL] = None
         df[self.CONF_COL] = None
         df[self.REASON_COL] = None
+        if self.use_logprobs:
+            df[self.LOGPROB_COL] = None
         if self.search_mode != SearchMode.NONE:
             df[self.SEARCH_QUERIES_COL] = None
             df[self.URLS_USED_COL] = None
@@ -226,10 +238,12 @@ class ElectionsClassifier:
         else:
             results = self._classify_sequential(rows_to_classify)
 
-        for orig_idx, pred, conf, reason, queries_str, urls_str in results:
+        for orig_idx, pred, conf, reason, logprob, queries_str, urls_str in results:
             df.at[orig_idx, self.PRED_COL] = pred
             df.at[orig_idx, self.CONF_COL] = conf
             df.at[orig_idx, self.REASON_COL] = reason
+            if self.use_logprobs:
+                df.at[orig_idx, self.LOGPROB_COL] = logprob
             if self.search_mode != SearchMode.NONE:
                 df.at[orig_idx, self.SEARCH_QUERIES_COL] = queries_str or None
                 df.at[orig_idx, self.URLS_USED_COL] = urls_str or None
@@ -240,10 +254,10 @@ class ElectionsClassifier:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _call_llm(self, row: pd.Series) -> Tuple[str, Optional[int], str, str, str]:
+    def _call_llm(self, row: pd.Series) -> Tuple[str, Optional[int], str, Optional[float], str, str]:
         """
         Returns:
-            (prediction, confidence_score, reasoning, search_queries_str, urls_used_str)
+            (prediction, confidence_score, reasoning, logprob, search_queries_str, urls_used_str)
         """
         polity = str(
             row.get("territorynamehistorical")
@@ -289,6 +303,8 @@ class ElectionsClassifier:
             queries_str = " | ".join(search_result.search_queries)
             urls_str = " | ".join(search_result.urls_used)
 
+        response = None  # will be set only for non-agentic calls (needed for logprobs)
+
         if self.search_mode == SearchMode.AGENTIC:
             from models.llm_clients import detect_provider
             from models.search_agents import (
@@ -326,33 +342,48 @@ class ElectionsClassifier:
             pred = "0"
         conf = parsed.get("confidence_score")
         reason = parsed.get("reasoning", "")
-        return pred, conf, reason, queries_str, urls_str
+
+        # Extract logprob of the 'elections' value token (Gemini only)
+        logprob = None
+        if hasattr(response, 'logprobs_result') and response.logprobs_result is not None:
+            try:
+                from utils.logprob_utils import extract_indicator_logprobs
+                lp_map = extract_indicator_logprobs(
+                    logprobs_result=response.logprobs_result,
+                    json_text=response.content,
+                    indicator_valid_labels={'elections': ['0', '1', '2']},
+                )
+                logprob = lp_map.get('elections')
+            except Exception:
+                pass
+
+        return pred, conf, reason, logprob, queries_str, urls_str
 
     def _classify_sequential(
         self, rows: pd.DataFrame
-    ) -> List[Tuple[int, str, Optional[int], str, str, str]]:
+    ) -> List[Tuple[int, str, Optional[int], str, Optional[float], str, str]]:
         results = []
         for orig_idx, row in tqdm(rows.iterrows(), total=len(rows), desc="Classifying elections"):
             try:
-                pred, conf, reason, queries_str, urls_str = self._call_llm(row)
+                pred, conf, reason, logprob, queries_str, urls_str = self._call_llm(row)
             except Exception as e:
                 print(f"\nError on row {orig_idx}: {e}")
-                pred, conf, reason, queries_str, urls_str = "0", None, f"Error: {e}", "", ""
-            results.append((orig_idx, pred, conf, reason, queries_str, urls_str))
+                pred, conf, reason, logprob, queries_str, urls_str = "0", None, f"Error: {e}", None, "", ""
+            results.append((orig_idx, pred, conf, reason, logprob, queries_str, urls_str))
             time.sleep(self.delay)
         return results
 
     def _classify_parallel(
         self, rows: pd.DataFrame
-    ) -> List[Tuple[int, str, Optional[int], str, str, str]]:
-        all_results: List[Tuple[int, str, Optional[int], str, str, str]] = []
+    ) -> List[Tuple[int, str, Optional[int], str, Optional[float], str, str]]:
+        all_results: List[Tuple[int, str, Optional[int], str, Optional[float], str, str]] = []
         indices = list(rows.index)
         windows = [indices[i:i + self.max_workers] for i in range(0, len(indices), self.max_workers)]
         lock = Lock()
 
         with tqdm(total=len(indices), desc="Classifying elections") as pbar:
             for window in windows:
-                window_results: List[Tuple[int, str, Optional[int], str, str, str]] = []
+                window_results: List[Tuple[int, str, Optional[int], str, Optional[float], str, str]] = []
 
                 with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
                     future_to_idx = {
@@ -362,11 +393,11 @@ class ElectionsClassifier:
                     for future in as_completed(future_to_idx):
                         orig_idx = future_to_idx[future]
                         try:
-                            pred, conf, reason, queries_str, urls_str = future.result()
+                            pred, conf, reason, logprob, queries_str, urls_str = future.result()
                         except Exception as e:
                             print(f"\nError on row {orig_idx}: {e}")
-                            pred, conf, reason, queries_str, urls_str = "0", None, f"Error: {e}", "", ""
-                        window_results.append((orig_idx, pred, conf, reason, queries_str, urls_str))
+                            pred, conf, reason, logprob, queries_str, urls_str = "0", None, f"Error: {e}", None, "", ""
+                        window_results.append((orig_idx, pred, conf, reason, logprob, queries_str, urls_str))
 
                 window_results.sort(key=lambda x: x[0])
                 all_results.extend(window_results)
@@ -391,8 +422,8 @@ def main():
             "Depends on the assembly_prediction column (0/1/2).\n"
             "\n"
             "elections:\n"
-            "  assembly=0 or 1 → elections=0 (pass-through, no LLM call)\n"
-            "  assembly=2 (large assembly) → LLM call\n"
+            "  assembly=0,1,3 → elections=0 (pass-through, no LLM call)\n"
+            "  assembly=2 (Legislature) → LLM call\n"
             "    0  Members not elected   1  Elected, no factions  2  Competitive elections\n"
             "\n"
             "Must be run AFTER the main pipeline has produced a predictions file\n"
@@ -464,6 +495,16 @@ Examples:
             "  forced  — Always search before LLM answers (Wikipedia/DuckDuckGo/Serper)."
         )
     )
+    parser.add_argument(
+        "--logprobs",
+        action="store_true",
+        default=False,
+        help=(
+            "Request token-level log probabilities from Gemini for uncertainty quantification.\n"
+            "Adds elections_logprob column to output.\n"
+            "Supported models: gemini-2.5-flash, gemini-2.5-pro (default: off)."
+        )
+    )
 
     args = parser.parse_args()
 
@@ -508,6 +549,7 @@ Examples:
         delay=args.delay,
         search_mode=search_mode,
         serper_api_key=os.getenv("SERPER_API_KEY", ""),
+        use_logprobs=args.logprobs,
     )
 
     result_df = classifier.classify(df)

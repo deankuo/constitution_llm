@@ -15,7 +15,6 @@ import traceback
 from typing import Any, Dict, Optional, Union
 
 import boto3
-import google.generativeai as genai
 from anthropic import Anthropic
 from botocore.exceptions import ClientError
 from openai import OpenAI
@@ -108,29 +107,48 @@ class OpenAILLM(BaseLLM):
 
 
 # =============================================================================
-# Gemini LLM Implementation
+# Gemini LLM Implementation (google.genai SDK)
 # =============================================================================
 
 class GeminiLLM(BaseLLM):
-    """Google Gemini model implementation."""
+    """
+    Google Gemini model implementation using the google.genai SDK.
+
+    Pass use_logprobs=True to request token-level log probabilities for
+    uncertainty quantification. Supported by gemini-2.5-flash and gemini-2.5-pro;
+    falls back silently for other models. Use utils.logprob_utils to extract
+    per-indicator logprobs from ModelResponse.logprobs_result.
+    """
+
+    # Tracks models that have already printed the thinking-tokens notice,
+    # so the message appears at most once per model per process.
+    _thinking_noticed: set = set()
 
     def __init__(
         self,
         api_key: Optional[str] = None,
-        model: str = "gemini-2.5-pro",
+        model: str = "gemini-3.1-pro-preview",
         default_temperature: float = DEFAULT_TEMPERATURE,
-        default_max_tokens: int = DEFAULT_MAX_TOKENS
+        default_max_tokens: int = DEFAULT_MAX_TOKENS,
+        use_logprobs: bool = False,
     ):
         super().__init__(api_key, model, default_temperature, default_max_tokens)
-        self._configured = False
+        self._client = None
+        self.use_logprobs = use_logprobs
 
-    def _configure(self) -> None:
-        """Configure Gemini API."""
-        if not self._configured:
+    def _get_client(self):
+        """Lazily create and cache a google.genai Client."""
+        if self._client is None:
+            try:
+                from google import genai
+            except ImportError:
+                raise ImportError(
+                    "google-genai SDK not installed. Run: pip install google-genai"
+                )
             if not self.api_key:
                 raise APIKeyError("Google Gemini API key not provided")
-            genai.configure(api_key=self.api_key)
-            self._configured = True
+            self._client = genai.Client(api_key=self.api_key)
+        return self._client
 
     @traceable(name="Gemini.call", run_type="llm")
     def call(
@@ -143,75 +161,123 @@ class GeminiLLM(BaseLLM):
         model: Optional[str] = None,
         **kwargs
     ) -> ModelResponse:
-        """Call Gemini model."""
+        """
+        Call Gemini model.
+
+        response_mime_type="application/json" enforces structured JSON output.
+        Attempts response_logprobs=True / logprobs=5 for uncertainty quantification;
+        if the model does not support logprobs the call is retried without them
+        and logprobs_result will be None in the returned ModelResponse.
+        """
         try:
-            self._configure()
+            from google.genai import types as genai_types
+        except ImportError:
+            raise ImportError(
+                "google-genai SDK not installed. Run: pip install google-genai"
+            )
+
+        try:
+            client = self._get_client()
             model_to_use = model or self.model
 
-            # response_mime_type="application/json" enforces structured JSON output.
-            # Note: May be incompatible with Gemini 2.5 Pro/Flash thinking mode in
-            # some SDK versions. If errors occur, remove response_mime_type and rely
-            # on prompt-based JSON instruction instead.
-            generation_config = genai.GenerationConfig(
+            safety_settings = [
+                genai_types.SafetySetting(
+                    category='HARM_CATEGORY_HARASSMENT', threshold='BLOCK_NONE'
+                ),
+                genai_types.SafetySetting(
+                    category='HARM_CATEGORY_HATE_SPEECH', threshold='BLOCK_NONE'
+                ),
+                genai_types.SafetySetting(
+                    category='HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold='BLOCK_NONE'
+                ),
+                genai_types.SafetySetting(
+                    category='HARM_CATEGORY_DANGEROUS_CONTENT', threshold='BLOCK_NONE'
+                ),
+            ]
+
+            base_config_kwargs = dict(
+                system_instruction=system_prompt,
                 temperature=temperature if temperature is not None else self.default_temperature,
                 top_p=top_p if top_p is not None else DEFAULT_TOP_P,
                 max_output_tokens=max_tokens or self.default_max_tokens,
                 response_mime_type="application/json",
+                safety_settings=safety_settings,
             )
 
-            # Safety settings - set to BLOCK_NONE for academic/historical analysis
-            safety_settings = [
-                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
-            ]
+            # When logprobs are disabled (default), use a single plain call.
+            # When enabled, try with logprobs and fall back silently on unsupported models.
+            try_logprobs = self.use_logprobs
+            for attempt in range(2 if try_logprobs else 1):
+                if try_logprobs:
+                    config = genai_types.GenerateContentConfig(
+                        **base_config_kwargs,
+                        response_logprobs=True,
+                        logprobs=5,
+                    )
+                else:
+                    config = genai_types.GenerateContentConfig(**base_config_kwargs)
 
-            gemini_model = genai.GenerativeModel(
-                model_name=model_to_use,
-                system_instruction=system_prompt,
-                safety_settings=safety_settings
-            )
+                try:
+                    response = client.models.generate_content(
+                        model=model_to_use,
+                        contents=user_prompt,
+                        config=config,
+                    )
+                    break  # success
+                except Exception as inner_e:
+                    err_str = str(inner_e).lower()
+                    if try_logprobs and (
+                        'logprob' in err_str or 'log_prob' in err_str
+                        or ('invalid_argument' in err_str and 'logprob' in err_str.replace('_', ''))
+                        or 'logprobs is not enabled' in err_str
+                    ):
+                        print(f"WARN: logprobs not supported by '{model_to_use}', retrying without them.")
+                        try_logprobs = False
+                        continue
+                    raise  # non-logprob error — propagate immediately
 
-            tool_config = {
-                "function_calling_config": {
-                    "mode": "NONE"
-                }
-            }
-
-            response = gemini_model.generate_content(
-                user_prompt,
-                generation_config=generation_config,
-                tool_config=tool_config
-            )
-
-            if not response.parts:
-                # Get detailed feedback
-                feedback = response.prompt_feedback if hasattr(response, 'prompt_feedback') else 'No feedback available'
-                block_reason = getattr(feedback, 'block_reason', 'UNKNOWN') if feedback != 'No feedback available' else 'UNKNOWN'
-
+            if not response.candidates:
+                block_reason = getattr(
+                    getattr(response, 'prompt_feedback', None), 'block_reason', 'UNKNOWN'
+                )
                 raise ModelError(
-                    f"Gemini response was empty or blocked.\n"
-                    f"Block reason: {block_reason}\n"
-                    f"Full feedback: {feedback}"
+                    f"Gemini response was empty or blocked. Block reason: {block_reason}"
                 )
 
-            # Extract usage if available
+            # Extract token-level logprobs from first candidate (None if not requested/supported)
+            candidate = response.candidates[0]
+            logprobs_result = None
+            if try_logprobs and hasattr(candidate, 'logprobs_result') and candidate.logprobs_result:
+                logprobs_result = candidate.logprobs_result
+
+            # Build content from text parts explicitly to avoid the SDK's per-call
+            # "non-text parts: thought_signature" warning for thinking models.
+            # Emit a one-time informational notice the first time a model returns
+            # non-text parts (e.g. thinking tokens).
+            content_parts = candidate.content.parts if candidate.content else []
+            has_nontext = any(
+                not (hasattr(p, 'text') and p.text is not None)
+                for p in content_parts
+            )
+            if has_nontext and model_to_use not in GeminiLLM._thinking_noticed:
+                GeminiLLM._thinking_noticed.add(model_to_use)
+                print(f"INFO: {model_to_use} returns thinking/non-text parts (suppressed after first notice).")
+            content = "".join(
+                p.text for p in content_parts if hasattr(p, 'text') and p.text is not None
+            ).strip()
+
+            # Extract usage metadata
             usage = {}
-            if hasattr(response, 'usage_metadata') and response.usage_metadata:
+            if response.usage_metadata:
                 metadata = response.usage_metadata
                 prompt_tokens = metadata.prompt_token_count or 0
                 candidate_tokens = metadata.candidates_token_count or 0
                 cached_tokens = metadata.cached_content_token_count or 0
                 total_tokens = metadata.total_token_count or 0
 
-                # For thinking models (Gemini 2.5 Pro/Flash), thinking tokens are
-                # billed SEPARATELY at $3.50/1M — NOT at the output rate ($10/1M).
-                # thoughts_token_count may be None/missing in some SDK versions,
-                # so we derive thinking tokens from total_token_count as a fallback.
+                # thoughts_token_count is None for non-thinking models
                 thinking_tokens = getattr(metadata, 'thoughts_token_count', None)
                 if thinking_tokens is None:
-                    # Derive from total: total = input + candidates + thinking (+ cached)
                     derived = total_tokens - prompt_tokens - candidate_tokens - cached_tokens
                     thinking_tokens = max(0, derived)
                 else:
@@ -226,10 +292,11 @@ class GeminiLLM(BaseLLM):
                 }
 
             return ModelResponse(
-                content=response.text.strip(),
+                content=content,
                 model=model_to_use,
                 usage=usage,
-                raw_response=response
+                raw_response=response,
+                logprobs_result=logprobs_result
             )
 
         except ModelError:

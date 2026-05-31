@@ -7,21 +7,23 @@ A sophisticated pipeline for analyzing historical polities to predict political 
 - **Multi-LLM Support**: Works with multiple LLM providers
   - OpenAI (GPT-5, GPT-4o, etc.)
   - Anthropic (Claude 4.5 Sonnet, etc.)
-  - Google Gemini (Gemini 2.5 Pro, etc.)
+  - Google Gemini (Gemini 3.1 Pro Preview, Gemini 2.5 Pro, etc.) — default: `gemini-3.1-pro-preview`
   - AWS Bedrock (Claude on Bedrock, etc.)
 
-- **8 Political Indicators**:
-  - **Constitution**: Written document with governance rules and limitations
-  - **Sovereign**: Independent vs. colony/vassal/tributary
-  - **Assembly**: Existence of legislative assembly/parliament
-  - **Appointment**: How executives are selected (3-class)
-  - **Tenure**: Longest leader's tenure: <5y, 5-10y, >10y
-  - **Exit**: Irregular (died/forced) vs. regular (voluntary/term limits)
-  - **Collegiality**: Whether executive decision-making is shared by a formally constituted body
-  - **Separate Powers**: Whether power is divided between multiple independent organizations
+- **9 Political Indicators** (single_builder.py schema):
+  - **Sovereign**: Independent vs. colony/vassal/tributary (0/1)
+  - **Federalism**: Central vs. federal/confederal division of power (0/1)
+  - **Checks**: Capacity of independent bodies to resist the executive (0/1/2)
+  - **Collegiality**: Whether executive decision-making is collegially shared (0/1)
+  - **Assembly**: Type of assembly — None/Council/Legislature/Popular (0/1/2/3)
+  - **Entry**: How the executive entered office — 11 fine-grained categories (0–10)
+  - **Entry (4-category)**: Coarse robustness check — Irregular/Hereditary/Appointment/Election (0–3)
+  - **Exit**: How the executive left office — 16 fine-grained categories (0–15)
+  - **Exit (4-category)**: Coarse robustness check — Irregular/Natural/Voluntary/Institutionalized (0–3)
+  - **Elections** (downstream only, via `post_processing.py`): Legislative elections — hard-coded 0 when assembly ≠ 2
 
 - **Verification Methods**:
-  - **Self-Consistency**: Multiple samples at different temperatures with majority vote (3 samples default)
+  - **Self-Consistency**: 3 samples at temperature 0.7 with majority vote (produces one output file)
   - **Chain of Verification (CoVe)**: Cross-model verification with factual questions (4 questions for constitution)
   - **Note**: `--verify both` currently runs CoVe only (sequential verification not yet implemented)
 
@@ -32,10 +34,8 @@ A sophisticated pipeline for analyzing historical polities to predict political 
 
 - **Parallel Row Processing**: Process N leader rows concurrently (`--parallel-rows N`) for faster batch runs. Works with all prompt modes.
 
-- **Downstream Classifiers** (`pipeline/post_processing.py`): Post-processing scripts that run after the main pipeline. Both depend on `assembly_prediction = 1`. Use `--task` to select which to run:
-  - `assembly_extended` (default): Upgrades assembly predictions (0/1) to (0/1/2) — label 2 = competitive factions or parties.
-  - `elections`: Codes whether assembly members are elected (0/1/2) — label 1 = elected, label 2 = competitive elections (organized factions/parties).
-  - `all`: Runs both classifiers in sequence.
+- **Downstream Classifiers** (`pipeline/post_processing.py`): Post-processing scripts that run after the main pipeline. Elections depends on `assembly_prediction = 2` (Legislature). Rows with assembly = 0, 1, or 3 pass through with `elections = 0`.
+  - `elections`: Codes whether legislature members are elected (0/1/2) — 0 = not elected, 1 = elected no factions, 2 = competitive elections.
 
 - **Search Modes** (`--search-mode`):
   - **None**: Pure LLM output, no web search (default)
@@ -430,6 +430,7 @@ python main.py --help
 | `--checkpoint-interval` | Rows per batch/checkpoint | `500` |
 | `--search-mode` | Search mode: `none`, `agentic`, `forced` | `none` |
 | `--use-batch` | Use Gemini Batch API (50% cost savings, Gemini only) | `False` |
+| `--logprobs` | Request token-level log probabilities for uncertainty quantification. Adds `{indicator}_logprob` columns. Supported: `gemini-2.5-flash`, `gemini-2.5-pro` | `False` |
 
 #### Polity Pipeline Arguments (constitution only, supports multiple models)
 
@@ -439,6 +440,7 @@ python main.py --help
 | `--verify` | Verification: `none`, `self_consistency`, `cove`, `both` | `none` |
 | `--verifier-model` | Model for CoVe verification | None |
 | `--search-mode` | Search mode: `none`, `agentic`, `forced` | `none` |
+| `--logprobs` | Token-level log probabilities (gemini-2.5-flash / gemini-2.5-pro only) | `False` |
 | `--temperature` | Generation temperature | 0 |
 | `--max_tokens` | Max tokens per response | 32768 |
 | `--delay` | Delay between API calls | 1.0 |
@@ -929,7 +931,7 @@ elections are contested by organized factions or parties.
 | `1` | Members elected, no organized factions or parties |
 | `2` | Competitive elections — contested by organized factions or parties |
 
-Output columns added: `elections_prediction`, `elections_confidence`, `elections_reasoning`
+Output columns added: `elections_prediction`, `elections_confidence`, `elections_reasoning`, `elections_logprob` (only when `--logprobs` is passed)
 
 ### Usage
 

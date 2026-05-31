@@ -34,8 +34,9 @@ PRICING = {
 
     # Google Gemini models (per 1M tokens)
     # Gemini context caching: cached tokens are ~10% of input price
-    # For thinking models (2.5 Pro, 2.5 Flash), thinking tokens are billed
-    # SEPARATELY at $3.50/1M — NOT at the output rate.
+    # For thinking models (2.5+, 3.x), thinking tokens (thoughts_token_count) are
+    # billed SEPARATELY — NOT included in candidates_token_count (output).
+    'gemini-3.1-pro-preview': {'input': 1.25, 'output': 10.00, 'cached': 0.125, 'thinking': 3.50},
     'gemini-2.5-pro': {'input': 1.25, 'output': 10.00, 'cached': 0.125, 'thinking': 3.50},
     'gemini-2.5-flash': {'input': 0.15, 'output': 0.60, 'cached': 0.015, 'thinking': 3.50},
     'gemini-2.0-flash': {'input': 0.10, 'output': 0.40, 'cached': 0.01},
@@ -65,13 +66,13 @@ class UsageRecord:
     """Record of a single API call's usage."""
     model: str
     input_tokens: int
-    output_tokens: int  # Includes thinking tokens for thinking models
+    output_tokens: int  # Non-thinking output tokens (candidates_token_count for Gemini)
     cost_usd: float
     timestamp: datetime = field(default_factory=datetime.now)
     polity: Optional[str] = None
     indicator: Optional[str] = None
     cached_tokens: int = 0
-    thinking_tokens: int = 0  # Thinking tokens (billed separately from output_tokens)
+    thinking_tokens: int = 0  # Billed separately at thinking rate (thoughts_token_count for Gemini)
 
 
 @dataclass
@@ -81,7 +82,7 @@ class ModelUsage:
     total_input_tokens: int = 0
     total_output_tokens: int = 0  # Non-thinking output tokens only
     total_cached_tokens: int = 0
-    total_thinking_tokens: int = 0  # Thinking tokens (billed separately from output_tokens)
+    total_thinking_tokens: int = 0  # Billed separately at thinking rate
     total_cost_usd: float = 0.0
     call_count: int = 0
 
@@ -135,11 +136,17 @@ class CostTracker:
         if model in PRICING:
             return PRICING[model]
 
-        # Try to match by prefix (for versioned models)
+        # Try to match by longest prefix first (avoids early match on short prefixes like "gemini")
         model_lower = model.lower()
+        best_match_len = 0
+        best_match_price = None
         for known_model, price in PRICING.items():
-            if model_lower.startswith(known_model.lower().split('-')[0]):
-                return price
+            prefix = known_model.lower()
+            if model_lower.startswith(prefix) and len(prefix) > best_match_len:
+                best_match_len = len(prefix)
+                best_match_price = price
+        if best_match_price is not None:
+            return best_match_price
 
         # Default fallback pricing (conservative estimate)
         return {'input': 5.00, 'output': 15.00, 'cached': 0.50}
@@ -197,11 +204,11 @@ class CostTracker:
         Args:
             model: Model name
             input_tokens: Number of input tokens (non-cached)
-            output_tokens: Number of output tokens (includes thinking tokens for thinking models)
+            output_tokens: Non-thinking output tokens (candidates_token_count for Gemini; does NOT include thinking_tokens)
             polity: Optional polity name for tracking
             indicator: Optional indicator name for tracking
             cached_tokens: Number of cached input tokens
-            thinking_tokens: Number of thinking tokens (billed separately from output_tokens)
+            thinking_tokens: Thinking tokens billed at a separate rate (thoughts_token_count for Gemini)
             batch_discount: Multiplier for batch API pricing (e.g. 0.5 for 50% off)
 
         Returns:
