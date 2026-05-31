@@ -268,8 +268,7 @@ class Predictor:
         verification_applied = {}
 
         # Process each prompt
-        for prompt_idx, prompt in enumerate(prompts):
-            print(f"\n📝 Processing prompt {prompt_idx+1}/{len(prompts)}: {prompt.indicators}")
+        for prompt in prompts:
             try:
                 # Call LLM
                 response = self.llm.call(
@@ -340,10 +339,9 @@ class Predictor:
                     total_tokens += ind_prediction.tokens_used
 
             except Exception as e:
-                # Handle errors gracefully - print error for debugging
                 error_msg = f"Error: {str(e)}"
-                print(f"\n❌ ERROR processing {prompt.indicators}: {error_msg}")
-                print(f"   Prompt metadata: {prompt.metadata}")
+                from tqdm import tqdm as _tqdm
+                _tqdm.write(f"ERROR processing {prompt.indicators}: {error_msg}")
 
                 for indicator in prompt.indicators:
                     predictions[indicator] = IndicatorPrediction(
@@ -493,7 +491,7 @@ def create_predictor(
     """
     config = PredictionConfig(
         mode=PromptMode(mode),
-        indicators=indicators or ['sovereign', 'assembly', 'appointment', 'tenure', 'exit', 'collegiality', 'separate_powers'],
+        indicators=indicators or ['sovereign', 'federalism', 'checks', 'collegiality', 'assembly', 'entry', 'entry_4', 'exit', 'exit_4'],
         verify=VerificationType(verify),
         verify_indicators=verify_indicators or [],
         model=model,

@@ -55,12 +55,31 @@ def search_wikipedia(
     if query_tracker is not None:
         query_tracker.append(f"[Wikipedia] {query}")
 
+    import time as _time
+    from tqdm import tqdm as _tqdm
+
+    search_url = "https://en.wikipedia.org/w/api.php"
+    # Contact info required by Wikipedia's bot policy for the 200 req/10s tier
+    headers = {
+        "User-Agent": "ConstitutionLLM/1.0 (academic research bot; deankuopt@gmail.com)",
+    }
+
+    def _wiki_get(params: dict, max_retries: int = 3) -> dict:
+        """GET with exponential backoff on 429 Too Many Requests."""
+        delay = 2.0
+        for attempt in range(max_retries):
+            resp = requests.get(search_url, params=params, headers=headers, timeout=15)
+            if resp.status_code == 429:
+                _tqdm.write(f"WARN: Wikipedia rate-limited (429), retrying in {delay:.0f}s...")
+                _time.sleep(delay)
+                delay *= 2
+                continue
+            resp.raise_for_status()
+            return resp.json()
+        raise RuntimeError(f"Wikipedia returned 429 after {max_retries} retries")
+
     try:
         # Step 1: Search for matching articles
-        search_url = "https://en.wikipedia.org/w/api.php"
-        headers = {
-            "User-Agent": "ConstitutionLLM/1.0 (academic research; python-requests)",
-        }
         search_params = {
             "action": "query",
             "list": "search",
@@ -68,9 +87,7 @@ def search_wikipedia(
             "srlimit": max_results,
             "format": "json",
         }
-        resp = requests.get(search_url, params=search_params, headers=headers, timeout=15)
-        resp.raise_for_status()
-        search_data = resp.json()
+        search_data = _wiki_get(search_params)
 
         results = search_data.get("query", {}).get("search", [])
         if not results:
@@ -82,15 +99,14 @@ def search_wikipedia(
             "action": "query",
             "pageids": "|".join(page_ids),
             "prop": "extracts|info",
-            "exintro": False,       # Get full article, not just intro
-            "explaintext": True,    # Plain text, no HTML
+            "exintro": False,
+            "explaintext": True,
             "exchars": extract_chars,
             "inprop": "url",
             "format": "json",
         }
-        resp = requests.get(search_url, params=extract_params, headers=headers, timeout=15)
-        resp.raise_for_status()
-        extract_data = resp.json()
+        _time.sleep(0.5)  # small gap between the two Wikipedia calls
+        extract_data = _wiki_get(extract_params)
 
         pages = extract_data.get("query", {}).get("pages", {})
         output_parts = []
@@ -114,7 +130,7 @@ def search_wikipedia(
         return "\n".join(output_parts)
 
     except Exception as e:
-        print(f"WARNING: Wikipedia search failed for '{query}': {e}")
+        _tqdm.write(f"WARNING: Wikipedia search failed for '{query}': {e}")
         return ""
 
 
@@ -149,7 +165,8 @@ def search_duckduckgo(
         try:
             from duckduckgo_search import DDGS
         except ImportError:
-            print("WARNING: ddgs not installed. Run: pip install ddgs")
+            from tqdm import tqdm as _tqdm
+            _tqdm.write("WARNING: ddgs not installed. Run: pip install ddgs")
             return ""
 
     try:
@@ -177,7 +194,8 @@ def search_duckduckgo(
         return "[DuckDuckGo] Results:\n" + "\n".join(output_parts)
 
     except Exception as e:
-        print(f"WARNING: DuckDuckGo search failed for '{query}': {e}")
+        from tqdm import tqdm as _tqdm
+        _tqdm.write(f"WARNING: DuckDuckGo search failed for '{query}': {e}")
         return ""
 
 
@@ -246,7 +264,8 @@ def search_serper(
         return output
 
     except Exception as e:
-        print(f"WARNING: Serper search failed for '{query}': {e}")
+        from tqdm import tqdm as _tqdm
+        _tqdm.write(f"WARNING: Serper search failed for '{query}': {e}")
         return ""
 
 

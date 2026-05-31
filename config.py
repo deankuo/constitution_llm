@@ -78,16 +78,20 @@ BEDROCK_ARN_PREFIX = "arn:aws:bedrock"
 
 # All available indicators
 ALL_INDICATORS = [
-    'polity_constitution',
-    'polity_sovereign',
-    'leader_assembly',
-    'leader_appointment',
-    'leader_exit',
-    'leader_collegiality',
-    'leader_separate_powers',
+    'constitution',
+    'sovereign',
+    'federalism',
+    'checks',
+    'collegiality',
+    'assembly',
+    'entry',
+    'entry_4',
+    'exit',
+    'exit_4',
+    'elections',  # downstream only (post_processing.py)
 ]
 
-# Indicators with ground truth for evaluation
+# Indicators with ground truth for evaluation (legacy prefixed names for eval scripts)
 INDICATORS_WITH_GROUND_TRUTH = [
     'polity_constitution',
     'polity_sovereign',
@@ -158,7 +162,7 @@ class SearchMode(Enum):
 DEFAULT_VERIFICATION_CONFIG = {
     "self_consistency": {
         "n_samples": 3,
-        "temperatures": [0.7, 0.7, 0.7],
+        "temperatures": [1.0, 1.0, 1.0],
         "min_agreement": 0.6
     },
     "cove": {

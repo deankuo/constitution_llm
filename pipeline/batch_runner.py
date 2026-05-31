@@ -179,6 +179,8 @@ class BatchRunner:
                 self.results.append(result)
                 self.progress.completed += 1
             except Exception as e:
+                import traceback as _tb
+                _tb.print_exc()
                 print(f"\nError processing {row.get(COL_TERRITORY_NAME, 'unknown')}: {e}")
                 self.progress.failed += 1
                 self.results.append(self._create_error_result(row, str(e)))
@@ -228,6 +230,8 @@ class BatchRunner:
                             with results_lock:
                                 self.progress.completed += 1
                         except Exception as e:
+                            import traceback as _tb
+                            _tb.print_exc()
                             print(f"\nError processing {row.get(COL_TERRITORY_NAME, 'unknown')}: {e}")
                             with results_lock:
                                 self.progress.failed += 1

@@ -2,8 +2,8 @@
 Constitution Analysis Pipeline - Polity Level
 
 This script analyzes historical polities to determine political indicators
-including constitution status, sovereignty, assembly, appointment,
-tenure, and exit patterns.
+including constitution, sovereign, federalism, checks, collegiality,
+assembly, entry, entry_4, exit, exit_4, and (downstream) elections.
 
 Supports multiple LLM providers:
 - OpenAI (GPT models)
@@ -808,34 +808,34 @@ Examples:
   python main.py --pipeline polity --models GPT=gpt-4o --search-mode agentic --test 10
 
 
-  # --- LEADER level (new modular pipeline, all 7 indicators) ---
+  # --- LEADER level (new modular pipeline) ---
 
-  # Predict sovereign + assembly with multiple prompts (default mode)
-  python main.py --pipeline leader --indicators sovereign assembly collegiality
+  # Predict core indicators with multiple prompts (default mode)
+  python main.py --pipeline leader --indicators sovereign federalism checks collegiality assembly entry entry_4 exit exit_4
 
   # With agentic search (LLM decides whether to search)
-  python main.py --pipeline leader --indicators sovereign assembly --search-mode agentic --test 10
+  python main.py --pipeline leader --indicators sovereign assembly checks --search-mode agentic --test 10
 
   # With forced search (always search before LLM answers)
-  python main.py --pipeline leader --indicators sovereign assembly --search-mode forced --test 10
+  python main.py --pipeline leader --indicators sovereign assembly checks --search-mode forced --test 10
 
   # With Gemini Batch API (50% cost savings, no search)
-  python main.py --pipeline leader --indicators sovereign assembly --models gemini-2.5-pro --use-batch --test 20
+  python main.py --pipeline leader --indicators sovereign assembly checks --models gemini-2.5-pro --use-batch --test 20
 
   # With forced search + Gemini Batch API (pre-search + batch)
-  python main.py --pipeline leader --indicators sovereign assembly --models gemini-2.5-pro --search-mode forced --use-batch --test 20
+  python main.py --pipeline leader --indicators sovereign assembly checks --models gemini-2.5-pro --search-mode forced --use-batch --test 20
 
   # With self-consistency verification on assembly
   python main.py --pipeline leader --indicators assembly --verify self_consistency --verify-indicators assembly
 
   # Single prompt mode — all indicators in one LLM call
-  python main.py --pipeline leader --mode single --indicators sovereign assembly exit
+  python main.py --pipeline leader --mode single --indicators sovereign federalism checks collegiality assembly entry entry_4 exit exit_4
 
   # Sequential mode with a user-defined indicator order
-  python main.py --pipeline leader --mode sequential --indicators constitution sovereign assembly collegiality separate_powers appointment tenure exit --sequence assembly constitution sovereign exit collegiality separate_powers tenure appointment
+  python main.py --pipeline leader --mode sequential --indicators sovereign federalism checks collegiality assembly entry entry_4 exit exit_4 --sequence assembly sovereign checks collegiality federalism entry entry_4 exit exit_4
 
   # Sequential mode with randomised indicator order
-  python main.py --pipeline leader --mode sequential --indicators constitution sovereign assembly collegiality separate_powers appointment tenure exit --random-sequence
+  python main.py --pipeline leader --mode sequential --indicators sovereign federalism checks collegiality assembly entry entry_4 exit exit_4 --random-sequence
 
   # CoVe verification with a Bedrock verifier model
   python main.py --pipeline leader --indicators constitution --verify cove --verify-indicators constitution --verifier-model us.anthropic.claude-sonnet-4-5-20250929-v1:0

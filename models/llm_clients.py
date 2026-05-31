@@ -231,7 +231,8 @@ class GeminiLLM(BaseLLM):
                         or ('invalid_argument' in err_str and 'logprob' in err_str.replace('_', ''))
                         or 'logprobs is not enabled' in err_str
                     ):
-                        print(f"WARN: logprobs not supported by '{model_to_use}', retrying without them.")
+                        from tqdm import tqdm as _tqdm
+                        _tqdm.write(f"WARN: logprobs not supported by '{model_to_use}', retrying without them.")
                         try_logprobs = False
                         continue
                     raise  # non-logprob error — propagate immediately
@@ -261,7 +262,8 @@ class GeminiLLM(BaseLLM):
             )
             if has_nontext and model_to_use not in GeminiLLM._thinking_noticed:
                 GeminiLLM._thinking_noticed.add(model_to_use)
-                print(f"INFO: {model_to_use} returns thinking/non-text parts (suppressed after first notice).")
+                from tqdm import tqdm as _tqdm
+                _tqdm.write(f"INFO: {model_to_use} returns thinking tokens (non-text parts suppressed after first notice).")
             content = "".join(
                 p.text for p in content_parts if hasattr(p, 'text') and p.text is not None
             ).strip()
