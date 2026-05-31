@@ -192,12 +192,18 @@ def validate_indicator_response(
     else:
         result['reasoning'] = ''
 
-    # Ensure confidence_score exists (check both 'confidence_score' and '{indicator}_confidence_score')
-    confidence_key = f'{indicator}_confidence_score'
-    if 'confidence_score' in result:
-        score_value = result['confidence_score']
-    elif confidence_key in result:
-        score_value = result[confidence_key]
+    # Resolve confidence_score from any of the key variants the LLM might emit:
+    #   'confidence_score'            (multiple_builder / generic)
+    #   '{indicator}_confidence'      (single_builder — e.g. sovereign_confidence)
+    #   '{indicator}_confidence_score' (legacy variant)
+    for _conf_key in (
+        'confidence_score',
+        f'{indicator}_confidence',
+        f'{indicator}_confidence_score',
+    ):
+        if _conf_key in result:
+            score_value = result[_conf_key]
+            break
     else:
         score_value = None
 

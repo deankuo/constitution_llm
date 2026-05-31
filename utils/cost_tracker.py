@@ -334,9 +334,8 @@ class CostTracker:
         print(f"Total Input Tokens: {summary['total_input_tokens']:,}")
         print(f"Total Output Tokens: {summary['total_output_tokens']:,}")
         if summary['total_thinking_tokens'] > 0:
-            non_thinking = summary['total_output_tokens'] - summary['total_thinking_tokens']
-            print(f"  - Regular Output: {non_thinking:,}")
-            print(f"  - Thinking Tokens: {summary['total_thinking_tokens']:,}")
+            print(f"  - Regular Output: {summary['total_output_tokens']:,}")
+            print(f"  - Thinking Tokens: {summary['total_thinking_tokens']:,} (billed separately)")
         print(f"Total Cached Tokens: {summary['total_cached_tokens']:,}")
         print(f"Duration: {summary['duration_seconds']:.1f} seconds")
 
@@ -347,9 +346,8 @@ class CostTracker:
             print(f"    Input: {data['input_tokens']:,} tokens")
             print(f"    Output: {data['output_tokens']:,} tokens")
             if data['thinking_tokens'] > 0:
-                non_thinking = data['output_tokens'] - data['thinking_tokens']
-                print(f"      - Regular Output: {non_thinking:,} tokens")
-                print(f"      - Thinking: {data['thinking_tokens']:,} tokens")
+                print(f"      - Regular Output: {data['output_tokens']:,} tokens")
+                print(f"      - Thinking: {data['thinking_tokens']:,} tokens (billed separately)")
             print(f"    Cached: {data['cached_tokens']:,} tokens")
             print(f"    Cost: ${data['cost_usd']:.4f}")
 

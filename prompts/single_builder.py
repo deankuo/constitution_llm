@@ -22,6 +22,7 @@ NOTE: tenure is excluded — it is a continuous variable, not a categorical labe
 
 from typing import List, Optional, Dict, Tuple
 from dataclasses import dataclass
+from prompts.base_builder import PromptOutput
 
 
 # =============================================================================
@@ -399,10 +400,6 @@ class SinglePromptBuilder:
     Builds one comprehensive prompt asking the LLM to predict multiple
     indicators simultaneously. More efficient (fewer API calls) but may
     allow indicators to influence each other's predictions.
-
-    Example:
-        builder = SinglePromptBuilder(indicators=['sovereign', 'assembly'])
-        system, user = builder.build("Roman Republic", "Julius Caesar", -49, -44)
     """
 
     def __init__(
@@ -422,8 +419,13 @@ class SinglePromptBuilder:
         name: str,
         start_year: int,
         end_year: Optional[int]
-    ) -> Tuple[str, str]:
-        return self._build_system_prompt(), self._build_user_prompt(polity, name, start_year, end_year)
+    ) -> List[PromptOutput]:
+        return [PromptOutput(
+            system_prompt=self._build_system_prompt(),
+            user_prompt=self._build_user_prompt(polity, name, start_year, end_year),
+            indicators=self.indicators,
+            metadata={'mode': 'single', 'version': 'v1'},
+        )]
 
     def _build_system_prompt(self) -> str:
         prompt = (
@@ -496,8 +498,13 @@ class SinglePromptBuilderV2:
         name: str,
         start_year: int,
         end_year: Optional[int]
-    ) -> Tuple[str, str]:
-        return self._build_system_prompt(), self._build_user_prompt(polity, name, start_year, end_year)
+    ) -> List[PromptOutput]:
+        return [PromptOutput(
+            system_prompt=self._build_system_prompt(),
+            user_prompt=self._build_user_prompt(polity, name, start_year, end_year),
+            indicators=self.indicators,
+            metadata={'mode': 'single', 'version': 'v2'},
+        )]
 
     def _build_system_prompt(self) -> str:
         prompt = (
@@ -585,8 +592,13 @@ class SinglePromptBuilderV3:
         name: str,
         start_year: int,
         end_year: Optional[int]
-    ) -> Tuple[str, str]:
-        return self._build_system_prompt(), self._build_user_prompt(polity, name, start_year, end_year)
+    ) -> List[PromptOutput]:
+        return [PromptOutput(
+            system_prompt=self._build_system_prompt(),
+            user_prompt=self._build_user_prompt(polity, name, start_year, end_year),
+            indicators=self.indicators,
+            metadata={'mode': 'single', 'version': 'v3'},
+        )]
 
     def _build_system_prompt(self) -> str:
         prompt = (
