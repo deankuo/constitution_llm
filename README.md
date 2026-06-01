@@ -10,17 +10,16 @@ A sophisticated pipeline for analyzing historical polities to predict political 
   - Google Gemini (Gemini 3.1 Pro Preview, Gemini 2.5 Pro, etc.) — default: `gemini-3.1-pro-preview`
   - AWS Bedrock (Claude on Bedrock, etc.)
 
-- **9 Political Indicators** (single_builder.py schema):
+- **8 Political Indicators**:
+  - **Constitution**: No written law / code of law / full constitution (0/1/2)
   - **Sovereign**: Independent vs. colony/vassal/tributary (0/1)
-  - **Federalism**: Central vs. federal/confederal division of power (0/1)
-  - **Checks**: Capacity of independent bodies to resist the executive (0/1/2)
-  - **Collegiality**: Whether executive decision-making is collegially shared (0/1)
-  - **Assembly**: Type of assembly — None/Council/Legislature/Popular (0/1/2/3)
-  - **Entry**: How the executive entered office — 11 fine-grained categories (0–10)
-  - **Entry (4-category)**: Coarse robustness check — Irregular/Hereditary/Appointment/Election (0–3)
-  - **Exit**: How the executive left office — 16 fine-grained categories (0–15)
-  - **Exit (4-category)**: Coarse robustness check — Irregular/Natural/Voluntary/Institutionalized (0–3)
-  - **Elections** (downstream only, via `post_processing.py`): Legislative elections — hard-coded 0 when assembly ≠ 2
+  - **Assembly**: None / small advisory council / large assembly with policymaking role (0/1/2)
+  - **Appointment**: How the executive entered office — force/hereditary / by council / popular election (0/1/2)
+  - **Tenure**: Longest-serving leader tenure — <5y / 5–10y / >10y (0/1/2)
+  - **Exit**: How the executive left office — irregular (died/forced) / regular (voluntary/term limits) (0/1)
+  - **Collegiality**: Single actor dominates vs. decisions genuinely shared by a constituted body (0/1)
+  - **Separate Powers**: Unitary authority vs. multiple independent policymaking organizations (0/1)
+  - **Elections** (downstream only, via `post_processing.py`): Legislative elections — pass-through 0 when assembly ≠ 2 (0/1/2)
 
 - **Verification Methods**:
   - **Self-Consistency**: `n_samples` additional calls + the initial prediction = `n_samples+1` total votes; majority wins. Adds `{ind}_verified`, `{ind}_agreement` (0.0–1.0), and `{ind}_uncertainty` (`none`/`low`/`high`) columns. When all votes differ, falls back to the initial prediction. If `--verify-indicators` is omitted, defaults automatically to all `--indicators`.
@@ -308,98 +307,58 @@ constitution_llm/
 
 ### System Architecture
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│                     SYSTEM ARCHITECTURE                      │
-├──────────────────────────────────────────────────────────────┤
-│                                                              │
-│  ┌────────────────────────────────────────────────────────┐  │
-│  │  Config (argparse)                                     │  │
-│  │  --mode  --indicators  --verify  --model               │  │
-│  │  --search-mode  --use-batch  --parallel-rows           │  │
-│  └───────────────────────┬────────────────────────────────┘  │
-│                          │                                   │
-│                          ▼                                   │
-│  ┌────────────────────────────────────────────────────────┐  │
-│  │  Prompt Layer                                          │  │
-│  │                                                        │  │
-│  │  ┌──────────────┐  ┌───────────────────────────────┐   │  │
-│  │  │ Constitution │  │ Other 7 Indicators            │   │  │
-│  │  │ (4 elements) │  │ (unified template)            │   │  │
-│  │  └──────────────┘  └───────────────────────────────┘   │  │
-│  │                                                        │  │
-│  │  Builders: Single | Multiple | Sequential              │  │
-│  └───────────────────────┬────────────────────────────────┘  │
-│                          │                                   │
-│                          ▼                                   │
-│  ┌────────────────────────────────────────────────────────┐  │
-│  │  Search Layer (--search-mode, optional)                │  │
-│  │                                                        │  │
-│  │  none:    No search (default, pure LLM)                │  │
-│  │  agentic: LLM decides via tool calling (Serper)        │  │
-│  │  forced:  Wikipedia → DuckDuckGo → Serper (tiered)     │  │
-│  └───────────────────────┬────────────────────────────────┘  │
-│                          │                                   │
-│             ┌────────────┴────────────┐                      │
-│             ▼                         ▼                      │
-│  ┌────────────────────┐  ┌──────────────────────────┐        │
-│  │  Model Layer       │  │  Gemini Batch API        │        │
-│  │  (sync)            │  │  (--use-batch)           │        │
-│  │                    │  │                          │        │
-│  │  Gemini | Claude   │  │  • 50% cost savings      │        │
-│  │  GPT    | Bedrock  │  │  • Server-side parallel  │        │
-│  │                    │  │  • Pre-search compatible │        │
-│  │  Unified BaseLLM   │  │  • Sub-batch checkpoint  │        │
-│  └─────────┬──────────┘  └────────────┬─────────────┘        │
-│             └────────────┬────────────┘                      │
-│                          │                                   │
-│                          ▼                                   │
-│  ┌────────────────────────────────────────────────────────┐  │
-│  │  Verification Layer (--verify, optional)               │  │
-│  │                                                        │  │
-│  │  ┌───────────────────┐  ┌───────────────────┐          │  │
-│  │  │ Self-Consistency  │  │      CoVe         │          │  │
-│  │  │ • n temperature   │  │ • Question Gen    │          │  │
-│  │  │   samples         │  │ • Cross-model     │          │  │
-│  │  │ • majority vote   │  │ • Factored exec   │          │  │
-│  │  └───────────────────┘  └───────────────────┘          │  │
-│  │  Configurable per indicator (--verify-indicators)      │  │
-│  └───────────────────────┬────────────────────────────────┘  │
-│                          │                                   │
-│                          ▼                                   │
-│  ┌────────────────────────────────────────────────────────┐  │
-│  │  Output & Evaluation                                   │  │
-│  │                                                        │  │
-│  │  • CSV + JSON output       • Cost tracking             │  │
-│  │  • F1, accuracy, kappa     • Search metadata           │  │
-│  │  • Per-class metrics       • Experiment logging        │  │
-│  └───────────────────────┬────────────────────────────────┘  │
-│                          │                                   │
-│                          ▼  (run separately after main)      │
-│  ┌────────────────────────────────────────────────────────┐  │
-│  │  Downstream Classifiers (pipeline/post_processing.py)│  │
-│  │                                                        │  │
-│  │  Depend on assembly_prediction = 1 from main pipeline  │  │
-│  │  assembly_prediction = 0 → pass-through label 0        │  │
-│  │                                                        │  │
-│  │  --task assembly_extended                              │  │
-│  │    0 = no assembly  1 = no factions  2 = factions      │  │
-│  │                                                        │  │
-│  │  --task elections                                      │  │
-│  │    0 = not elected  1 = elected  2 = competitive       │  │
-│  │                                                        │  │
-│  │  --task all  (runs both in sequence)                   │  │
-│  └────────────────────────────────────────────────────────┘  │
-│                                                              │
-│  ┌────────────────────────────────────────────────────────┐  │
-│  │  Observability (optional, LANGCHAIN_TRACING_V2=true)   │  │
-│  │                                                        │  │
-│  │  LangSmith: @traceable on all LLM calls, predict(),    │  │
-│  │  search agents. OpenAI/Anthropic clients auto-wrapped. │  │
-│  │  Zero overhead when disabled.                          │  │
-│  └────────────────────────────────────────────────────────┘  │
-│                                                              │
-└──────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    CLI["**Config / argparse**
+    `--mode` `--indicators` `--verify` `--model`
+    `--search-mode` `--use-batch` `--parallel-rows`"]
+
+    PROMPT["**Prompt Layer**
+    Constitution (4 elements) · Other 7 Indicators (unified template)
+    Builders: Single | Multiple | Sequential"]
+
+    SEARCH["**Search Layer** (`--search-mode`, optional)
+    `none` — Pure LLM, no web search (default)
+    `agentic` — LLM decides via tool calling (Serper)
+    `forced` — Wikipedia → DuckDuckGo → Serper (tiered)"]
+
+    MODEL["**Model Layer** (sync)
+    Gemini · Claude · GPT · Bedrock
+    Unified `BaseLLM`"]
+
+    BATCH["**Gemini Batch API** (`--use-batch`)
+    50% cost savings
+    Server-side parallelism
+    Pre-search compatible
+    Sub-batch checkpointing"]
+
+    VERIFY["**Verification Layer** (`--verify`, optional)
+    Self-Consistency: n temperature samples + majority vote
+    CoVe: Question Gen · Cross-model · Factored execution
+    Configurable per indicator (`--verify-indicators`)"]
+
+    OUTPUT["**Output & Evaluation**
+    CSV + JSON · Cost tracking
+    F1 · Accuracy · Cohen's κ · Search metadata
+    Per-class metrics · Experiment logging"]
+
+    POST["**Downstream Classifiers** (`pipeline/post_processing.py`)
+    Depends on `assembly_prediction = 2`
+    Rows where assembly ≠ 2 → pass-through `elections = 0`
+    elections: 0 = not elected · 1 = elected · 2 = competitive"]
+
+    OBS["**Observability** (optional, `LANGCHAIN_TRACING_V2=true`)
+    LangSmith `@traceable` on all LLM calls · Zero overhead when disabled"]
+
+    CLI --> PROMPT
+    PROMPT --> SEARCH
+    SEARCH --> MODEL
+    SEARCH --> BATCH
+    MODEL --> VERIFY
+    BATCH --> VERIFY
+    VERIFY --> OUTPUT
+    OUTPUT -->|run separately after main| POST
+    OUTPUT --> OBS
 ```
 
 ## Usage
@@ -669,13 +628,13 @@ ALL_INDICATORS = [
 ]
 
 INDICATOR_LABELS = {
-    'constitution': ['1', '0'],
-    'sovereign': ['0', '1'],
-    'assembly': ['0', '1'],
-    'appointment': ['0', '1', '2'],
-    'tenure': ['0', '1', '2'],
-    'exit': ['0', '1'],
-    'collegiality': ['0', '1'],
+    'constitution':    ['0', '1', '2'],
+    'sovereign':       ['0', '1'],
+    'assembly':        ['0', '1', '2'],
+    'appointment':     ['0', '1', '2'],
+    'tenure':          ['0', '1', '2'],
+    'exit':            ['0', '1'],
+    'collegiality':    ['0', '1'],
     'separate_powers': ['0', '1'],
 }
 ```
@@ -910,32 +869,17 @@ python utils/sanity_check.py \
 
 ## Downstream Classifiers
 
-`pipeline/post_processing.py` contains two **standalone downstream classifiers** that run
-**after** the main pipeline. Both depend on `assembly_prediction` from the main output.
-Rows where `assembly = 0` receive a pass-through label `0` (no API call).
+`pipeline/post_processing.py` is a **standalone elections classifier** that runs
+**after** the main pipeline. It depends on `assembly_prediction = 2` (Legislature) from the main output.
+Rows where `assembly ≠ 2` receive a pass-through label `0` without an API call.
 
-Use `--task` to select which classifier(s) to run.
+### Elections
 
-### AssemblyExtended (`--task assembly_extended`, default)
-
-Extends binary assembly predictions (0/1) to a three-label scheme.
+For polities where a large assembly exists (`assembly = 2`), codes whether members are elected and whether elections are contested by organized factions or parties.
 
 | Label | Meaning |
 |-------|---------|
-| `0` | No assembly (pass-through — no API call) |
-| `1` | Assembly exists, no competitive factions or parties |
-| `2` | Assembly exists **with** competitive factions or parties |
-
-Output columns added: `assembly_extended_prediction`, `assembly_extended_confidence`, `assembly_extended_reasoning`
-
-### Elections (`--task elections`)
-
-For polities where an assembly exists, codes whether members are elected and whether
-elections are contested by organized factions or parties.
-
-| Label | Meaning |
-|-------|---------|
-| `0` | No assembly / members not elected (pass-through when assembly=0; LLM call when assembly=1 → not elected) |
+| `0` | Members not elected — pass-through for assembly ≠ 2; LLM call for assembly = 2 where members are appointed/hereditary |
 | `1` | Members elected, no organized factions or parties |
 | `2` | Competitive elections — contested by organized factions or parties |
 
@@ -944,30 +888,31 @@ Output columns added: `elections_prediction`, `elections_confidence`, `elections
 ### Usage
 
 ```bash
-# Assembly extended only (default)
-python pipeline/post_processing.py \
-    --input  data/results/predictions.csv \
-    --output data/results/predictions_extended.csv
-
-# Elections only
+# Basic usage
 python pipeline/post_processing.py \
     --input  data/results/predictions.csv \
     --output data/results/predictions_extended.csv \
-    --task   elections
+    --model  gemini-2.5-pro
 
-# Both classifiers in sequence (recommended for full downstream pass)
+# 4 rows in parallel, with forced search
 python pipeline/post_processing.py \
     --input  data/results/predictions.csv \
     --output data/results/predictions_extended.csv \
-    --task   all \
     --model  gemini-2.5-pro \
-    --parallel-rows 4
+    --parallel-rows 4 \
+    --search-mode forced
+
+# Self-consistency: 1 main call + 2 SC calls = 3 total votes
+python pipeline/post_processing.py \
+    --input  data/results/predictions.csv \
+    --output data/results/predictions_extended.csv \
+    --n-samples 2
 
 # Test on first 10 rows only
 python pipeline/post_processing.py \
     --input  data/results/predictions.csv \
     --output data/results/predictions_extended.csv \
-    --task   all --test 10
+    --test 10
 ```
 
 ### CLI Options
@@ -976,11 +921,12 @@ python pipeline/post_processing.py \
 |----------|-------------|---------|
 | `--input` | Predictions file (CSV or JSONL) from the main pipeline | required |
 | `--output` | Output CSV path | required |
-| `--task` | `assembly_extended`, `elections`, or `all` | `assembly_extended` |
 | `--model` | LLM model identifier | `gemini-2.5-pro` |
-| `--assembly-col` | Column name with binary assembly predictions | `assembly_prediction` |
+| `--assembly-col` | Column name with assembly predictions | `assembly_prediction` |
 | `--parallel-rows` | Concurrent rows to process | `1` |
-| `--n-samples` | Additional self-consistency samples per row (0 = single call, no SC) | `0` |
+| `--n-samples` | Additional self-consistency samples (0 = single call, no SC) | `0` |
+| `--search-mode` | `none`, `agentic`, or `forced` | `none` |
+| `--logprobs` | Request token-level log probabilities (Gemini only) | `False` |
 | `--delay` | Seconds between calls / windows | `1.0` |
 | `--test` | Process only first N rows | None |
 
