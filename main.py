@@ -1401,7 +1401,7 @@ Examples:
             mode=PromptMode(args.mode),
             indicators=args.indicators,
             verify=VerificationType(args.verify),
-            verify_indicators=args.verify_indicators,
+            verify_indicators=_verify_indicators,
             model=model_identifier,
             verifier_model=args.verifier_model,
             temperature=args.temperature,
