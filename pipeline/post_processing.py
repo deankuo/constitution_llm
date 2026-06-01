@@ -52,6 +52,7 @@ import argparse
 import os
 import sys
 import time
+from collections import Counter
 
 # Ensure project root is on sys.path when run as `python pipeline/post_processing.py`
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -183,10 +184,15 @@ class ElectionsClassifier:
         search_mode: SearchMode = SearchMode.NONE,
         serper_api_key: str = "",
         use_logprobs: bool = False,
+        n_samples: int = 0,
+        sc_temperatures: Optional[List[float]] = None,
     ):
         self.model = model
         self.use_logprobs = use_logprobs
         self.llm = create_llm(model, api_keys, use_logprobs=use_logprobs)
+        self.n_samples = n_samples
+        # Default SC temperatures: n_samples draws at 0.7
+        self.sc_temperatures = sc_temperatures or ([0.7] * n_samples if n_samples > 0 else [])
         self.api_keys = api_keys
         self.assembly_col = assembly_col
         self.max_workers = max_workers
@@ -255,7 +261,43 @@ class ElectionsClassifier:
     # ------------------------------------------------------------------
 
     def _call_llm(self, row: pd.Series) -> Tuple[str, Optional[int], str, Optional[float], str, str]:
+        """Call LLM with optional self-consistency majority voting.
+
+        Returns:
+            (prediction, confidence_score, reasoning, logprob, search_queries_str, urls_used_str)
+
+        When n_samples == 0 (default), makes a single call (no SC).
+        When n_samples > 0, makes 1 main call + n_samples additional SC calls, then
+        returns the majority prediction with agreement*100 as the confidence score.
+        Total API calls = n_samples + 1.
         """
+        pred, conf, reason, logprob, queries_str, urls_str = self._call_llm_once(row)
+
+        if self.n_samples == 0:
+            return pred, conf, reason, logprob, queries_str, urls_str
+
+        # Collect majority-vote predictions across n_samples additional calls
+        predictions = [pred] if pred in ('0', '1', '2') else []
+        for i, temp in enumerate(self.sc_temperatures[:self.n_samples]):
+            try:
+                sc_pred, _, _, _, _, _ = self._call_llm_once(row, temperature=temp)
+                if sc_pred in ('0', '1', '2'):
+                    predictions.append(sc_pred)
+            except Exception as e:
+                from tqdm import tqdm as _tqdm
+                _tqdm.write(f"WARN: elections SC sample {i + 1} failed: {e}")
+
+        if not predictions:
+            return pred, conf, reason, logprob, queries_str, urls_str
+
+        counter = Counter(predictions)
+        majority_pred, majority_count = counter.most_common(1)[0]
+        agreement = majority_count / len(predictions)
+        return majority_pred, round(agreement * 100), reason, logprob, queries_str, urls_str
+
+    def _call_llm_once(self, row: pd.Series, temperature: float = 0.0) -> Tuple[str, Optional[int], str, Optional[float], str, str]:
+        """Single LLM call (no SC). Used directly by _call_llm().
+
         Returns:
             (prediction, confidence_score, reasoning, logprob, search_queries_str, urls_used_str)
         """
@@ -333,7 +375,7 @@ class ElectionsClassifier:
             response = self.llm.call(
                 system_prompt=ELECTIONS_SYSTEM_PROMPT,
                 user_prompt=user_prompt,
-                temperature=0.0,
+                temperature=temperature,
             )
             parsed = parse_json_response(response.content, verbose=False)
 
@@ -505,6 +547,17 @@ Examples:
             "Supported models: gemini-2.5-flash, gemini-2.5-pro (default: off)."
         )
     )
+    parser.add_argument(
+        "--n-samples",
+        type=int,
+        default=0,
+        metavar="N",
+        help=(
+            "Number of additional self-consistency samples for elections (default: 0 = single call).\n"
+            "With N>0: 1 main call + N SC calls = N+1 total votes; majority prediction wins.\n"
+            "Example: --n-samples 2 → 3 total votes."
+        )
+    )
 
     args = parser.parse_args()
 
@@ -550,6 +603,7 @@ Examples:
         search_mode=search_mode,
         serper_api_key=os.getenv("SERPER_API_KEY", ""),
         use_logprobs=args.logprobs,
+        n_samples=args.n_samples,
     )
 
     result_df = classifier.classify(df)

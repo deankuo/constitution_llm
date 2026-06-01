@@ -618,6 +618,7 @@ def sanity_check_and_reprocess(
     indicators: Optional[List[str]] = None,
     model: str = 'gemini-2.5-pro',
     verify: str = 'none',
+    n_samples: int = 0,
     temperature: float = 0.0,
     sequence: Optional[List[str]] = None,
     random_sequence: bool = False,
@@ -645,6 +646,7 @@ def sanity_check_and_reprocess(
         indicators: List of indicators to reprocess (defaults to the specified indicator)
         model: Model to use for reprocessing
         verify: Verification method ('none', 'self_consistency', 'cove', 'both')
+        n_samples: Additional self-consistency samples when verify='self_consistency' (0 = single call)
         temperature: Temperature for LLM generation
         sequence: Indicator sequence for sequential mode (space-separated list)
         random_sequence: Randomize indicator order in sequential mode
@@ -804,6 +806,10 @@ def sanity_check_and_reprocess(
             '--verify', verify,
             '--temperature', str(temperature),
         ]
+
+        # Self-consistency n_samples pass-through
+        if verify == 'self_consistency' and n_samples > 0:
+            cmd.extend(['--n-samples', str(n_samples)])
 
         # Sequential mode specific arguments
         if mode == 'sequential':
@@ -990,6 +996,8 @@ Examples:
     parser.add_argument('--model', default='gemini-3.1-pro-preview', help='Model to use (default: gemini-3.1-pro-preview)')
     parser.add_argument('--verify', choices=['none', 'self_consistency', 'cove', 'both'],
                        default='none', help='Verification method (default: none)')
+    parser.add_argument('--n-samples', type=int, default=0,
+                       help='Additional SC samples when --verify self_consistency (0 = single call, default: 0)')
     parser.add_argument('--temperature', type=float, default=0.0, help='Temperature (default: 0.0)')
     parser.add_argument('--max-tokens', type=int, default=DEFAULT_MAX_TOKENS, help=f'Max tokens (default: {DEFAULT_MAX_TOKENS})')
     parser.add_argument('--top-p', type=float, default=0.95, help='Top-p sampling (default: 0.95)')
@@ -1016,6 +1024,7 @@ Examples:
         mode=args.mode,
         model=args.model,
         verify=args.verify,
+        n_samples=args.n_samples,
         temperature=args.temperature,
         sequence=args.sequence,
         random_sequence=args.random_sequence,

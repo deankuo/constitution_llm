@@ -84,7 +84,7 @@ from pipeline.batch_runner import BatchRunner, BatchConfig, load_polity_data
 # Verification
 from verification.self_consistency import SelfConsistencyVerification, SelfConsistencyConfig
 from verification.cove import ChainOfVerification, CoVeConfig
-from utils.cost_tracker import CostTracker
+from utils.cost_tracker import CostTracker, log_experiment
 
 # Utils
 from utils.json_parser import (
@@ -1118,6 +1118,13 @@ Examples:
         if args.use_batch:
             print("Batch:    Gemini Batch API (50% cost savings)")
 
+        # When --verify is set but --verify-indicators is omitted, verify all
+        # predicted indicators rather than silently doing nothing.
+        _verify_indicators = args.verify_indicators
+        if args.verify != 'none' and not _verify_indicators:
+            _verify_indicators = list(args.indicators)
+            print(f"INFO: --verify-indicators not set; defaulting to all --indicators: {_verify_indicators}")
+
         # Parse model from --models argument (use first one for leader pipeline)
         model_arg = args.models[0]
         if '=' in model_arg:
@@ -1173,6 +1180,14 @@ Examples:
 
             print(f"\nResults saved to: {args.output}")
             print(f"JSON saved to: {json_path}")
+            if not args.test:
+                log_experiment(
+                    output_path=args.output, pipeline='leader',
+                    prompt_style=args.mode, model=model_identifier,
+                    indicators=args.indicators, verify=args.verify,
+                    search_mode=args.search_mode, total_entries=len(df),
+                    cost_summary={}, n_samples=args.n_samples,
+                )
             print("\nLeader-level pipeline (agentic search) completed successfully!")
             return
 
@@ -1188,7 +1203,7 @@ Examples:
                     mode=PromptMode(args.mode),
                     indicators=args.indicators,
                     verify=VerificationType(args.verify),
-                    verify_indicators=args.verify_indicators,
+                    verify_indicators=_verify_indicators,
                     model=model_identifier,
                     verifier_model=args.verifier_model,
                     temperature=args.temperature,
@@ -1250,6 +1265,15 @@ Examples:
                     output_path=args.output,
                 )
                 results_df = runner.run(df)
+                if not args.test:
+                    log_experiment(
+                        output_path=args.output, pipeline='leader',
+                        prompt_style=args.mode, model=model_identifier,
+                        indicators=args.indicators, verify=args.verify,
+                        search_mode=args.search_mode, total_entries=len(df),
+                        cost_summary=predictor.cost_tracker.get_summary(),
+                        n_samples=args.n_samples,
+                    )
                 print("\nLeader-level pipeline (forced search + batch) completed successfully!")
                 return
 
@@ -1263,7 +1287,7 @@ Examples:
                     mode=PromptMode(args.mode),
                     indicators=args.indicators,
                     verify=VerificationType(args.verify),
-                    verify_indicators=args.verify_indicators,
+                    verify_indicators=_verify_indicators,
                     model=model_identifier,
                     verifier_model=args.verifier_model,
                     temperature=args.temperature,
@@ -1357,6 +1381,15 @@ Examples:
                 print(f"\nResults saved to: {args.output}")
                 print(f"JSON saved to: {json_path}")
                 predictor.cost_tracker.print_summary()
+                if not args.test:
+                    log_experiment(
+                        output_path=args.output, pipeline='leader',
+                        prompt_style=args.mode, model=model_identifier,
+                        indicators=args.indicators, verify=args.verify,
+                        search_mode=args.search_mode, total_entries=len(df),
+                        cost_summary=predictor.cost_tracker.get_summary(),
+                        n_samples=args.n_samples,
+                    )
                 print("\nLeader-level pipeline (forced search) completed successfully!")
                 return
 
@@ -1422,6 +1455,15 @@ Examples:
         # Print cost summary
         predictor.cost_tracker.print_summary()
 
+        if not args.test:
+            log_experiment(
+                output_path=args.output, pipeline='leader',
+                prompt_style=args.mode, model=model_identifier,
+                indicators=args.indicators, verify=args.verify,
+                search_mode=args.search_mode, total_entries=len(df),
+                cost_summary=predictor.cost_tracker.get_summary(),
+                n_samples=args.n_samples,
+            )
         print("\nLeader-level pipeline completed successfully!")
         return
 
@@ -1526,6 +1568,16 @@ Examples:
 
     # Save results
     save_results(results_df, args.output)
+
+    if not args.test:
+        log_experiment(
+            output_path=args.output, pipeline='polity',
+            prompt_style='legacy', model=', '.join(models_dict.values()),
+            indicators=['constitution'], verify=args.verify,
+            search_mode=args.search_mode, total_entries=len(df),
+            cost_summary=polity_cost_tracker.get_summary(),
+            n_samples=args.n_samples,
+        )
     print("\nPolity-level pipeline completed successfully!")
 
 

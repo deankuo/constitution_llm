@@ -79,6 +79,10 @@ class IndicatorPrediction:
     document_types: Optional[str] = None    # String: "N/A" or "1; 2" (parallel to document_name)
     # Uncertainty quantification
     logprob: Optional[float] = None  # Log probability of chosen value token (Gemini only; ≤ 0)
+    # Self-consistency agreement ratio (0.0–1.0); None when verification not applied
+    agreement_ratio: Optional[float] = None
+    # Categorical uncertainty from SC: 'none' | 'low' | 'high'; None when not applied
+    sc_uncertainty: Optional[str] = None
 
 
 @dataclass
@@ -124,6 +128,10 @@ class PolityPrediction:
             if ind_pred.was_verified:
                 result[f'{ind_name}_verified'] = ind_pred.verified_prediction
                 result[f'{ind_name}_verification'] = str(ind_pred.verification_details)
+                if ind_pred.agreement_ratio is not None:
+                    result[f'{ind_name}_agreement'] = round(ind_pred.agreement_ratio, 3)
+                if ind_pred.sc_uncertainty is not None:
+                    result[f'{ind_name}_uncertainty'] = ind_pred.sc_uncertainty
 
         return result
 
@@ -405,6 +413,8 @@ class Predictor:
         verified_prediction = None
         verification_details = None
         was_verified = False
+        agreement_ratio = None
+        sc_uncertainty = None
         verification_cost = 0.0
         verification_tokens = 0
 
@@ -426,6 +436,8 @@ class Predictor:
 
                 verified_prediction = verify_result.verified_prediction
                 verification_details = verify_result.verification_details
+                agreement_ratio = verify_result.agreement_ratio
+                sc_uncertainty = (verification_details or {}).get('sc_uncertainty')
                 was_verified = True
 
                 # Track verification cost separately (verification methods handle their own tracking)
@@ -449,6 +461,8 @@ class Predictor:
             constitution_year=constitution_year,
             document_types=document_types if indicator == 'constitution' else None,
             logprob=logprob,
+            agreement_ratio=agreement_ratio,
+            sc_uncertainty=sc_uncertainty,
         )
 
     def _calculate_cost(self, response: ModelResponse) -> float:

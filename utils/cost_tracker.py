@@ -360,6 +360,60 @@ class CostTracker:
         print("=" * 60 + "\n")
 
 
+def log_experiment(
+    output_path: str,
+    pipeline: str,
+    prompt_style: str,
+    model: str,
+    indicators: list,
+    verify: str,
+    search_mode: str,
+    total_entries: int,
+    cost_summary: dict,
+    log_dir: str = 'data/logs',
+    n_samples: int = 0,
+) -> None:
+    """
+    Append a one-line JSON entry to data/logs/experiments.jsonl summarising
+    this run.  Only called for non-test runs (caller's responsibility).
+
+    Fields written:
+        date, time, output, pipeline, prompt_style, model, indicators,
+        verify, n_samples, search_mode, total_entries,
+        total_cost_usd, total_calls, total_input_tokens, total_output_tokens,
+        total_thinking_tokens, duration_seconds
+    """
+    from pathlib import Path
+
+    entry = {
+        'date': datetime.now().strftime('%Y-%m-%d'),
+        'time': datetime.now().strftime('%H:%M:%S'),
+        'output': output_path,
+        'pipeline': pipeline,
+        'prompt_style': prompt_style,
+        'model': model,
+        'indicators': indicators,
+        'verify': verify,
+        'n_samples': n_samples if verify == 'self_consistency' else 0,
+        'search_mode': search_mode,
+        'total_entries': total_entries,
+        'total_cost_usd': round(cost_summary.get('total_cost_usd', 0.0), 6),
+        'total_calls': cost_summary.get('total_calls', 0),
+        'total_input_tokens': cost_summary.get('total_input_tokens', 0),
+        'total_output_tokens': cost_summary.get('total_output_tokens', 0),
+        'total_thinking_tokens': cost_summary.get('total_thinking_tokens', 0),
+        'duration_seconds': round(cost_summary.get('duration_seconds', 0.0), 1),
+    }
+
+    log_path = Path(log_dir) / 'experiments.jsonl'
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(log_path, 'a', encoding='utf-8') as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + '\n')
+
+    print(f"  Experiment logged → {log_path}")
+
+
 def estimate_batch_cost(
     model: str,
     num_polities: int,

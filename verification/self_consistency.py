@@ -106,23 +106,38 @@ class SelfConsistencyVerification(BaseVerification):
         Returns:
             VerificationResult with majority prediction and agreement ratio
         """
+        # Normalize valid_labels to strings so comparisons work regardless of
+        # whether predictions come back as float (validate_indicator_response)
+        # or as int/str (constitution uses int labels, others use string labels).
+        str_valid = [str(v) for v in valid_labels]
+
         samples = self._collect_samples(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             indicator=indicator,
-            valid_labels=valid_labels
+            valid_labels=str_valid
         )
 
-        # If we have an initial prediction, include it as a sample
-        if initial_prediction is not None and initial_prediction in valid_labels:
-            samples.insert(0, PredictionSample(
-                prediction=initial_prediction,
-                reasoning="Initial prediction",
-                temperature=0.0
-            ))
+        # If we have an initial prediction, normalize and include it as a sample.
+        # validate_indicator_response returns floats (e.g. 1.0); convert to "1".
+        if initial_prediction is not None:
+            if isinstance(initial_prediction, (int, float)):
+                try:
+                    init_str = str(int(float(initial_prediction)))
+                except (ValueError, TypeError):
+                    init_str = str(initial_prediction)
+            else:
+                init_str = str(initial_prediction)
+
+            if init_str in str_valid:
+                samples.insert(0, PredictionSample(
+                    prediction=init_str,
+                    reasoning="Initial prediction",
+                    temperature=0.0
+                ))
 
         # Aggregate predictions
-        aggregated = self._aggregate_predictions(samples, valid_labels)
+        aggregated = self._aggregate_predictions(samples, str_valid)
 
         return aggregated
 
@@ -133,7 +148,10 @@ class SelfConsistencyVerification(BaseVerification):
         indicator: str,
         valid_labels: List[str]
     ) -> List[PredictionSample]:
-        """Collect prediction samples at different temperatures."""
+        """Collect prediction samples at different temperatures.
+
+        valid_labels must already be normalized to strings by the caller.
+        """
         samples = []
 
         for i in range(self.config.n_samples):
@@ -160,8 +178,20 @@ class SelfConsistencyVerification(BaseVerification):
                 parsed = parse_json_response(response.content, verbose=False)
                 validated = validate_indicator_response(parsed, indicator, valid_labels)
 
+                # validate_indicator_response returns float predictions; normalize to string
+                raw_pred = validated.get(indicator)
+                if raw_pred is not None and isinstance(raw_pred, (int, float)):
+                    try:
+                        pred_str = str(int(float(raw_pred)))
+                    except (ValueError, TypeError):
+                        pred_str = str(raw_pred)
+                elif raw_pred is not None:
+                    pred_str = str(raw_pred)
+                else:
+                    pred_str = ''
+
                 sample = PredictionSample(
-                    prediction=validated.get(indicator, ''),
+                    prediction=pred_str,
                     reasoning=validated.get('reasoning', ''),
                     confidence=validated.get('confidence_score'),
                     temperature=temperature,
@@ -170,7 +200,8 @@ class SelfConsistencyVerification(BaseVerification):
                 samples.append(sample)
 
             except Exception as e:
-                print(f"Warning: Sample {i+1} failed: {e}")
+                from tqdm import tqdm as _tqdm
+                _tqdm.write(f"WARN: SC sample {i+1} failed: {e}")
                 continue
 
         return samples
@@ -218,16 +249,32 @@ class SelfConsistencyVerification(BaseVerification):
         counter = Counter(predictions)
         majority_prediction, majority_count = counter.most_common(1)[0]
         agreement_ratio = majority_count / len(predictions)
+        n_total = len(predictions)
 
-        # Determine confidence based on agreement
+        # Get original prediction (first sample = initial main-call prediction)
+        original_prediction = samples[0].prediction
+
+        # Tie-breaking: when no two samples agree (all predictions differ),
+        # fall back to the original prediction rather than an arbitrary winner.
+        if majority_count == 1:
+            majority_prediction = original_prediction
+
+        # Uncertainty label — generalises beyond the n=3 case:
+        #   none  = unanimous (all agree)
+        #   low   = majority ≥ 2 agrees but not all
+        #   high  = no two samples agree (every prediction is unique)
+        if majority_count == n_total:
+            sc_uncertainty = 'none'
+        elif majority_count >= 2:
+            sc_uncertainty = 'low'
+        else:
+            sc_uncertainty = 'high'
+
         confidence = agreement_ratio
 
         # Collect reasoning from agreeing samples
         agreeing_samples = [s for s in samples if s.prediction == majority_prediction]
         reasoning_samples = [s.reasoning for s in agreeing_samples if s.reasoning]
-
-        # Get original prediction (first sample)
-        original_prediction = samples[0].prediction
 
         return VerificationResult(
             original_prediction=original_prediction,
@@ -236,12 +283,14 @@ class SelfConsistencyVerification(BaseVerification):
             agreement_ratio=agreement_ratio,
             verification_details={
                 'method': 'self_consistency',
-                'n_samples': len(samples),
-                'n_valid': len(predictions),
+                'n_samples': n_total,
+                'n_valid': n_total,
                 'vote_distribution': dict(counter),
+                'agreement_ratio': round(agreement_ratio, 3),
+                'sc_uncertainty': sc_uncertainty,
                 'temperatures_used': [s.temperature for s in samples],
                 'high_confidence': agreement_ratio >= self.config.min_agreement,
-                'sample_reasonings': reasoning_samples[:3]  # Include up to 3 reasonings
+                'sample_reasonings': reasoning_samples[:3]
             },
             was_revised=(original_prediction != majority_prediction)
         )
