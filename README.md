@@ -427,7 +427,7 @@ python main.py --help
 | `--verify-indicators` | Which indicators to apply verification to (omit to apply to all `--indicators`) | None → all |
 | `--verifier-model` | Model for CoVe verification | Bedrock Claude |
 | `--n-samples` | Self-consistency samples | 3 |
-| `--sc-temperatures` | SC temperature list | `0.0 0.5 1.0` |
+| `--sc-temperatures` | SC temperature list | `1.0 1.0 1.0` |
 | `--sequence` | Indicator order for sequential mode (space-separated) | None |
 | `--random-sequence` | Randomize order in sequential mode | False |
 | `--reasoning` | Include reasoning columns (True/False) | `True` |

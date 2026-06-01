@@ -49,7 +49,7 @@ class PredictionConfig:
     max_tokens: int = DEFAULT_MAX_TOKENS
     top_p: float = DEFAULT_TOP_P
     sc_n_samples: int = 3
-    sc_temperatures: List[float] = field(default_factory=lambda: [0.7, 0.7, 0.7])
+    sc_temperatures: List[float] = field(default_factory=lambda: [1.0, 1.0, 1.0])
     cove_questions_per_element: int = 1  # Changed from 2 to 1 (4 questions total for constitution)
     # Sequential mode parameters
     sequence: Optional[List[str]] = None  # Specific order for sequential mode
@@ -468,6 +468,7 @@ class Predictor:
                         valid_labels=valid_labels,
                         initial_prediction=prediction,
                         additional_parsed_responses=prompt_sc_parseds,
+                        prediction_temperature=self.config.temperature,
                     )
                 else:
                     # Multiple mode: one prompt per indicator — make n_samples LLM calls now.
@@ -481,7 +482,8 @@ class Predictor:
                         polity=polity,
                         name=name,
                         start_year=start_year,
-                        end_year=end_year
+                        end_year=end_year,
+                        prediction_temperature=self.config.temperature,
                     )
 
                 verified_prediction = verify_result.verified_prediction

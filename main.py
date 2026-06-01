@@ -253,7 +253,7 @@ def _apply_polity_verification(
     # ------------------------------------------------------------------
     if verify_type in ('self_consistency', 'both'):
         sc_preds: List[float] = []
-        temps = (sc_temperatures or [0.0, 0.5, 1.0])[:sc_n_samples]
+        temps = (sc_temperatures or [1.0, 1.0, 1.0])[:sc_n_samples]
         for temp in temps:
             try:
                 resp = llm.call(
@@ -474,7 +474,7 @@ def process_single_polity(
             llm=llm,
             verifier_llm=verifier_llm,
             sc_n_samples=sc_n_samples,
-            sc_temperatures=sc_temperatures or [0.0, 0.5, 1.0],
+            sc_temperatures=sc_temperatures or [1.0, 1.0, 1.0],
             cove_questions_per_element=cove_questions_per_element,
             initial_status=status if status is not None else 0,
             initial_reasoning=explanation,
@@ -1004,7 +1004,7 @@ Examples:
         '--sc-temperatures',
         nargs='+',
         type=float,
-        default=[0.0, 0.5, 1.0],
+        default=[1.0, 1.0, 1.0],
         help='Temperature values for self-consistency sampling'
     )
     parser.add_argument(

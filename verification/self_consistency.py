@@ -133,7 +133,7 @@ class SelfConsistencyVerification(BaseVerification):
                 samples.insert(0, PredictionSample(
                     prediction=init_str,
                     reasoning="Initial prediction",
-                    temperature=0.0
+                    temperature=kwargs.get('prediction_temperature', self.config.temperatures[0])
                 ))
 
         # Aggregate predictions
@@ -302,6 +302,7 @@ class SelfConsistencyVerification(BaseVerification):
         valid_labels: List[str],
         initial_prediction,
         additional_parsed_responses: List[Dict],
+        prediction_temperature: Optional[float] = None,
     ) -> VerificationResult:
         """Aggregate pre-collected parsed responses without making new LLM calls.
 
@@ -323,10 +324,11 @@ class SelfConsistencyVerification(BaseVerification):
             else:
                 init_str = str(initial_prediction)
             if init_str in str_valid:
+                init_temp = prediction_temperature if prediction_temperature is not None else self.config.temperatures[0]
                 samples.append(PredictionSample(
                     prediction=init_str,
                     reasoning="Initial prediction",
-                    temperature=0.0
+                    temperature=init_temp
                 ))
 
         # Add samples from pre-collected parsed responses (no LLM calls here)
