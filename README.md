@@ -23,7 +23,8 @@ A sophisticated pipeline for analyzing historical polities to predict political 
   - **Elections** (downstream only, via `post_processing.py`): Legislative elections — hard-coded 0 when assembly ≠ 2
 
 - **Verification Methods**:
-  - **Self-Consistency**: 3 samples at temperature 0.7 with majority vote (produces one output file)
+  - **Self-Consistency**: `n_samples` additional calls + the initial prediction = `n_samples+1` total votes; majority wins. Adds `{ind}_verified`, `{ind}_agreement` (0.0–1.0), and `{ind}_uncertainty` (`none`/`low`/`high`) columns. When all votes differ, falls back to the initial prediction. If `--verify-indicators` is omitted, defaults automatically to all `--indicators`.
+  - **API-call efficiency**: In `--mode single` / `--mode sequential` (all indicators share one prompt), SC makes `n_samples` additional calls **at the prompt level** — all indicators share those calls. Total calls per row = `1 + n_samples`, not `1 + n_indicators × n_samples`. In `--mode multiple` (one prompt per indicator), SC makes `n_samples` calls per indicator as before.
   - **Chain of Verification (CoVe)**: Cross-model verification with factual questions (4 questions for constitution)
   - **Note**: `--verify both` currently runs CoVe only (sequential verification not yet implemented)
 
@@ -47,6 +48,8 @@ A sophisticated pipeline for analyzing historical polities to predict political 
 - **CSV & JSONL Input**: Accepts both CSV and JSONL input files (auto-detected by extension). Convert between formats with `scripts/csv_to_jsonl.py`.
 
 - **LangSmith Observability** (optional): Trace all LLM calls, prompts, and outputs in the [LangSmith](https://smith.langchain.com/) dashboard. Zero overhead when disabled. Set `LANGCHAIN_TRACING_V2=true` in `.env` to enable.
+
+- **Experiment Logging**: Each non-test run appends one JSON line to `data/logs/experiments.jsonl` with date, time, model, pipeline, indicators, verification, total entries, prompt style, search mode, cost, token counts, and duration. Skipped for `--test N` runs.
 
 - **Robust Processing**: Checkpoint system, automatic retries, cost tracking
 
@@ -298,7 +301,9 @@ constitution_llm/
     ├── plt_polity_data_v2.csv     # Polity-level input data
     ├── temp/                      # Batch API debug files (requests/responses JSONL)
     ├── results/                   # Output directory
-    └── logs/                      # Cost tracking logs
+    └── logs/
+        ├── experiments.jsonl      # Append-only experiment log (one entry per non-test run)
+        └── run_*.log              # Background run logs (from run.sh --background)
 ```
 
 ### System Architecture
@@ -419,7 +424,7 @@ python main.py --help
 | `--indicators` | Indicators to predict | `['constitution']` |
 | `--models` | Model identifier (first value used) | `Gemini=gemini-2.5-pro` |
 | `--verify` | Verification: `none`, `self_consistency`, `cove`, `both` | `none` |
-| `--verify-indicators` | Which indicators to apply verification to | None |
+| `--verify-indicators` | Which indicators to apply verification to (omit to apply to all `--indicators`) | None → all |
 | `--verifier-model` | Model for CoVe verification | Bedrock Claude |
 | `--n-samples` | Self-consistency samples | 3 |
 | `--sc-temperatures` | SC temperature list | `0.0 0.5 1.0` |
@@ -687,6 +692,8 @@ For each indicator `{ind}`:
 With verification:
 - `{ind}_verified` - Final prediction after verification
 - `{ind}_verification` - Verification details
+- `{ind}_agreement` - Agreement ratio 0.0–1.0 (self-consistency only)
+- `{ind}_uncertainty` - `none` (all agree) / `low` (majority ≥ 2) / `high` (all differ, falls back to initial prediction) (self-consistency only)
 
 With search mode (leader pipeline, all modes — row-level):
 - `search_queries` - Pipe-delimited search queries with source markers (e.g., `[Wikipedia] query | [Serper] query`)
@@ -857,6 +864,7 @@ python utils/sanity_check.py \
 --mode               # Prompt mode: single, multiple, or sequential (leader only, default: multiple)
 --model              # Model identifier (default: gemini-2.5-pro)
 --verify             # Verification: none, self_consistency, cove, both
+--n-samples          # Additional self-consistency samples when --verify=self_consistency (0 = single call)
 --verifier-model     # Model for CoVe verification
 --sequence           # Indicator sequence for sequential mode (space-separated, leader only)
 --random-sequence    # Randomize indicator order in sequential mode (leader only)
@@ -972,6 +980,7 @@ python pipeline/post_processing.py \
 | `--model` | LLM model identifier | `gemini-2.5-pro` |
 | `--assembly-col` | Column name with binary assembly predictions | `assembly_prediction` |
 | `--parallel-rows` | Concurrent rows to process | `1` |
+| `--n-samples` | Additional self-consistency samples per row (0 = single call, no SC) | `0` |
 | `--delay` | Seconds between calls / windows | `1.0` |
 | `--test` | Process only first N rows | None |
 

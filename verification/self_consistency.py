@@ -296,6 +296,64 @@ class SelfConsistencyVerification(BaseVerification):
         )
 
 
+    def aggregate_from_predictions(
+        self,
+        indicator: str,
+        valid_labels: List[str],
+        initial_prediction,
+        additional_parsed_responses: List[Dict],
+    ) -> VerificationResult:
+        """Aggregate pre-collected parsed responses without making new LLM calls.
+
+        Used in single/sequential mode where one prompt covers multiple indicators —
+        SC samples are collected once at the prompt level and shared across indicators.
+        additional_parsed_responses may be empty (all prompt-level calls failed); in
+        that case the initial prediction is the only vote and uncertainty = 'high'.
+        """
+        str_valid = [str(v) for v in valid_labels]
+        samples: List[PredictionSample] = []
+
+        # Normalize and add initial prediction as the first sample
+        if initial_prediction is not None:
+            if isinstance(initial_prediction, (int, float)):
+                try:
+                    init_str = str(int(float(initial_prediction)))
+                except (ValueError, TypeError):
+                    init_str = str(initial_prediction)
+            else:
+                init_str = str(initial_prediction)
+            if init_str in str_valid:
+                samples.append(PredictionSample(
+                    prediction=init_str,
+                    reasoning="Initial prediction",
+                    temperature=0.0
+                ))
+
+        # Add samples from pre-collected parsed responses (no LLM calls here)
+        for i, parsed in enumerate(additional_parsed_responses):
+            validated = validate_indicator_response(parsed, indicator, str_valid)
+            raw_pred = validated.get(indicator)
+            if raw_pred is not None and isinstance(raw_pred, (int, float)):
+                try:
+                    pred_str = str(int(float(raw_pred)))
+                except (ValueError, TypeError):
+                    pred_str = str(raw_pred)
+            elif raw_pred is not None:
+                pred_str = str(raw_pred)
+            else:
+                pred_str = ''
+
+            temp = self.config.temperatures[i % len(self.config.temperatures)]
+            samples.append(PredictionSample(
+                prediction=pred_str,
+                reasoning=validated.get('reasoning', ''),
+                confidence=validated.get('confidence_score'),
+                temperature=temp,
+            ))
+
+        return self._aggregate_predictions(samples, str_valid)
+
+
 def create_self_consistency_verifier(
     llm: BaseLLM,
     n_samples: int = 3,

@@ -322,6 +322,42 @@ class Predictor:
                 cost_per_indicator = self._calculate_cost(response) / num_indicators
                 tokens_per_indicator = response.total_tokens // num_indicators
 
+                # In single/sequential mode (>1 indicator per prompt), collect SC samples
+                # at the prompt level so each indicator shares the same N extra calls
+                # instead of making N calls per indicator.  None = not applicable.
+                prompt_sc_parseds = None
+                if (
+                    self.config.verify == VerificationType.SELF_CONSISTENCY
+                    and len(prompt.indicators) > 1
+                    and any(ind in self.verifiers for ind in prompt.indicators)
+                ):
+                    prompt_sc_parseds = []
+                    for _sc_i in range(self.config.sc_n_samples):
+                        _temp = self.config.sc_temperatures[_sc_i % len(self.config.sc_temperatures)]
+                        try:
+                            _sc_resp = self.llm.call(
+                                system_prompt=prompt.system_prompt,
+                                user_prompt=prompt.user_prompt,
+                                temperature=_temp,
+                                max_tokens=self.config.max_tokens,
+                                top_p=self.config.top_p,
+                            )
+                            self.cost_tracker.add_usage(
+                                model=self.config.model,
+                                input_tokens=_sc_resp.input_tokens,
+                                output_tokens=_sc_resp.output_tokens,
+                                cached_tokens=_sc_resp.cached_tokens,
+                                thinking_tokens=_sc_resp.thinking_tokens,
+                                polity=polity,
+                                indicator=f'sc_prompt_sample_{_sc_i + 1}',
+                            )
+                            prompt_sc_parseds.append(
+                                parse_json_response(_sc_resp.content, verbose=False)
+                            )
+                        except Exception as _sc_e:
+                            from tqdm import tqdm as _tqdm
+                            _tqdm.write(f"WARN: prompt-level SC sample {_sc_i + 1} failed: {_sc_e}")
+
                 # Process each indicator in the prompt
                 for indicator in prompt.indicators:
                     ind_prediction = self._process_indicator(
@@ -336,6 +372,7 @@ class Predictor:
                         cost_per_indicator=cost_per_indicator,
                         tokens_per_indicator=tokens_per_indicator,
                         logprob=logprobs_by_indicator.get(indicator),
+                        prompt_sc_parseds=prompt_sc_parseds,
                     )
 
                     predictions[indicator] = ind_prediction
@@ -384,6 +421,7 @@ class Predictor:
         cost_per_indicator: float = 0.0,
         tokens_per_indicator: int = 0,
         logprob: Optional[float] = None,
+        prompt_sc_parseds: Optional[List[Dict]] = None,
     ) -> IndicatorPrediction:
         """Process a single indicator from parsed response."""
         # Validate response based on indicator type
@@ -421,27 +459,36 @@ class Predictor:
         if indicator in self.verifiers:
             verifier = self.verifiers[indicator]
             try:
-                verify_result = verifier.verify(
-                    system_prompt=prompt.system_prompt,
-                    user_prompt=prompt.user_prompt,
-                    indicator=indicator,
-                    valid_labels=valid_labels,
-                    initial_prediction=prediction,
-                    initial_reasoning=reasoning,
-                    polity=polity,
-                    name=name,
-                    start_year=start_year,
-                    end_year=end_year
-                )
+                if prompt_sc_parseds is not None and hasattr(verifier, 'aggregate_from_predictions'):
+                    # Single/sequential mode: samples collected once at prompt level.
+                    # prompt_sc_parseds may be [] if all prompt-level calls failed —
+                    # aggregate_from_predictions handles that gracefully (1-vote result).
+                    verify_result = verifier.aggregate_from_predictions(
+                        indicator=indicator,
+                        valid_labels=valid_labels,
+                        initial_prediction=prediction,
+                        additional_parsed_responses=prompt_sc_parseds,
+                    )
+                else:
+                    # Multiple mode: one prompt per indicator — make n_samples LLM calls now.
+                    verify_result = verifier.verify(
+                        system_prompt=prompt.system_prompt,
+                        user_prompt=prompt.user_prompt,
+                        indicator=indicator,
+                        valid_labels=valid_labels,
+                        initial_prediction=prediction,
+                        initial_reasoning=reasoning,
+                        polity=polity,
+                        name=name,
+                        start_year=start_year,
+                        end_year=end_year
+                    )
 
                 verified_prediction = verify_result.verified_prediction
                 verification_details = verify_result.verification_details
                 agreement_ratio = verify_result.agreement_ratio
                 sc_uncertainty = (verification_details or {}).get('sc_uncertainty')
                 was_verified = True
-
-                # Track verification cost separately (verification methods handle their own tracking)
-                # We don't add it here to avoid double-counting
 
             except Exception as e:
                 verification_details = {'error': str(e)}
