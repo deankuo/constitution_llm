@@ -198,20 +198,20 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
         summary=(
             "The circumstances of an executive's departure from office says a lot about a leader's prerogative while in office.\n\n"
             "Coding:\n"
-            "• 0 = Deposed by domestic actors\n"
-            "• 1 = Assassinated or forced suicide\n"
-            "• 2 = Died in battle in civil war\n"
-            "• 3 = Died in battle in foreign war\n"
-            "• 4 = Through deposition by a foreign state\n"
-            "• 5 = Transition to another office by irregular procedures\n"
-            "• 6 = Died (of disease or accident) on campaign in civil war\n"
-            "• 7 = Died (of disease or accident) on campaign in foreign war\n"
-            "• 8 = Died of other natural causes\n"
-            "• 9 = Retired due to ill health\n"
-            "• 10 = Suicide\n"
-            "• 11 = Abdicated/retired (voluntarily, but NOT due to ill health)\n"
-            "• 12 = Other regular exit (e.g., term limits or defeat in election)\n"
-            "• 13 = Transition to another office type/typology (by regular procedures)\n"
+            "• 0 = Abdicated or retired voluntarily but NOT due to ill health\n"
+            "• 1 = Other regular exit (e.g., term limits or defeat in election)\n"
+            "• 2 = Transition to another office type/typology (by regular procedures)\n"
+            "• 3 = Died (of disease or accident) on campaign in civil war\n"
+            "• 4 = Died (of disease or accident) on campaign in foreign war\n"
+            "• 5 = Died of other natural causes\n"
+            "• 6 = Retired due to ill health\n"
+            "• 7 = Suicide\n"
+            "• 8 = Deposed by domestic actors\n"
+            "• 9 = Assassinated or forced suicide\n"
+            "• 10 = Died in battle in civil war\n"
+            "• 11 = Died in battle in foreign war\n"
+            "• 12 = Transition to another office by irregular procedures\n"
+            "• 13 = Through deposition by a foreign state\n"
             "• 14 = Unknown\n"
             "• 15 = Still in office"
         )
@@ -257,21 +257,21 @@ ENTRY_TO_ENTRY_4: Dict[str, str] = {
     "10": "3",  # Other (clerical) → Election
 }
 
-EXIT_TO_EXIT_4: Dict[str, str] = {
-    "0": "0",   # Deposed by domestic → Irregular
-    "1": "0",   # Assassinated → Irregular
-    "2": "0",   # Died in battle (civil) → Irregular
-    "3": "0",   # Died in battle (foreign) → Irregular
-    "4": "0",   # Deposed by foreign → Irregular
-    "5": "0",   # Irregular transition → Irregular
-    "6": "1",   # Died on campaign (civil) → Natural
-    "7": "1",   # Died on campaign (foreign) → Natural
-    "8": "1",   # Died natural causes → Natural
-    "9": "1",   # Retired ill health → Natural
-    "10": "1",  # Suicide → Natural
-    "11": "2",  # Abdicated voluntarily → Voluntary
-    "12": "3",  # Regular exit (term limits) → Institutionalized
-    "13": "3",  # Regular transition → Institutionalized
+EXIT_TO_EXIT_4: Dict[str, str | None] = {
+    "0": "2",   # Abdicated/retired voluntarily (not ill health) → Voluntary
+    "1": "3",   # Other regular exit (term limits, defeat) → Institutionalized
+    "2": "3",   # Transition to another office (regular) → Institutionalized
+    "3": "1",   # Died on campaign, civil war (disease/accident) → Natural
+    "4": "1",   # Died on campaign, foreign war (disease/accident) → Natural
+    "5": "1",   # Died of natural causes → Natural
+    "6": "1",   # Retired due to ill health → Natural
+    "7": "1",   # Suicide → Natural
+    "8": "0",   # Deposed by domestic actors → Irregular
+    "9": "0",   # Assassinated/forced suicide → Irregular
+    "10": "0",  # Died in battle, civil war → Irregular
+    "11": "0",  # Died in battle, foreign war → Irregular
+    "12": "0",  # Transition to another office (irregular) → Irregular
+    "13": "0",  # Deposed by foreign state → Irregular
     "14": None, # Unknown → N/A
     "15": None, # Still in office → N/A
 }
@@ -335,13 +335,14 @@ INDICATOR_SUMMARIES: Dict[str, str] = {
 
     "exit": (
         "Exit: circumstances of executive departure from office. "
-        "(0) Deposed by domestic actors; (1) Assassinated/forced suicide; "
-        "(2) Died in battle (civil war); (3) Died in battle (foreign war); "
-        "(4) Deposed by foreign state; (5) Irregular transition to another office; "
-        "(6) Died on campaign (civil war); (7) Died on campaign (foreign war); "
-        "(8) Died of natural causes; (9) Retired due to ill health; (10) Suicide; "
-        "(11) Abdicated/retired voluntarily; (12) Regular exit (term limits, electoral defeat); "
-        "(13) Regular transition to another office; (14) Unknown; (15) Still in office."
+        "(0) Abdicated/retired voluntarily (not ill health); (1) Other regular exit (term limits, defeat); "
+        "(2) Transition to another office (regular); (3) Died on campaign, civil war (disease/accident); "
+        "(4) Died on campaign, foreign war (disease/accident); (5) Died of natural causes; "
+        "(6) Retired due to ill health; (7) Suicide; "
+        "(8) Deposed by domestic actors; (9) Assassinated/forced suicide; "
+        "(10) Died in battle, civil war; (11) Died in battle, foreign war; "
+        "(12) Transition to another office (irregular); (13) Deposed by foreign state; "
+        "(14) Unknown; (15) Still in office."
     ),
 
     "exit_4": (

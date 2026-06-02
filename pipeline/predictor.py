@@ -326,6 +326,8 @@ class Predictor:
                 # at the prompt level so each indicator shares the same N extra calls
                 # instead of making N calls per indicator.  None = not applicable.
                 prompt_sc_parseds = None
+                prompt_sc_cost = 0.0
+                prompt_sc_tokens = 0
                 if (
                     self.config.verify == VerificationType.SELF_CONSISTENCY
                     and len(prompt.indicators) > 1
@@ -351,12 +353,19 @@ class Predictor:
                                 polity=polity,
                                 indicator=f'sc_prompt_sample_{_sc_i + 1}',
                             )
+                            prompt_sc_cost += self._calculate_cost(_sc_resp)
+                            prompt_sc_tokens += _sc_resp.total_tokens
                             prompt_sc_parseds.append(
                                 parse_json_response(_sc_resp.content, verbose=False)
                             )
                         except Exception as _sc_e:
                             from tqdm import tqdm as _tqdm
                             _tqdm.write(f"WARN: prompt-level SC sample {_sc_i + 1} failed: {_sc_e}")
+
+                # Spread prompt-level SC cost evenly across indicators in the prompt
+                num_indicators = len(prompt.indicators)
+                sc_cost_per_indicator = prompt_sc_cost / num_indicators if num_indicators else 0.0
+                sc_tokens_per_indicator = prompt_sc_tokens // num_indicators if num_indicators else 0
 
                 # Process each indicator in the prompt
                 for indicator in prompt.indicators:
@@ -369,8 +378,8 @@ class Predictor:
                         start_year=start_year,
                         end_year=end_year,
                         prompt=prompt,
-                        cost_per_indicator=cost_per_indicator,
-                        tokens_per_indicator=tokens_per_indicator,
+                        cost_per_indicator=cost_per_indicator + sc_cost_per_indicator,
+                        tokens_per_indicator=tokens_per_indicator + sc_tokens_per_indicator,
                         logprob=logprobs_by_indicator.get(indicator),
                         prompt_sc_parseds=prompt_sc_parseds,
                     )
@@ -491,6 +500,8 @@ class Predictor:
                 agreement_ratio = verify_result.agreement_ratio
                 sc_uncertainty = (verification_details or {}).get('sc_uncertainty')
                 was_verified = True
+                verification_cost = verify_result.sc_cost_usd
+                verification_tokens = verify_result.sc_tokens
 
             except Exception as e:
                 verification_details = {'error': str(e)}
@@ -504,8 +515,8 @@ class Predictor:
             verification_details=verification_details,
             was_verified=was_verified,
             model_used=self.config.model,
-            tokens_used=tokens_per_indicator,
-            cost_usd=cost_per_indicator,
+            tokens_used=tokens_per_indicator + verification_tokens,
+            cost_usd=cost_per_indicator + verification_cost,
             document_name=document_name,
             constitution_year=constitution_year,
             document_types=document_types if indicator == 'constitution' else None,

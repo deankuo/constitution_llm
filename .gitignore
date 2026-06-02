@@ -89,3 +89,6 @@ env/
 # Temporary files
 *.tmp
 data/temp/
+
+# shell history
+tacc/*.slurm

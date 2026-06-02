@@ -151,6 +151,7 @@ class SelfConsistencyVerification(BaseVerification):
         """Collect prediction samples at different temperatures.
 
         valid_labels must already be normalized to strings by the caller.
+        Returns samples with .response set so callers can sum up SC costs.
         """
         samples = []
 
@@ -195,7 +196,7 @@ class SelfConsistencyVerification(BaseVerification):
                     reasoning=validated.get('reasoning', ''),
                     confidence=validated.get('confidence_score'),
                     temperature=temperature,
-                    response=response
+                    response=response,
                 )
                 samples.append(sample)
 
@@ -212,6 +213,19 @@ class SelfConsistencyVerification(BaseVerification):
         valid_labels: List[str]
     ) -> VerificationResult:
         """Aggregate samples using majority voting."""
+        # Sum token and cost usage across all SC sample responses
+        sc_cost_usd = 0.0
+        sc_tokens = 0
+        for s in samples:
+            if s.response is not None:
+                sc_cost_usd += self.cost_tracker.calculate_cost(
+                    model=self.llm.model,
+                    input_tokens=s.response.input_tokens,
+                    output_tokens=s.response.output_tokens,
+                    thinking_tokens=s.response.thinking_tokens,
+                )
+                sc_tokens += s.response.total_tokens
+
         if not samples:
             # No valid samples
             return VerificationResult(
@@ -224,7 +238,9 @@ class SelfConsistencyVerification(BaseVerification):
                     'error': 'No valid samples collected',
                     'n_samples': 0
                 },
-                was_revised=False
+                was_revised=False,
+                sc_cost_usd=sc_cost_usd,
+                sc_tokens=sc_tokens,
             )
 
         # Count predictions
@@ -242,7 +258,9 @@ class SelfConsistencyVerification(BaseVerification):
                     'error': 'No valid predictions in samples',
                     'n_samples': len(samples)
                 },
-                was_revised=False
+                was_revised=False,
+                sc_cost_usd=sc_cost_usd,
+                sc_tokens=sc_tokens,
             )
 
         # Majority vote
@@ -292,7 +310,9 @@ class SelfConsistencyVerification(BaseVerification):
                 'high_confidence': agreement_ratio >= self.config.min_agreement,
                 'sample_reasonings': reasoning_samples[:3]
             },
-            was_revised=(original_prediction != majority_prediction)
+            was_revised=(original_prediction != majority_prediction),
+            sc_cost_usd=sc_cost_usd,
+            sc_tokens=sc_tokens,
         )
 
 

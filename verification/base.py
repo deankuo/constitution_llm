@@ -26,6 +26,8 @@ class VerificationResult:
         agreement_ratio: Ratio of agreeing samples (for self-consistency)
         verification_details: Additional details about the verification process
         was_revised: Whether the prediction was changed during verification
+        sc_cost_usd: Total cost of SC sampling calls (0.0 when not applicable)
+        sc_tokens: Total tokens used by SC sampling calls (0 when not applicable)
     """
     original_prediction: str
     verified_prediction: str
@@ -33,6 +35,8 @@ class VerificationResult:
     agreement_ratio: Optional[float] = None
     verification_details: Dict[str, Any] = field(default_factory=dict)
     was_revised: bool = False
+    sc_cost_usd: float = 0.0
+    sc_tokens: int = 0
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
