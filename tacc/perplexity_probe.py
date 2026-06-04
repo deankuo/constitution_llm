@@ -398,7 +398,7 @@ def process_one_commercial(llm, row_idx: int, row: dict, delay: float = 1.0) -> 
                 system_prompt=SYSTEM_PROMPT,
                 user_prompt=_format_question(stmt, fields),
                 temperature=0.0,
-                max_tokens=1024,
+                max_tokens=2048,
                 response_schema=stmt["ans_schema"],
             )
             rec[f"gen_{stmt['label']}"] = parse_answer(response.content, stmt["ans_field"])
