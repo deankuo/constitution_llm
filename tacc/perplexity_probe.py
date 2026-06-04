@@ -17,6 +17,7 @@ import json
 import logging
 import argparse
 import re
+import time
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -203,6 +204,8 @@ def parse_args():
     g2 = p.add_argument_group("Commercial API options")
     g2.add_argument("--parallel-rows", type=int, default=4,
                     help="Number of rows to process in parallel (default: 4)")
+    g2.add_argument("--delay", type=float, default=1.0,
+                    help="Seconds to wait between API calls within a row (default: 1.0)")
 
     p.add_argument("--test-n", type=int, default=None,
                    help="Process only the first N rows — for smoke testing (default: full dataset)")
@@ -379,15 +382,21 @@ def process_vllm_batch(llm, indexed_rows: list[tuple[int, dict]]) -> list[dict]:
 
 # ── Commercial single-row processing ─────────────────────────────────────────
 
-def process_one_commercial(llm, row_idx: int, row: dict) -> dict:
-    """Process all questions for a single row via commercial API (one call per question)."""
-    fields = parse_fields(row)
-    rec    = _make_base_rec(row_idx, fields)
+def process_one_commercial(llm, row_idx: int, row: dict, delay: float = 1.0) -> tuple[dict, int]:
+    """Process all questions for a single row via commercial API (one call per question).
 
-    for stmt in STATEMENTS:
+    Returns (rec, n_errors) so callers can tally failures.
+    """
+    fields   = parse_fields(row)
+    rec      = _make_base_rec(row_idx, fields)
+    n_errors = 0
+
+    for i, stmt in enumerate(STATEMENTS):
         if not _can_form(stmt, fields):
             rec[f"gen_{stmt['label']}"] = ""
             continue
+        if i > 0 and delay > 0:
+            time.sleep(delay)
         try:
             response = llm.call(
                 system_prompt=SYSTEM_PROMPT,
@@ -399,21 +408,26 @@ def process_one_commercial(llm, row_idx: int, row: dict) -> dict:
         except Exception as e:
             log.warning(f"API error row {row_idx} [{stmt['label']}]: {e}")
             rec[f"gen_{stmt['label']}"] = ""
+            n_errors += 1
 
-    return rec
+    return rec, n_errors
 
 
 # ── Checkpoint helpers ────────────────────────────────────────────────────────
 
 def load_done(output_path: Path) -> set[int]:
-    """Return row indices that have at least one non-empty gen output."""
+    """Return row indices where ALL gen_* columns are non-empty.
+
+    Using all() instead of any() ensures partially-completed rows (e.g. where
+    some API calls failed) are retried rather than permanently skipped.
+    """
     if not output_path.exists():
         return set()
     with open(output_path) as f:
         return {
             int(r["row_idx"])
             for r in csv.DictReader(f)
-            if r.get("row_idx") and any(r.get(f"gen_{lbl}", "") for lbl in LABELS)
+            if r.get("row_idx") and all(r.get(f"gen_{lbl}", "") for lbl in LABELS)
         }
 
 
@@ -480,19 +494,28 @@ def main():
                     pbar.update(len(buffer))
 
         else:  # commercial
+            total_errors = 0
             with tqdm(total=len(pending), unit="row", desc="Probing") as pbar:
                 with ThreadPoolExecutor(max_workers=args.parallel_rows) as executor:
                     futures = {
-                        executor.submit(process_one_commercial, llm, idx, row): idx
+                        executor.submit(
+                            process_one_commercial, llm, idx, row, args.delay
+                        ): idx
                         for idx, row in pending
                     }
                     for fut in as_completed(futures):
                         try:
-                            writer.writerow(fut.result())
+                            rec, n_errors = fut.result()
+                            writer.writerow(rec)
                             fh.flush()
+                            total_errors += n_errors
                         except Exception as e:
                             log.error(f"Row {futures[fut]} failed: {e}")
                         pbar.update(1)
+            if total_errors:
+                log.warning(
+                    f"{total_errors} API call(s) failed — rerun to retry incomplete rows"
+                )
 
     finally:
         fh.close()
