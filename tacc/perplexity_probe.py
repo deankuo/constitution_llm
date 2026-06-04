@@ -21,7 +21,7 @@ import time
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 from tqdm import tqdm
 
 # ── vLLM imports (only used for local open-source models) ────────────────────
@@ -60,22 +60,18 @@ _BC_NOTE = "Use a negative integer for BC years, e.g., -44 for 44 BC."
 
 
 class _YearAnswer(BaseModel):
-    model_config = ConfigDict(extra="forbid")
     year: int = Field(description=f"Calendar year. {_BC_NOTE}")
 
 
 class _TenureAnswer(BaseModel):
-    model_config = ConfigDict(extra="forbid")
     years: int = Field(ge=0, le=300, description="Duration of rule in whole years (not a calendar year).")
 
 
 class _NameAnswer(BaseModel):
-    model_config = ConfigDict(extra="forbid")
     name: str = Field(max_length=120, description="Full name of the ruler.")
 
 
 class _PolityAnswer(BaseModel):
-    model_config = ConfigDict(extra="forbid")
     polity: str = Field(max_length=120, description="Name of the polity or territory.")
 
 
@@ -100,7 +96,7 @@ STATEMENTS = [
             "{name} ruled {polity} and left power in {exit_year}.\n"
             "In which year did {name} first come to power in {polity}?\n"
             'Respond with: {{"year": <integer>}}\n'
-            "Use negative integers for BC years (e.g., -44 for 44 BC)."
+            "Use negative integers for BC years."
         ),
         "ans_schema": _YearAnswer,
         "ans_field":  "year",
@@ -402,13 +398,16 @@ def process_one_commercial(llm, row_idx: int, row: dict, delay: float = 1.0) -> 
                 system_prompt=SYSTEM_PROMPT,
                 user_prompt=_format_question(stmt, fields),
                 temperature=0.0,
-                max_tokens=200,
+                max_tokens=1024,
+                response_schema=stmt["ans_schema"],
             )
             rec[f"gen_{stmt['label']}"] = parse_answer(response.content, stmt["ans_field"])
         except Exception as e:
             log.warning(f"API error row {row_idx} [{stmt['label']}]: {e}")
             rec[f"gen_{stmt['label']}"] = ""
             n_errors += 1
+        
+        # print(response)
 
     return rec, n_errors
 
@@ -446,7 +445,7 @@ def main():
         format="%(asctime)s %(levelname)s %(message)s",
         datefmt="%H:%M:%S",
     )
-    logging.getLogger("google_genai").setLevel(logging.WARNING)
+    logging.getLogger("google_genai").setLevel(logging.ERROR)
 
     mode, llm = load_model(args)
 

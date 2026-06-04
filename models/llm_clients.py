@@ -203,6 +203,8 @@ class GeminiLLM(BaseLLM):
                 response_mime_type="application/json",
                 safety_settings=safety_settings,
             )
+            if "response_schema" in kwargs:
+                base_config_kwargs["response_schema"] = kwargs["response_schema"]
 
             # When logprobs are disabled (default), use a single plain call.
             # When enabled, try with logprobs and fall back silently on unsupported models.
@@ -251,22 +253,38 @@ class GeminiLLM(BaseLLM):
             if try_logprobs and hasattr(candidate, 'logprobs_result') and candidate.logprobs_result:
                 logprobs_result = candidate.logprobs_result
 
-            # Build content from text parts explicitly to avoid the SDK's per-call
-            # "non-text parts: thought_signature" warning for thinking models.
-            # Emit a one-time informational notice the first time a model returns
-            # non-text parts (e.g. thinking tokens).
-            content_parts = candidate.content.parts if candidate.content else []
-            has_nontext = any(
-                not (hasattr(p, 'text') and p.text is not None)
-                for p in content_parts
-            )
-            if has_nontext and model_to_use not in GeminiLLM._thinking_noticed:
-                GeminiLLM._thinking_noticed.add(model_to_use)
-                from tqdm import tqdm as _tqdm
-                _tqdm.write(f"INFO: {model_to_use} returns thinking tokens (non-text parts suppressed after first notice).")
-            content = "".join(
-                p.text for p in content_parts if hasattr(p, 'text') and p.text is not None
-            ).strip()
+            # When response_schema was provided, use response.parsed (structured output)
+            # rather than concatenating text parts — thinking models put a preamble in
+            # the text parts and place the actual JSON in the parsed field.
+            parsed = getattr(response, 'parsed', None)
+            if "response_schema" in kwargs and parsed is not None:
+                try:
+                    import json as _json
+                    content = (
+                        parsed.model_dump_json()
+                        if hasattr(parsed, 'model_dump_json')
+                        else _json.dumps(vars(parsed))
+                    )
+                except Exception:
+                    parsed = None  # fall through to text-part extraction
+
+            if "response_schema" not in kwargs or parsed is None:
+                # Build content from text parts explicitly to avoid the SDK's per-call
+                # "non-text parts: thought_signature" warning for thinking models.
+                # Emit a one-time informational notice the first time a model returns
+                # non-text parts (e.g. thinking tokens).
+                content_parts = candidate.content.parts if candidate.content else []
+                has_nontext = any(
+                    not (hasattr(p, 'text') and p.text is not None)
+                    for p in content_parts
+                )
+                if has_nontext and model_to_use not in GeminiLLM._thinking_noticed:
+                    GeminiLLM._thinking_noticed.add(model_to_use)
+                    from tqdm import tqdm as _tqdm
+                    _tqdm.write(f"INFO: {model_to_use} returns thinking tokens (non-text parts suppressed after first notice).")
+                content = "".join(
+                    p.text for p in content_parts if hasattr(p, 'text') and p.text is not None
+                ).strip()
 
             # Extract usage metadata
             usage = {}
