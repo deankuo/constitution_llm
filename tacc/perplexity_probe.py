@@ -21,6 +21,9 @@ import time
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+# Disable LangSmith tracing for this script — must be set before project imports.
+os.environ["LANGCHAIN_TRACING_V2"] = "false"
+
 from pydantic import BaseModel, Field
 from tqdm import tqdm
 
@@ -401,13 +404,14 @@ def process_one_commercial(llm, row_idx: int, row: dict, delay: float = 1.0) -> 
                 max_tokens=2048,
                 response_schema=stmt["ans_schema"],
             )
-            rec[f"gen_{stmt['label']}"] = parse_answer(response.content, stmt["ans_field"])
+            result = parse_answer(response.content, stmt["ans_field"])
+            if not result:
+                log.debug(f"Empty parse row {row_idx} [{stmt['label']}]: {response.content!r}")
+            rec[f"gen_{stmt['label']}"] = result
         except Exception as e:
             log.warning(f"API error row {row_idx} [{stmt['label']}]: {e}")
             rec[f"gen_{stmt['label']}"] = ""
             n_errors += 1
-        
-        # print(response)
 
     return rec, n_errors
 
@@ -446,6 +450,9 @@ def main():
         datefmt="%H:%M:%S",
     )
     logging.getLogger("google_genai").setLevel(logging.ERROR)
+    # Suppress noisy SDK/HTTP debug logs so our DEBUG messages stay visible.
+    for _noisy in ("botocore", "boto3", "urllib3", "s3transfer", "google", "httpx"):
+        logging.getLogger(_noisy).setLevel(logging.WARNING)
 
     mode, llm = load_model(args)
 

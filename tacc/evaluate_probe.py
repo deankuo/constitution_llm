@@ -21,11 +21,13 @@ Correctness rules:
 
 Usage:
   python evaluate_probe.py --input probe_output.csv
+  python evaluate_probe.py --input a.csv b.csv --labels ModelA ModelB
   python evaluate_probe.py --input probe_output.csv --year-window 5 --tenure-window 10
 """
 
 import csv
 import argparse
+from pathlib import Path
 
 # ── Evaluation specs ──────────────────────────────────────────────────────────
 # Maps each gen_* column to its ground truth column and comparison type.
@@ -79,8 +81,10 @@ def parse_args():
     p = argparse.ArgumentParser(
         description="Evaluate knowledge probe output against ground truth"
     )
-    p.add_argument("--input",         required=True,
-                   help="Probe output CSV (from perplexity_probe.py)")
+    p.add_argument("--input",         required=True, nargs="+",
+                   help="One or more probe output CSVs (from perplexity_probe.py)")
+    p.add_argument("--labels",        nargs="+",
+                   help="Display names for each input file (defaults to filename stems)")
     p.add_argument("--year-window",   type=int, default=3,
                    help="Tolerance ±N years for entry/exit year questions (default: 3)")
     p.add_argument("--tenure-window", type=int, default=5,
@@ -88,25 +92,16 @@ def parse_args():
     return p.parse_args()
 
 
-# ── Main ──────────────────────────────────────────────────────────────────────
+# ── Per-file evaluation ───────────────────────────────────────────────────────
 
-def main():
-    args = parse_args()
-
-    with open(args.input, newline="") as f:
+def evaluate_file(path: str, year_window: int, tenure_window: int):
+    """Return (available_cols, counts_dict) for one CSV file."""
+    with open(path, newline="") as f:
         rows = list(csv.DictReader(f))
-
     if not rows:
-        print("No rows in input.")
-        return
+        return set(), {}
 
-    # Check which gen_* columns are present (probe may have been run on a subset)
     available = {s["gen_col"] for s in EVAL_SPECS if s["gen_col"] in rows[0]}
-    if not available:
-        print("No gen_* columns found. Is this a probe output CSV?")
-        return
-
-    # Per-question accumulators: {gen_col: [n_correct, n_evaluated]}
     counts: dict[str, list[int]] = {s["gen_col"]: [0, 0] for s in EVAL_SPECS}
 
     for row in rows:
@@ -115,36 +110,99 @@ def main():
                 continue
             gt   = row.get(spec["gt_col"], "")
             pred = row.get(spec["gen_col"], "")
-            c    = is_correct(spec, gt, pred, args.year_window, args.tenure_window)
+            c    = is_correct(spec, gt, pred, year_window, tenure_window)
             if c != "":
                 counts[spec["gen_col"]][0] += c
                 counts[spec["gen_col"]][1] += 1
 
-    # ── Accuracy summary ───────────────────────────────────────────────────
+    return available, counts
+
+
+# ── Main ──────────────────────────────────────────────────────────────────────
+
+def main():
+    args = parse_args()
+
+    labels = args.labels or [Path(p).stem for p in args.input]
+    if len(labels) != len(args.input):
+        print(f"Error: --labels count ({len(labels)}) must match --input count ({len(args.input)}).")
+        return
+
+    results = []
+    all_available: set[str] = set()
+    for path, label in zip(args.input, labels):
+        available, counts = evaluate_file(path, args.year_window, args.tenure_window)
+        if not available:
+            print(f"Warning: no gen_* columns or no rows in {path!r} — skipping.")
+            continue
+        results.append((label, available, counts))
+        all_available |= available
+
+    if not results:
+        print("No valid input files.")
+        return
+
     print(
         f"\nEvaluation  "
         f"(year ±{args.year_window} | tenure ±{args.tenure_window} | "
         f"name/polity: partial match)\n"
     )
-    col_w    = max(len(s["gen_col"]) for s in EVAL_SPECS if s["gen_col"] in available)
-    divider  = "-" * (col_w + 34)
-    print(f"{'Question':<{col_w}}   {'Correct':>7}   {'Total':>5}   Accuracy")
-    print(divider)
 
-    overall_correct = overall_total = 0
-    for spec in EVAL_SPECS:
-        if spec["gen_col"] not in available:
-            continue
-        n_correct, n_total = counts[spec["gen_col"]]
+    # ── Single-file: original compact layout ──────────────────────────────
+    if len(results) == 1:
+        label, available, counts = results[0]
+        col_w   = max(len(s["gen_col"]) for s in EVAL_SPECS if s["gen_col"] in available)
+        divider = "-" * (col_w + 34)
+        print(f"{'Question':<{col_w}}   {'Correct':>7}   {'Total':>5}   Accuracy")
+        print(divider)
+        overall_correct = overall_total = 0
+        for spec in EVAL_SPECS:
+            if spec["gen_col"] not in available:
+                continue
+            n_correct, n_total = counts[spec["gen_col"]]
+            acc = f"{n_correct / n_total:.1%}" if n_total else "n/a"
+            print(f"{spec['gen_col']:<{col_w}}   {n_correct:>7}   {n_total:>5}   {acc}")
+            overall_correct += n_correct
+            overall_total   += n_total
+        print(divider)
+        overall_acc = f"{overall_correct / overall_total:.1%}" if overall_total else "n/a"
+        print(f"{'Overall':<{col_w}}   {overall_correct:>7}   {overall_total:>5}   {overall_acc}\n")
+        return
+
+    # ── Multi-file: side-by-side accuracy comparison ───────────────────────
+    col_w  = max(len(s["gen_col"]) for s in EVAL_SPECS if s["gen_col"] in all_available)
+    # "100.0% (9999)" = 13 chars; labels may be longer
+    cell_w = max(max(len(lbl) for lbl, *_ in results), 13)
+    n_cols = len(results)
+    divider = "-" * (col_w + 3 + n_cols * (cell_w + 3))
+
+    def fmt_cell(n_correct: int, n_total: int) -> str:
         acc = f"{n_correct / n_total:.1%}" if n_total else "n/a"
-        print(f"{spec['gen_col']:<{col_w}}   {n_correct:>7}   {n_total:>5}   {acc}")
-        overall_correct += n_correct
-        overall_total   += n_total
+        return f"{acc} ({n_total})"
+
+    header = f"{'Question':<{col_w}}   " + "   ".join(f"{lbl:>{cell_w}}" for lbl, *_ in results)
+    print(header)
+    print(divider)
+
+    overall: list[list[int]] = [[0, 0] for _ in results]
+    for spec in EVAL_SPECS:
+        if spec["gen_col"] not in all_available:
+            continue
+        cells = []
+        for i, (label, available, counts) in enumerate(results):
+            if spec["gen_col"] not in available:
+                cells.append(f"{'—':>{cell_w}}")
+            else:
+                n_correct, n_total = counts[spec["gen_col"]]
+                cells.append(f"{fmt_cell(n_correct, n_total):>{cell_w}}")
+                overall[i][0] += n_correct
+                overall[i][1] += n_total
+        print(f"{spec['gen_col']:<{col_w}}   " + "   ".join(cells))
 
     print(divider)
-    overall_acc = f"{overall_correct / overall_total:.1%}" if overall_total else "n/a"
-    print(f"{'Overall':<{col_w}}   {overall_correct:>7}   {overall_total:>5}   {overall_acc}\n")
-
+    overall_cells = [f"{fmt_cell(n_correct, n_total):>{cell_w}}" for n_correct, n_total in overall]
+    print(f"{'Overall':<{col_w}}   " + "   ".join(overall_cells))
+    print()
 
 
 if __name__ == "__main__":

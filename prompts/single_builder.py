@@ -243,29 +243,29 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
 # The pipeline does NOT use these mappings; it queries entry_4 and exit_4 directly.
 # =============================================================================
 
-ENTRY_TO_ENTRY_4: Dict[str, str] = {
+ENTRY_TO_ENTRY_4: Dict[str, str | None] = {
     "0": "0",   # Force → Irregular
     "1": "0",   # Foreign power → Irregular
     "2": "2",   # Ruling party → Appointment
     "3": "2",   # Royal council → Appointment
     "4": "1",   # Hereditary → Hereditary
-    "5": "0",   # Military → Irregular
+    "5": "2",   # Military → Irregular
     "6": "3",   # Legislature → Election
     "7": "2",   # Head of state → Appointment
     "8": "2",   # Head of government → Appointment
     "9": "3",   # Popular election → Election
-    "10": "3",  # Other (clerical) → Election
+    "10": None,  # Other (clerical) → Election
 }
 
 EXIT_TO_EXIT_4: Dict[str, str | None] = {
     "0": "2",   # Abdicated/retired voluntarily (not ill health) → Voluntary
     "1": "3",   # Other regular exit (term limits, defeat) → Institutionalized
     "2": "3",   # Transition to another office (regular) → Institutionalized
-    "3": "1",   # Died on campaign, civil war (disease/accident) → Natural
-    "4": "1",   # Died on campaign, foreign war (disease/accident) → Natural
+    "3": "0",   # Died on campaign, civil war (disease/accident) → Natural
+    "4": "0",   # Died on campaign, foreign war (disease/accident) → Natural
     "5": "1",   # Died of natural causes → Natural
     "6": "1",   # Retired due to ill health → Natural
-    "7": "1",   # Suicide → Natural
+    "7": "0",   # Suicide → Natural
     "8": "0",   # Deposed by domestic actors → Irregular
     "9": "0",   # Assassinated/forced suicide → Irregular
     "10": "0",  # Died in battle, civil war → Irregular

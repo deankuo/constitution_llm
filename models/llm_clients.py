@@ -76,7 +76,7 @@ class OpenAILLM(BaseLLM):
             client = self._get_client()
             model_to_use = model or self.model
 
-            response = client.chat.completions.create(
+            create_kwargs = dict(
                 model=model_to_use,
                 messages=[
                     {"role": "system", "content": system_prompt},
@@ -84,8 +84,24 @@ class OpenAILLM(BaseLLM):
                 ],
                 temperature=temperature if temperature is not None else self.default_temperature,
                 max_tokens=max_tokens or self.default_max_tokens,
-                top_p=top_p if top_p is not None else DEFAULT_TOP_P
+                top_p=top_p if top_p is not None else DEFAULT_TOP_P,
             )
+            if "response_schema" in kwargs:
+                schema_cls = kwargs["response_schema"]
+                if hasattr(schema_cls, 'model_json_schema'):
+                    import json as _json
+                    raw_schema = schema_cls.model_json_schema()
+                    raw_schema.setdefault("additionalProperties", False)
+                    create_kwargs["response_format"] = {
+                        "type": "json_schema",
+                        "json_schema": {
+                            "name": schema_cls.__name__.lower(),
+                            "schema": raw_schema,
+                            "strict": True,
+                        },
+                    }
+
+            response = client.chat.completions.create(**create_kwargs)
 
             content = response.choices[0].message.content or ""
             usage = {
@@ -256,15 +272,17 @@ class GeminiLLM(BaseLLM):
             # When response_schema was provided, use response.parsed (structured output)
             # rather than concatenating text parts — thinking models put a preamble in
             # the text parts and place the actual JSON in the parsed field.
+            # gemini-2.5-pro returns response.parsed as a plain dict (not a Pydantic instance).
             parsed = getattr(response, 'parsed', None)
             if "response_schema" in kwargs and parsed is not None:
                 try:
                     import json as _json
-                    content = (
-                        parsed.model_dump_json()
-                        if hasattr(parsed, 'model_dump_json')
-                        else _json.dumps(vars(parsed))
-                    )
+                    if hasattr(parsed, 'model_dump_json'):
+                        content = parsed.model_dump_json()
+                    elif isinstance(parsed, dict):
+                        content = _json.dumps(parsed)
+                    else:
+                        content = _json.dumps(vars(parsed))
                 except Exception:
                     parsed = None  # fall through to text-part extraction
 
@@ -273,7 +291,8 @@ class GeminiLLM(BaseLLM):
                 # "non-text parts: thought_signature" warning for thinking models.
                 # Emit a one-time informational notice the first time a model returns
                 # non-text parts (e.g. thinking tokens).
-                content_parts = candidate.content.parts if candidate.content else []
+                # candidate.content.parts can be None for some models with response_schema.
+                content_parts = (candidate.content.parts if candidate.content else None) or []
                 has_nontext = any(
                     not (hasattr(p, 'text') and p.text is not None)
                     for p in content_parts
