@@ -419,10 +419,13 @@ def process_one_commercial(llm, row_idx: int, row: dict, delay: float = 1.0) -> 
 # ── Checkpoint helpers ────────────────────────────────────────────────────────
 
 def load_done(output_path: Path) -> set[int]:
-    """Return row indices where ALL gen_* columns are non-empty.
+    """Return row indices that were previously processed.
 
-    Using all() instead of any() ensures partially-completed rows (e.g. where
-    some API calls failed) are retried rather than permanently skipped.
+    A row is "done" when every gen_* column that *could* have been filled is
+    non-empty.  For questions that couldn't be formed (missing context fields),
+    the gen_ column is legitimately "" and must not block completion detection.
+    We use row_idx presence as the signal: if a row appears in the CSV it was
+    processed; API errors leave "" and will be re-attempted.
     """
     if not output_path.exists():
         return set()
@@ -430,7 +433,7 @@ def load_done(output_path: Path) -> set[int]:
         return {
             int(r["row_idx"])
             for r in csv.DictReader(f)
-            if r.get("row_idx") and all(r.get(f"gen_{lbl}", "") for lbl in LABELS)
+            if r.get("row_idx")
         }
 
 

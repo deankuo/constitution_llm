@@ -252,7 +252,16 @@ def _apply_polity_verification(
     # Self-Consistency
     # ------------------------------------------------------------------
     if verify_type in ('self_consistency', 'both'):
+        # Seed with initial prediction so total samples = n_samples + 1,
+        # matching the leader pipeline's SelfConsistencyVerification behaviour.
         sc_preds: List[float] = []
+        if initial_status is not None:
+            try:
+                seed = float(int(float(initial_status)))
+                if seed in (0.0, 1.0, 2.0):
+                    sc_preds.append(seed)
+            except (ValueError, TypeError):
+                pass
         temps = (sc_temperatures or [1.0, 1.0, 1.0])[:sc_n_samples]
         for temp in temps:
             try:

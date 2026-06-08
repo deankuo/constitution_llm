@@ -10,15 +10,19 @@ A sophisticated pipeline for analyzing historical polities to predict political 
   - Google Gemini (Gemini 3.1 Pro Preview, Gemini 2.5 Pro, etc.) — default: `gemini-3.1-pro-preview`
   - AWS Bedrock (Claude on Bedrock, etc.)
 
-- **8 Political Indicators**:
+- **Political Indicators**:
   - **Constitution**: No written law / code of law / full constitution (0/1/2)
   - **Sovereign**: Independent vs. colony/vassal/tributary (0/1)
-  - **Assembly**: None / small advisory council / large assembly with policymaking role (0/1/2)
-  - **Appointment**: How the executive entered office — force/hereditary / by council / popular election (0/1/2)
-  - **Tenure**: Longest-serving leader tenure — <5y / 5–10y / >10y (0/1/2)
-  - **Exit**: How the executive left office — irregular (died/forced) / regular (voluntary/term limits) (0/1)
+  - **Federalism**: Unitary vs. federal/confederal division of sovereignty (0/1)
+  - **Checks**: Level of effective checks on the executive — none / partial / full (0/1/2)
+  - **Checks Actors**: Which actors check the executive — multi-select from 10 categories (0–9)
   - **Collegiality**: Single actor dominates vs. decisions genuinely shared by a constituted body (0/1)
-  - **Separate Powers**: Unitary authority vs. multiple independent policymaking organizations (0/1)
+  - **Assembly**: None / advisory council / legislature / popular assembly (0/1/2/3)
+  - **Entry**: How the executive came to power — 11 fine-grained categories (0–10)
+  - **Entry_4**: Coarse entry — irregular / hereditary / appointment / election (0–3, independent robustness query)
+  - **Exit**: Circumstances of executive departure — 16 fine-grained categories (0–15)
+  - **Exit_4**: Coarse exit — irregular / natural / voluntary / institutionalized (0–3, independent robustness query)
+  - **Symbolic Power**: Trappings of executive office — plain / decorated / deified / ceremonial (0/1/2/3)
   - **Elections** (downstream only, via `post_processing.py`): Legislative elections — pass-through 0 when assembly ≠ 2 (0/1/2)
 
 - **Verification Methods**:
@@ -117,12 +121,12 @@ LANGCHAIN_PROJECT=constitution-llm
 
 ## Quick Start
 
-### Leader Pipeline (All 8 Indicators)
+### Leader Pipeline
 
 ```bash
 # Run predictions for all non-constitution indicators
 python main.py --pipeline leader \
-  --indicators sovereign assembly appointment tenure exit collegiality separate_powers \
+  --indicators sovereign assembly entry exit collegiality checks federalism \
   --models gemini-2.5-pro \
   --mode multiple \
   --test 5
@@ -136,7 +140,7 @@ python main.py --pipeline leader \
 
 # Run with Self-Consistency verification
 python main.py --pipeline leader \
-  --indicators assembly appointment \
+  --indicators assembly entry \
   --models gemini-2.5-pro \
   --verify self_consistency \
   --verify-indicators assembly \
@@ -241,7 +245,7 @@ constitution_llm/
 │   ├── polity_indicators.py       # Legacy polity-level indicator prompts
 │   ├── single_builder.py          # Combines indicators (unified prompt)
 │   ├── multiple_builder.py        # Separate prompt per indicator
-│   └── sequential_builder.py      # All 8 indicators in sequential sections
+│   └── sequential_builder.py      # All indicators in sequential sections
 │
 ├── models/
 │   ├── base.py                    # BaseLLM abstract class + ModelResponse
@@ -373,7 +377,7 @@ python main.py --help
 
 | Argument | Description | Default |
 |----------|-------------|---------|
-| `--pipeline` | `leader` (new, all 8 indicators) or `polity` (legacy, constitution only) | `polity` |
+| `--pipeline` | `leader` (new modular pipeline, all indicators) or `polity` (legacy, constitution only) | `polity` |
 
 #### Leader Pipeline Arguments
 
@@ -412,26 +416,26 @@ python main.py --help
 ### Example Commands
 
 ```bash
-# --- LEADER PIPELINE (leader-level, all 8 indicators) ---
+# --- LEADER PIPELINE ---
 
 # Basic multi-indicator prediction
 python main.py --pipeline leader \
-  --indicators sovereign assembly appointment \
+  --indicators sovereign assembly entry \
   --models gemini-2.5-pro \
   --test 10
 
 # Sequential mode with user-defined order
 python main.py --pipeline leader \
   --mode sequential \
-  --indicators constitution sovereign assembly collegiality separate_powers appointment tenure exit \
-  --sequence assembly constitution sovereign exit collegiality separate_powers tenure appointment \
+  --indicators constitution sovereign assembly collegiality checks entry exit \
+  --sequence assembly constitution sovereign exit collegiality checks entry \
   --models gemini-2.5-pro \
   --test 5
 
 # Sequential mode with random order
 python main.py --pipeline leader \
   --mode sequential \
-  --indicators constitution sovereign assembly collegiality separate_powers appointment tenure exit \
+  --indicators constitution sovereign assembly collegiality checks entry exit \
   --random-sequence \
   --models gemini-2.5-pro \
   --test 5
@@ -457,7 +461,7 @@ python main.py --pipeline leader \
 
 # Full batch (all non-constitution indicators), 4 rows in parallel
 python main.py --pipeline leader \
-  --indicators sovereign assembly appointment tenure exit collegiality separate_powers \
+  --indicators sovereign federalism assembly entry entry_4 exit exit_4 collegiality checks \
   --models gemini-2.5-pro \
   --mode multiple \
   --parallel-rows 4 \
@@ -503,10 +507,10 @@ The pipeline supports three distinct prompt modes, each with different character
 - **Pros**: Fewer API calls, lower cost
 - **Cons**: Potential cross-indicator contamination (predictions may influence each other)
 - **Use when**: You want to reduce costs and are willing to accept potential contamination
-- **Example**: 8 indicators = 1 LLM call with unified definitions
+- **Example**: 7 indicators = 1 LLM call with unified definitions
 
 #### 3. Sequential Mode
-- **How it works**: All 8 indicators presented as distinct sequential sections in one prompt
+- **How it works**: All indicators presented as distinct sequential sections in one prompt
 - **Pros**:
   - Single API call (cost-efficient)
   - Each indicator maintains its distinct prompt structure
@@ -517,7 +521,7 @@ The pipeline supports three distinct prompt modes, each with different character
 - **Use when**:
   - You want to study how indicator ordering affects predictions
   - You want cost efficiency while maintaining distinct indicator definitions
-- **Example**: 8 indicators = 1 LLM call with 8 sequential sections
+- **Example**: 7 indicators = 1 LLM call with 7 sequential sections
 
 **Sequential Mode Order Options:**
 ```bash
@@ -525,7 +529,7 @@ The pipeline supports three distinct prompt modes, each with different character
 --mode sequential
 
 # User-specified order
---mode sequential --sequence assembly sovereign exit constitution collegiality separate_powers tenure appointment
+--mode sequential --sequence assembly sovereign exit constitution collegiality checks entry
 
 # Random order (useful for testing sequence effects)
 --mode sequential --random-sequence
@@ -623,19 +627,26 @@ DEFAULT_MAX_RETRIES = 3
 
 # Indicators
 ALL_INDICATORS = [
-    'constitution', 'sovereign', 'assembly',
-    'appointment', 'tenure', 'exit', 'collegiality', 'separate_powers'
+    'constitution', 'sovereign', 'federalism', 'checks', 'checks_actors',
+    'collegiality', 'assembly', 'entry', 'entry_4', 'exit', 'exit_4',
+    'symbolic_power',
+    'elections',  # downstream only (post_processing.py)
 ]
 
 INDICATOR_LABELS = {
-    'constitution':    ['0', '1', '2'],
-    'sovereign':       ['0', '1'],
-    'assembly':        ['0', '1', '2'],
-    'appointment':     ['0', '1', '2'],
-    'tenure':          ['0', '1', '2'],
-    'exit':            ['0', '1'],
-    'collegiality':    ['0', '1'],
-    'separate_powers': ['0', '1'],
+    'constitution':   ['0', '1', '2'],
+    'sovereign':      ['0', '1'],
+    'federalism':     ['0', '1'],
+    'checks':         ['0', '1', '2'],
+    'checks_actors':  ['0','1','2','3','4','5','6','7','8','9'],  # multi-select
+    'collegiality':   ['0', '1'],
+    'assembly':       ['0', '1', '2', '3'],
+    'entry':          ['0','1','2','3','4','5','6','7','8','9','10'],
+    'entry_4':        ['0', '1', '2', '3'],
+    'exit':           ['0','1','2','3','4','5','6','7','8','9','10','11','12','13','14','15'],
+    'exit_4':         ['0', '1', '2', '3'],
+    'symbolic_power': ['0', '1', '2', '3'],
+    'elections':      ['0', '1', '2'],
 }
 ```
 
@@ -782,7 +793,7 @@ datasets = {
 }
 
 # Plot per-class precision/recall/F1 for specific indicators
-plot_per_class_metrics(datasets, indicators=['assembly', 'appointment', 'tenure'])
+plot_per_class_metrics(datasets, indicators=['assembly', 'entry', 'checks'])
 # Generates one figure per indicator showing per-class metrics across experiments
 ```
 
@@ -954,7 +965,7 @@ chmod +x run.sh
 
 # Run in background (survives sleep/logout, uses caffeinate)
 ./run.sh --background --pipeline leader \
-  --indicators sovereign assembly appointment tenure exit collegiality separate_powers \
+  --indicators sovereign assembly entry exit collegiality checks federalism \
   --models gemini-2.5-pro \
   --input data/plt_leaders_data.csv \
   --output data/results/full_run.csv

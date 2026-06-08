@@ -1,14 +1,14 @@
 """
 Sequential Prompt Builder
 
-This module provides a prompt builder that combines all 7 indicators
-(constitution + 6 others) sequentially in a single prompt. The order
-of indicators can be specified by the user or randomized.
+This module provides a prompt builder that combines all indicators
+sequentially in a single prompt. The order of indicators can be
+specified by the user or randomized.
 
 This approach differs from:
 - SinglePromptBuilder: Merges indicators into unified prompt
 - MultiplePromptBuilder: Separate LLM calls per indicator
-- SequentialPromptBuilder: One LLM call with 7 sequential sections
+- SequentialPromptBuilder: One LLM call with N sequential sections
 
 The key feature is that each indicator maintains its EXACT original prompt
 structure from indicators.py and constitution.py.
@@ -24,9 +24,9 @@ from prompts.indicators import get_prompt as get_indicator_prompt, INDICATOR_CON
 
 class SequentialPromptBuilder(BasePromptBuilder):
     """
-    Combines all 7 indicator prompts sequentially in a single prompt.
+    Combines all indicator prompts sequentially in a single prompt.
 
-    This builder creates one comprehensive prompt by placing all 7 indicator
+    This builder creates one comprehensive prompt by placing all indicator
     sections in sequence. Each indicator uses its exact original prompt from
     indicators.py or constitution.py.
 
@@ -71,9 +71,9 @@ class SequentialPromptBuilder(BasePromptBuilder):
         Raises:
             ValueError: If sequence doesn't match indicators or contains invalid indicators.
         """
-        # Default to all 7 indicators if not specified
+        # Default to all indicators if not specified
         if indicators is None:
-            indicators = ['constitution', 'sovereign', 'assembly', 'appointment', 'tenure', 'exit', 'collegiality', 'separate_powers']
+            indicators = ['constitution', 'sovereign', 'federalism', 'checks', 'checks_actors', 'collegiality', 'assembly', 'entry', 'exit', 'symbolic_power', 'entry_4', 'exit_4']
 
         super().__init__(indicators, reasoning)
 
@@ -101,7 +101,7 @@ class SequentialPromptBuilder(BasePromptBuilder):
 
         Returns constitution first, then others in standard order.
         """
-        default = ['constitution', 'sovereign', 'assembly', 'appointment', 'tenure', 'exit', 'collegiality', 'separate_powers']
+        default = ['constitution', 'sovereign', 'federalism', 'checks', 'checks_actors', 'collegiality', 'assembly', 'entry', 'exit', 'symbolic_power', 'entry_4', 'exit_4']
         return [ind for ind in default if ind in self.indicators]
 
     def build(
@@ -181,7 +181,7 @@ You MUST provide predictions for ALL {len(sequence)} indicators in a SINGLE JSON
                 prompt += system_prompt
             else:
                 # Use indicator's system prompt from indicators.py
-                system_prompt, _ = get_indicator_prompt(indicator, polity, name, start_year, end_year)
+                system_prompt, _ = get_indicator_prompt(indicator, polity, name, start_year, end_year, reasoning=self.reasoning)
                 prompt += system_prompt
 
             prompt += "\n\n═══════════════════════════════════════════════════════════════════════\n\n"
@@ -293,7 +293,7 @@ You will analyze these indicators in sequence:
                 prompt += user_prompt
             else:
                 # Use indicator's user prompt from indicators.py
-                _, user_prompt = get_indicator_prompt(indicator, polity, name, start_year, end_year)
+                _, user_prompt = get_indicator_prompt(indicator, polity, name, start_year, end_year, reasoning=self.reasoning)
                 prompt += user_prompt
 
             prompt += f"\n\n{'='*70}\n\n"

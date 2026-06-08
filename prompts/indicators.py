@@ -2,25 +2,24 @@
 Political Indicators Prompt Templates (Leader-Level)
 =====================================================
 
-This module contains prompt templates for 9 political indicators:
-- Sovereign
-- Powersharing
-- Assembly
-- Appointment
-- Tenure
-- Exit
-- Collegiality
-- Separate Powers
-- Elections (depends on Assembly = 1)
+Current indicator schema (aligned with single_builder.py):
+- Sovereign         (0/1)
+- Federalism        (0/1)
+- Checks            (0/1/2)
+- Checks Actors     (0-9, multi-select)
+- Collegiality      (0/1)
+- Assembly          (0/1/2/3)
+- Entry             (0-10, fine-grained)
+- Entry_4           (0-3, coarse robustness check)
+- Exit              (0-15, fine-grained)
+- Exit_4            (0-3, coarse robustness check)
+- Symbolic Power    (0/1/2/3)
+- Elections         (0/1/2, downstream — depends on Assembly = 2)
 
-Note: Constitution is handled separately with its own complex prompt.
-
-All prompts follow a unified structure for consistency and easy comparison.
-Output format is standardized for merging with Constitution results.
-
-Key Features:
-- LEADER-LEVEL analysis with 'name' parameter
-- Two versions: FULL (individual) and COMPACT (combined prompt)
+Note: Constitution is handled separately in constitution.py.
+Note: Tenure is excluded — it is a continuous variable, not a categorical label.
+Note: Entry_4 and Exit_4 are queried independently as robustness checks; they are
+      NOT derived from Entry/Exit via mapping tables.
 """
 
 from typing import List, Tuple, Dict, Optional
@@ -28,7 +27,7 @@ from dataclasses import dataclass, field
 
 
 # =============================================================================
-# SHARED OUTPUT FORMAT TEMPLATE
+# SHARED OUTPUT FORMAT TEMPLATES
 # =============================================================================
 
 OUTPUT_FORMAT_TEMPLATE = """
@@ -47,6 +46,21 @@ Provide a JSON object with exactly these fields:
 - The "{indicator}" field MUST be a valid label ({valid_labels}). NEVER use null, empty string, or any other value. If uncertain, give your best estimate and lower the confidence_score.
 """
 
+OUTPUT_FORMAT_TEMPLATE_NO_REASONING = """
+## Output Requirements
+
+Provide a JSON object with exactly these fields:
+- "{indicator}": Must be exactly {valid_labels} (string)
+- "confidence_score": Integer from 1 to 100 based on evidence quality
+
+**CRITICAL OUTPUT FORMAT:**
+- Respond with ONLY a JSON object
+- Do NOT include markdown code fences (```json)
+- Do NOT include any text before or after the JSON
+- Your response must start with {{ and end with }}
+- The "{indicator}" field MUST be a valid label ({valid_labels}). NEVER use null, empty string, or any other value.
+"""
+
 SYSTEM_PROMPT_HEADER = """You are a professional political scientist and historian specializing in {specialization} across different historical periods.
 
 Your task is to determine {task_description} based on the polity name, leader name, and the leader's reign period provided.
@@ -63,31 +77,32 @@ USER_PROMPT_TEMPLATE = """Please analyze the {indicator_display} of the followin
 {coding_rule_reminder}
 
 Respond with a single JSON object:
-{{"{indicator}": "{label_format}", "reasoning": "your analysis", "confidence_score": 1-100}}
+{{"{indicator}": "{label_format}", {reasoning_field}"confidence_score": 1-100}}
 """
 
 
 # =============================================================================
-# INDICATOR CONFIGURATIONS (FULL VERSION)
+# INDICATOR CONFIGURATIONS
 # =============================================================================
 
 @dataclass
 class IndicatorConfig:
-    """Configuration for a political indicator (full version)."""
-    name: str                      # Internal name (e.g., "sovereign")
-    display_name: str              # Display name (e.g., "sovereign status")
-    specialization: str            # LLM role specialization
-    labels: List[str]              # Valid labels
-    definition: str                # Full definition text
-    task_description: str          # What the LLM needs to determine
-    task_instruction: str          # User prompt instruction
-    coding_rule_reminder: str      # Reminder about coding rules
-    compact_definition: str = ""   # Compact version for combined prompts
-    depends_on: Optional[Dict[str, str]] = None  # Dependencies (e.g., {"assembly": "1"})
+    """Configuration for a political indicator."""
+    name: str
+    display_name: str
+    specialization: str
+    labels: List[str]
+    definition: str
+    task_description: str
+    task_instruction: str
+    coding_rule_reminder: str
+    compact_definition: str = ""
+    depends_on: Optional[Dict[str, str]] = None
+    multi_select: bool = False
 
 
 INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
-    
+
     # =========================================================================
     # SOVEREIGN
     # =========================================================================
@@ -97,295 +112,231 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
         specialization="comparative politics and international relations",
         labels=["0", "1"],
         task_description="whether a given polity was sovereign during a specific leader's reign",
-        
+
         definition="""
 ## Definition of Sovereign
 
-A polity is considered **sovereign** if it has supreme authority over its internal and external affairs, without subordination to a foreign power.
+A polity is considered **sovereign** if it has supreme authority over its internal affairs without subordination to a foreign power. Sovereignty is concerned with executive constraints that arise from *within* the polity; foreign influences are usually corrupting because an executive beholden to a foreign power is (ceteris paribus) less sensitive to domestic actors.
 
 **Sovereign (1):**
 - The polity conducts independent foreign policy
 - No tribute, allegiance, or political submission to a foreign power
 - Internal governance is determined domestically
-- The executive is NOT beholden to another polity (e.g., empire, regional hegemon)
+- The executive is NOT beholden to another polity
+- Examples: city-states, nation-states, empires, republics, monarchies, tributary states (so long as they held primary responsibility for domestic affairs), states within leagues/unions that retained domestic governance
 
-**Not Sovereign / Colony (0):**
+**Not Sovereign (0):**
 - The polity is a colony, protectorate, vassal state, or tributary
 - A foreign power controls or heavily influences governance
-- The polity pays tribute or acknowledges a suzerain
-- Executive power is beholden to another polity (empire, hegemon)
+- Executive power is beholden to another polity (empire, hegemon, metropole)
+- Examples: colonial territories, occupied states, protectorates, distant overseas territories not fully incorporated into the metropole
 
 ## Key Principle
 
-To the extent that executive power in a polity is beholden to another polity, we assume it is less beholden to domestic sources, meaning there is less constraint on the leader.
+To the extent that executive power in a polity is beholden to another polity, we assume it is less beholden to domestic sources, meaning there is less domestic constraint on the leader.
 
 ## Analysis Process
 
 1. Identify the polity's political status during this leader's reign
-2. Determine if the polity had independent foreign policy during this reign
+2. Determine if the polity had independent control over domestic affairs
 3. Check for any tribute, vassalage, or colonial relationships during this reign
 4. Assess whether executive power was controlled externally
 """,
-        
-        task_instruction="""Determine whether this polity was sovereign (1) or a colony/vassal/tributary (0) during this leader's reign.
 
-Remember:
-- Sovereign (1): Independent foreign policy, no subordination to foreign power
-- Not Sovereign (0): Colony, protectorate, vassal, or tributary state""",
-        
-        coding_rule_reminder="""⚠️ **IMPORTANT:** Focus on the status during THIS LEADER'S REIGN, not the entire polity history.""",
-        
+        task_instruction="""Determine whether this polity was sovereign (1) or semi-sovereign (0) during this leader's reign.
+
+- Sovereign (1): Independent domestic governance, no subordination to foreign power; includes city-states, nation-states, empires, tributary states with primary domestic responsibility
+- Not Sovereign (0): Colony, protectorate, vassal, distant overseas territory not fully incorporated into the metropole""",
+
+        coding_rule_reminder="⚠️ **IMPORTANT:** Focus on the status during THIS LEADER'S REIGN, not the entire polity history.",
+
         compact_definition=(
-            "Whether the polity has supreme authority over its affairs: "
-            "(0) colony, protectorate, vassal, or tributary - beholden to foreign power; "
-            "(1) sovereign - independent foreign policy, no external subordination."
+            "Whether the polity conducts domestic affairs without foreign subordination: "
+            "(0) Semi-sovereign — colony, protectorate, vassal, or distant overseas territory not fully incorporated; "
+            "(1) Sovereign — independent domestic governance; includes city-states, nation-states, empires, tributary states "
+            "that held primary responsibility for domestic affairs, states in leagues/unions that retained self-governance."
         )
     ),
-    
+
     # =========================================================================
-    # POWERSHARING
+    # FEDERALISM
     # =========================================================================
-    "powersharing": IndicatorConfig(
-        name="powersharing",
-        display_name="powersharing status",
-        specialization="executive power structures",
+    "federalism": IndicatorConfig(
+        name="federalism",
+        display_name="federalism status",
+        specialization="federal systems and territorial politics",
         labels=["0", "1"],
-        task_description="whether a given polity had powersharing at the executive level during a specific leader's reign",
-        
+        task_description="whether a given polity had a federal or decentralized territorial structure during a specific leader's reign",
+
         definition="""
-## Definition of Powersharing
+## Definition of Federalism
 
-Powersharing refers to whether **multiple individuals share power at the apex of a polity**. Where multiple individuals share power, we assume that executive power is to some extent constrained.
+Federalism refers to a **division of sovereignty between central and local units**, reserving some important powers to local units and promising a relatively decentralized mode of governance. Where federalism exists, we assume that executive power is to some extent constrained by sub-national units.
 
-**Powersharing (1):**
-- Two or more top leaders with comparable power
-- Examples: Roman consuls, regencies, military juntas, president and prime minister, collegial presidencies
-- Decisions must be vetted across multiple people rather than a single individual
-- These individuals may have independent bases of power or be part of a collegial body
+**Federal (1):**
+- Division of sovereignty between central and local units, with local units retaining constitutionally or compactly protected powers
+- Local governance units cannot simply be abolished or overridden by the center at will
+- Commonly, localities are represented in a legislative chamber at the polity level
+- Includes confederations, leagues, composite monarchies, and federal states
+- Historical examples: Achaean League, Aetolian League, Lycian League, Boeotian League, Old Swiss Confederacy, Dutch Republic, Holy Roman Empire, Iroquois Confederacy, Hanseatic League, Polish-Lithuanian Commonwealth, Tokugawa Japan
+- Contemporary examples: Canada, Germany, India, United States, European Union
 
-**No Powersharing (0):**
-- One top leader holds executive power
-- Collective leadership bodies dominated by a single member
-- Someone acting "behind the scenes" controls decision-making
-- Advisors exist but have no comparable executive authority
+**Non-Federal (0):**
+- Unitary state: local units exist but derive authority from the center and can be overridden or abolished
+- No meaningful autonomous powers reserved to sub-national units by constitution or compact
+- Examples: most centralized monarchies and republics, unitary states
+
+## Analysis Process
+
+1. Identify the territorial structure of the polity during this leader's reign
+2. Determine if sub-national units have constitutionally or compactly protected powers
+3. Assess whether localities are represented in central governance
+4. Code based on de facto functioning, not formal constitutional texts
+""",
+
+        task_instruction="""Determine whether this polity was federal (1) or non-federal (0) during this leader's reign.
+
+- Federal (1): Division of sovereignty between central and local units; local units have protected powers; includes confederations, leagues, composite monarchies
+- Non-Federal (0): Unitary state; local units derive authority from the center with no protected autonomy""",
+
+        coding_rule_reminder="⚠️ **IMPORTANT:** Focus on the territorial structure during THIS LEADER'S REIGN. Code de facto functioning, not formal arrangements.",
+
+        compact_definition=(
+            "Whether sovereignty is divided between central and local units: "
+            "(0) Non-federal — unitary state, local units derive authority from center with no protected autonomy; "
+            "(1) Federal — local units have constitutionally or compactly protected powers; includes confederations, "
+            "leagues, composite monarchies. Examples: Achaean League, Dutch Republic, Holy Roman Empire, "
+            "Iroquois Confederacy, Hanseatic League, Polish-Lithuanian Commonwealth, US, EU."
+        )
+    ),
+
+    # =========================================================================
+    # CHECKS
+    # =========================================================================
+    "checks": IndicatorConfig(
+        name="checks",
+        display_name="executive checks",
+        specialization="executive constraints and institutional design",
+        labels=["0", "1", "2"],
+        task_description="the level of effective checks on executive power during a specific leader's reign",
+
+        definition="""
+## Definition of Checks
+
+Effective checks exist when **independent bodies adjacent to the executive have the capacity to resist actions taken by the executive**. Where such checks exist, executive power is to some extent constrained. Countervailing powers might be exercised by legislative, judicial, religious, military, caste, aristocratic, or bureaucratic organizations, by a privy council or council of elders, by a head of state (if not part of the executive), or by constituent units (regional/local governments, tribes, clans).
+
+**Full Checks (2):**
+- Independent organizations have the capacity to *regularly and effectively* resist the executive
+- The checking body must approve legislation, has veto rights, or exercises judicial review
+- Examples: strong independent judiciary, legislature with binding veto over executive, powerful religious or military authority that routinely constrains executive actions
+
+**Partial Checks (1):**
+- Independent organizations may, on occasion, resist the executive
+- Their power is informal and/or their interventions are rare or limited
+- Examples: a council that can occasionally constrain the ruler but does not routinely do so, a religious authority that sometimes intervenes
+
+**No Checks (0):**
+- No independent organizations with the capacity to resist the executive
+- All potentially checking bodies are subordinate to or controlled by the executive
 
 ## Important Notes
 
-- Powersharing does NOT imply inclusion/representation of distinct social groups
-- Focus on the apex of executive power, not lower levels of government
-- If a collective body is dominated by one person, code as "0"
+- Actors such as the media, civil society groups, or ordinary citizens are NOT counted — their influence is sporadic
+- Code based on de facto (actual) capacity to resist, not formal constitutional arrangements
+- A checking body that exists on paper but is controlled by the executive → code as 0
 
 ## Analysis Process
 
-1. Identify who held executive power during this leader's reign
-2. Determine if there were co-rulers or collegial bodies with comparable authority
-3. Assess whether decisions required vetting across multiple individuals
+1. Identify independent bodies adjacent to the executive during this leader's reign
+2. Assess whether these bodies have the capacity to actually resist executive actions
+3. Determine the regularity and effectiveness of this resistance (full vs. partial vs. none)
 """,
-        
-        task_instruction="""Determine whether this polity had executive powersharing (1) or single leadership (0) during this leader's reign.
 
-Remember:
-- Powersharing (1): Two or more leaders with comparable executive power
-- No Powersharing (0): One dominant leader (even if advisors or councils exist)""",
-        
-        coding_rule_reminder="""⚠️ **IMPORTANT:** Focus on the power structure during THIS LEADER'S REIGN.""",
-        
+        task_instruction="""Determine the level of effective checks on executive power (0, 1, or 2) during this leader's reign.
+
+- 0 (None): No independent organizations with capacity to resist the executive
+- 1 (Partial): Independent organizations may occasionally resist, but their power is informal or interventions are rare
+- 2 (Full): Independent organizations regularly and effectively resist; includes bodies with approval/veto rights or judicial review
+
+**Note:** Media, civil society, and ordinary citizens are NOT counted. Code de facto capacity, not formal structure.""",
+
+        coding_rule_reminder="⚠️ **IMPORTANT:** Code based on ACTUAL capacity to resist, not formal constitutional arrangements. Focus on THIS LEADER'S REIGN.",
+
         compact_definition=(
-            "Whether multiple individuals share power at the apex: "
-            "(0) one top leader holds executive power, or collective body dominated by single member; "
-            "(1) two or more top leaders with comparable power (e.g., consuls, regencies, juntas)."
+            "Whether independent bodies can resist the executive (de facto, not de jure): "
+            "(0) None — no independent organizations can resist the executive; "
+            "(1) Partial — independent organizations may occasionally resist, but informally or rarely; "
+            "(2) Full — independent organizations regularly and effectively resist, including veto rights or judicial review. "
+            "Note: media and civil society are NOT counted."
         )
     ),
-    
+
     # =========================================================================
-    # ASSEMBLY
+    # CHECKS ACTORS (Multi-select, 10 categories)
     # =========================================================================
-    "assembly": IndicatorConfig(
-        name="assembly",
-        display_name="assembly status",
-        specialization="legislative institutions",
-        labels=["0", "1", "2"],
-        task_description="the type of assembly or council that existed during a specific leader's reign",
+    "checks_actors": IndicatorConfig(
+        name="checks_actors",
+        display_name="checks actors",
+        specialization="comparative politics and executive constraints",
+        labels=["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"],
+        multi_select=True,
+        task_description="which actors, if any, provide effective checks on executive power during a specific leader's reign",
 
         definition="""
-## Definition of Assembly
+## Definition of Checks (Actors)
 
-We assume that where a council or assembly exists, executive power is to some extent constrained or perhaps entirely displaced (as in the case of ancient Greek assemblies).
+Effective checks exist when independent groups or bodies have the capacity to resist actions taken by the executive. We ask about the identity of these groups or bodies, inferring that the number of categories transfers into more effective checks.
 
-## Assembly Types
+**Q: Which of the following actors provide a check on the actions of the executive? (You may choose more than one.)**
 
-**Type 0 — No Assembly:**
-- No deliberative or advisory body of any kind
-- Purely autocratic rule with no institutionalized council structure
-
-**Type 1 — Small Advisory Council:**
-- A small advisory council appointed by the ruler
-- May not enjoy much autonomy but is nonetheless **institutionalized**:
-  * Meets regularly
-  * Has a designated name
-  * Has a fairly stable membership
-- Examples: noble councils, aristocratic councils, royal councils, privy councils
-
-**Type 2 — Large Assembly:**
-- A large assembly that plays some role in **policymaking or leadership selection** — de jure or de facto
-- Examples: Ecclesia in ancient Athens, estates assemblies in premodern Europe, legislatures in virtually all modern governments
-
-## Coding Rules
-
-- Code based on **de facto** (actual) practice, not de jure (formal) arrangements
-- A body that nominally exists but never meets or has no stable membership → Type 0
-- A small council that is entirely dominated by the ruler with no institutionalization → Type 0
-- Focus on the **highest type** of assembly that existed and actually functioned during THIS LEADER'S REIGN
-- Where a council (Type 1) or large assembly (Type 2) exists, we assume executive power is to some extent constrained
-- **Default to Type 0 when evidence is absent.** Regional or civilizational generalizations alone (e.g., "Islamic polities typically had councils", "monarchies usually consulted nobles") are NOT sufficient — require specific historical evidence that an institutionalized body existed during THIS leader's reign in THIS polity.
+**Categories:**
+- **0 = None.** There are no actors with this capacity or proclivity.
+- **1 = Local.** Examples: clans, tribes, ethnic groups, local governance units, civil society groups, newspapers and other media.
+- **2 = Military.** Examples: officers, specific branches of the military, a warrior caste (e.g., Samurai).
+- **3 = Clergy.** Power partly derived from their role as arbiters of a widely espoused religion or set of beliefs. Examples: established church, priests, or caste (of any religion or denomination).
+- **4 = Aristocracy.** Examples: landed class, upper caste, nobility, hereditary elite, titled class, patriciate.
+- **5 = Bourgeoisie.** Examples: middle class, urbanites, artisans, traders, merchants, commercial classes, capitalist class, business class, entrepreneurs, financiers, creditors.
+- **6 = Bureaucracy.** Examples: civil servants, Confucian scholars who serve as top-level advisors and bureaucrats.
+- **7 = Judiciary.** Examples: courts of law, tribunals, judicial bodies, adjudicative bodies, legal institutions.
+- **8 = Assembly.** Examples: popular assembly, legislature, parliament.
+- **9 = Advisory council.** Examples: royal council, council of state, regency council, privy council, council of elders.
 
 ## Analysis Process
 
-1. Identify any deliberative or advisory bodies during this leader's reign
-2. Determine if the body is institutionalized (regular meetings, designated name, stable membership)
-3. Assess whether it is a small advisory council (Type 1) or a large assembly with policymaking/selection role (Type 2)
-4. Code based on actual (de facto) functioning, not formal arrangements
+1. Identify which groups or bodies existed and had independent standing during this leader's reign
+2. For each category, assess whether that actor had the capacity AND proclivity to resist executive actions
+3. Select all categories that apply — more categories indicate more effective checking of executive power
+4. If no actors had this capacity, select only 0 (None)
 """,
 
-        task_instruction="""Determine the assembly type (0, 1, or 2) for this leader's reign.
+        task_instruction="""Determine which actors provided effective checks on the executive during this leader's reign. Select all that apply.
 
-Types:
-- 0: No assembly or council — purely autocratic rule
-- 1: Small advisory council — institutionalized (regular meetings, designated name, stable membership), appointed by ruler
-- 2: Large assembly with a role in policymaking or leadership selection (de jure or de facto)
+Categories (0–9):
+- 0: None — no actors with capacity to resist the executive
+- 1: Local — clans, tribes, civil society, media
+- 2: Military — officers, military branches, warrior caste
+- 3: Clergy — established church, priests, religious caste
+- 4: Aristocracy — nobility, hereditary elite, upper caste
+- 5: Bourgeoisie — merchants, commercial classes, financiers
+- 6: Bureaucracy — civil servants, Confucian scholars
+- 7: Judiciary — courts, tribunals, legal institutions
+- 8: Assembly — popular assembly, legislature, parliament
+- 9: Advisory council — royal council, privy council, council of elders
 
-**Code based on de facto functioning, not formal structures.**""",
+**Output as a JSON array of selected values, e.g. ["1", "4", "7"]. If none apply, output ["0"].**""",
 
-        coding_rule_reminder="""⚠️ **IMPORTANT:** Focus on the HIGHEST type of assembly that actually functioned during THIS LEADER'S REIGN. Code de facto, not de jure. Default to Type 0 when evidence is absent — do NOT infer a council from regional or civilizational patterns alone.""",
+        coding_rule_reminder="⚠️ **IMPORTANT:** Select all actors that actually had the capacity and proclivity to resist the executive during THIS LEADER'S REIGN. Output as a JSON array.",
 
         compact_definition=(
-            "Type of assembly/council (de facto): "
-            "(0) no assembly — purely autocratic rule; "
-            "(1) small advisory council appointed by ruler, institutionalized (regular meetings, designated name, stable membership) — "
-            "Examples: noble councils, royal privy councils, aristocratic councils; "
-            "(2) large assembly with a role in policymaking or leadership selection (de jure or de facto) — "
-            "Examples: Ecclesia in ancient Athens, Estates-General, estates assemblies in premodern Europe, legislatures in virtually all modern governments. "
-            "Default to 0 when evidence is absent — do NOT infer a council from regional or civilizational patterns alone."
+            "Which actors provide a check on the executive (select all that apply, output as JSON array): "
+            "(0) None; (1) Local — clans, tribes, civil society, media; "
+            "(2) Military — officers, branches, warrior caste; (3) Clergy — church, priests, religious caste; "
+            "(4) Aristocracy — nobility, hereditary elite; (5) Bourgeoisie — merchants, commercial classes; "
+            "(6) Bureaucracy — civil servants, Confucian scholars; (7) Judiciary — courts, tribunals; "
+            "(8) Assembly — popular assembly, legislature; (9) Advisory council — royal council, privy council."
         )
     ),
-    
-    # =========================================================================
-    # APPOINTMENT
-    # =========================================================================
-    "appointment": IndicatorConfig(
-        name="appointment",
-        display_name="executive appointment method",
-        specialization="executive selection and appointment practices",
-        labels=["0", "1", "2"],
-        task_description="how the executive was appointed/selected during a specific leader's reign",
-        
-        definition="""
-## Definition of Executive Appointment
 
-Appointment practices refer to how executives (leaders) are selected. This is critical for establishing constraints on the executive.
-
-## Appointment Categories
-
-**Category 0 - Least Constrained:**
-- Through force (coup, conquest)
-- Hereditary succession
-- Appointment by foreign power
-- Military appointment
-- Selection by ruling party in one-party system
-
-**Category 1 - Moderately Constrained:**
-- Appointment by a royal council
-- Selection by head of state
-- Selection by head of government
-
-**Category 2 - Most Constrained:**
-- Direct popular election
-- Selection by assembly (legislative body)
-- Note: The extent of suffrage is NOT relevant
-
-## Analysis Process
-
-1. Identify how THIS LEADER came to power
-2. Determine if selection was hereditary, by force, or by foreign power (→ 0)
-3. Determine if selection was by council or head of state/government (→ 1)
-4. Determine if selection was by election or assembly (→ 2)
-""",
-        
-        task_instruction="""Determine the appointment method category (0, 1, or 2) for how THIS LEADER came to power.
-
-Categories:
-- 0: Force, hereditary, foreign power, military, one-party selection
-- 1: Royal council, head of state, head of government appointment
-- 2: Direct election or assembly selection""",
-        
-        coding_rule_reminder="""⚠️ **IMPORTANT:** Focus on how THIS SPECIFIC LEADER was appointed/selected.""",
-        
-        compact_definition=(
-            "How executives are selected: (0) through force, hereditary succession, foreign power, "
-            "military, or one-party selection (least constrained); (1) by royal council, head of state, "
-            "or head of government (moderately constrained); (2) through direct popular election or "
-            "assembly selection (most constrained)."
-        )
-    ),
-    
-    # =========================================================================
-    # EXIT
-    # =========================================================================
-    "exit": IndicatorConfig(
-        name="exit",
-        display_name="exit pattern",
-        specialization="executive transitions",
-        labels=["0", "1"],
-        task_description="the circumstances of a specific leader's departure from office",
-        
-        definition="""
-## Definition of Executive Exit
-
-The circumstances of an executive's departure from office indicates a lot about a leader's prerogative while in office.
-
-## Exit Categories
-
-**Irregular Exit (0):**
-- Died in office (natural death while serving)
-- Removed by force (coup, assassination, rebellion)
-- Irregular circumstances (exile, imprisonment, forced abdication)
-- No institutional mechanism for departure
-
-**Regular Exit (1):**
-- Abdicated/retired voluntarily (NOT due to ill health)
-- Term limits enforced
-- Electoral defeat
-- Voluntary transition to another office
-- Institutional mechanisms for peaceful transition
-
-## Important Notes
-
-- "Regular" exit implies institutional constraints on leadership
-- Voluntary retirement due to ill health does NOT count as regular exit
-- Focus on the institutional nature of the exit, not just the outcome
-
-## Analysis Process
-
-1. Determine how this leader left power
-2. Assess if the exit was through institutional mechanisms (→ 1)
-3. Assess if the exit was irregular (death, force, exile) (→ 0)
-""",
-        
-        task_instruction="""Determine the exit pattern (0 or 1) for how THIS LEADER left power.
-
-Categories:
-- 0: Irregular exit - died in office, removed by force, no institutional transition
-- 1: Regular exit - voluntary retirement, term limits, electoral defeat, peaceful transition""",
-        
-        coding_rule_reminder="""⚠️ **IMPORTANT:** Focus on how THIS SPECIFIC LEADER left power (or is expected to, if still ruling at end of period).""",
-        
-        compact_definition=(
-            "Circumstances of departure from office: (0) irregular - died in office, removed by force, "
-            "exile, no institutional mechanism; (1) regular - voluntary retirement, term limits, "
-            "electoral defeat, peaceful institutional transition."
-        )
-    ),
-    
     # =========================================================================
     # COLLEGIALITY
     # =========================================================================
@@ -395,29 +346,25 @@ Categories:
         specialization="executive power structures and decision-making processes",
         labels=["0", "1"],
         task_description="whether decision-making within the executive was collegial during a specific leader's reign",
-        
+
         definition="""
 ## Definition of Collegiality
 
-Collegiality refers to whether **decision-making within the executive is shared by members of a formally constituted body**. Where decision-making is collegial, we assume that executive power is to some extent constrained.
+Collegiality refers to whether **power at the apex of a polity is exercised in a collegial manner** — decisionmaking power is shared among a number of actors. There may be a titular head (e.g., director or chair) but the other members of the group are regarded as co-equals, partners, collaborators. Wherever de facto practices differ from de jure rules, it is the former that governs coding decisions.
 
 **Collegial (1):**
 - Decision-making is genuinely shared by members of a formally constituted body
+- Other members are regarded as co-equals with lateral (not vertical) power relationships
 - Examples: cabinets where ministers hold independent authority, military juntas, Roman consuls (each with mutual veto), regent councils, Switzerland's Federal Council (all-party cabinet)
-- Decisions require collective deliberation and agreement among multiple members
 
 **Non-Collegial (0):**
 - A single actor dominates decision-making
 - Formally collegial bodies that are actually controlled by one person → Code as **0**
-- Examples: Stalin dominating the Politburo, Hitler's cabinet (ministers as executors, not co-deciders), a sultan with a nominal advisory council
-- Advisory bodies without actual decision-making power → Code as **0**
+- Examples: most presidencies, monarchies, dictatorships; Stalin dominating the Politburo; Hitler's cabinet (ministers as executors); a sultan with a nominal advisory council
 
 ## Critical Distinction: De Facto vs De Jure
 
-**Wherever de facto power differs from de jure power, it is the former (actual practice) that should govern coding decisions.**
-
-- If a body is formally collegial but actually dominated by a single actor → Code as **0**
-- If informal collegial practices exist despite formal single leadership → Consider actual power dynamics
+If a body is formally collegial but actually dominated by a single actor → Code as **0**
 
 ## Analysis Process
 
@@ -425,95 +372,388 @@ Collegiality refers to whether **decision-making within the executive is shared 
 2. Determine if there was a formally constituted collegial body
 3. **Critically assess**: Was decision-making actually shared, or did one person dominate?
 4. Focus on de facto (actual) power, not de jure (formal) arrangements
-5. **Default to 0 when evidence of genuine power-sharing is absent** — formal structures alone are insufficient
+5. **Default to 0 when evidence of genuine power-sharing is absent**
 """,
 
         task_instruction="""Determine whether decision-making in the executive was collegial (1) or non-collegial (0) during this leader's reign.
 
-Remember:
-- Collegial (1): Decisions genuinely shared by members of a formally constituted body — Examples: cabinet with independent ministers, military junta, Roman consuls, regent council, Switzerland's Federal Council
-- Non-Collegial (0): Single actor dominates, OR collegial body is controlled by one person in practice — Examples: dominant party leader, sultan with nominal council, dictator with rubber-stamp cabinet
+- Collegial (1): Decisions genuinely shared by members of a formally constituted body — cabinets with independent ministers, military juntas, Roman consuls, regent councils, Swiss Federal Council
+- Non-Collegial (0): Single actor dominates, OR formally collegial body controlled by one person in practice
 
-**CRITICAL:** Code based on de facto (actual) power, not de jure (formal) arrangements. If a body is formally collegial but one person dominates, code as 0.""",
+**CRITICAL:** Code based on de facto (actual) power, not de jure (formal) arrangements.""",
 
-        coding_rule_reminder="""⚠️ **IMPORTANT:** Focus on ACTUAL decision-making practice during THIS LEADER'S REIGN, not formal structures. Default to 0 when evidence of genuine power-sharing is absent.""",
+        coding_rule_reminder="⚠️ **IMPORTANT:** Focus on ACTUAL decision-making practice during THIS LEADER'S REIGN. Default to 0 when evidence of genuine power-sharing is absent.",
 
         compact_definition=(
-            "Whether executive decision-making is genuinely shared by a formally constituted body (de facto, not de jure): "
-            "(1) collegial — decisions require collective deliberation among multiple members — "
-            "Examples: cabinets where ministers hold independent authority, military juntas, Roman consuls (each with veto power), regent councils, Switzerland's Federal Council; "
-            "(0) non-collegial — a single actor dominates, OR a formally collegial body is controlled by one person in practice — "
-            "Examples: Stalin dominating the Politburo, Hitler's cabinet, a sultan with nominal advisory council. "
-            "Default to 0 when evidence of genuine power-sharing is absent."
+            "Whether decisionmaking power is shared among co-equals at the apex (de facto, not de jure): "
+            "(0) Non-collegial — single actor dominates, or formally collegial body controlled by one person in practice; "
+            "examples: most presidencies, monarchies, dictatorships. "
+            "(1) Collegial — decisions genuinely shared among co-equals; "
+            "examples: cabinets with independent ministers, military juntas, Roman consuls, regencies, Swiss presidency."
         )
     ),
-    
+
     # =========================================================================
-    # SEPARATE POWERS
+    # ASSEMBLY
     # =========================================================================
-    "separate_powers": IndicatorConfig(
-        name="separate_powers",
-        display_name="separate powers status",
-        specialization="constitutional structures and checks and balances",
-        labels=["0", "1"],
-        task_description="whether power at the top was divided between multiple independent organizations during a specific leader's reign",
-        
+    "assembly": IndicatorConfig(
+        name="assembly",
+        display_name="assembly status",
+        specialization="legislative institutions",
+        labels=["0", "1", "2", "3"],
+        task_description="the type of assembly or council that existed during a specific leader's reign",
+
         definition="""
-## Definition of Separate Powers
+## Definition of Assembly
 
-Separate powers refers to whether **power at the top is divided between multiple independent organizations**. Where such division exists, we assume that executive power is to some extent constrained. This may also be referred to as horizontal accountability or checks and balances.
+An assembly is a body designed to govern (directly), to select leaders, or to assist in governing. Where a council or assembly exists, we assume that executive power is to some extent constrained or perhaps entirely displaced.
 
-**Separate Powers (1):**
-- Power is divided between multiple independent organizations
-- Examples include:
-  * Executive chosen separately from legislature (and not responsible to it)
-  * Independent judiciary with capacity to check the executive
-  * Separately designated religious authority with checking power over executive
-  * Military authority with ultimate or checking power over executive
-- **Key requirements:**
-  * (a) More than one organization has authority over policymaking
-  * (b) These organizations are independent of each other
+## Assembly Types
 
-**Unitary Authority (0):**
-- Power is concentrated in one organization
-- No effective checks and balances between independent bodies
-- System that looks like separate powers on paper but is entirely controlled by one organization
-- All branches formally exist but are subordinate to the executive
+**Type 0 — None:**
+- No deliberative or advisory body of any kind
+- Purely autocratic rule with no institutionalized council structure
 
-## Critical Distinction: De Facto vs De Jure
+**Type 1 — Council:**
+- A small advisory council appointed by the ruler
+- May not enjoy much autonomy but is nonetheless **institutionalized**: meets regularly, has a designated name, has a fairly stable membership
+- Examples: noble councils, aristocratic councils, royal councils, privy councils, dynastic councils, Ottoman divan
 
-**Wherever de facto power diverges from de jure power, we are concerned with the former (actual practice).**
+**Type 2 — Legislature:**
+- A large representative body that plays some role in **policymaking or leadership selection** — de jure or de facto
+- Membership is not limited to most citizens; it is a representative body with a defined constituency
+- Examples: estates assemblies in premodern Europe, the Hwabaek Council in Korea during the Silla Dynasty, legislatures in modern governments
 
-- A system that looks like separate powers on paper but is in fact entirely controlled by one organization → Code as **0**
-- Informal but effective checks on executive power → Consider actual power dynamics
+**Type 3 — Popular Assembly:**
+- An assembly that **includes most citizens of the polity**, or a representative sample chosen by lot
+- More inclusive than a legislature; the demos or a cross-section of it participates directly
+- Examples: Ecclesia in ancient Athens, Landsgemeinden in modern Swiss cantons
+
+## Coding Rules
+
+- Code based on **de facto** (actual) practice, not de jure (formal) arrangements
+- A body that nominally exists but never meets or has no stable membership → Type 0
+- Focus on the **highest type** of assembly that existed and actually functioned during THIS LEADER'S REIGN
+- **Default to Type 0 when evidence is absent.** Regional or civilizational generalizations alone are NOT sufficient.
 
 ## Analysis Process
 
-1. Identify the formal institutional structure during this leader's reign
-2. Determine if multiple organizations had authority over policymaking
-3. Assess whether these organizations were truly independent of each other
-4. **Critically assess**: Were checks and balances effective in practice, or merely nominal?
-5. Focus on de facto (actual) power relationships, not de jure (formal) arrangements
+1. Identify any deliberative or advisory bodies during this leader's reign
+2. Determine if the body is institutionalized (regular meetings, designated name, stable membership)
+3. Assess the body's scope: small appointed council (Type 1), large representative body (Type 2), or most-citizens assembly (Type 3)
+4. Code based on actual (de facto) functioning, not formal arrangements
 """,
-        
-        task_instruction="""Determine whether power was divided between independent organizations (1) or concentrated in unitary authority (0) during this leader's reign.
 
-Remember:
-- Separate Powers (1): Multiple independent organizations with authority over policymaking (e.g., independent legislature, judiciary, or religious/military authority)
-- Unitary Authority (0): Power concentrated in one organization, OR separate branches exist but are controlled by the executive
+        task_instruction="""Determine the assembly type (0, 1, 2, or 3) for this leader's reign.
 
-**CRITICAL:** Code based on de facto (actual) power, not de jure (formal) arrangements. If branches exist on paper but one organization controls everything, code as 0.""",
-        
-        coding_rule_reminder="""⚠️ **IMPORTANT:** Focus on ACTUAL power relationships during THIS LEADER'S REIGN, not formal constitutional structures.""",
-        
+Types:
+- 0: None — no assembly or council; purely autocratic rule
+- 1: Council — small advisory council appointed by ruler, institutionalized (regular meetings, designated name, stable membership); examples: privy councils, aristocratic councils, Ottoman divan
+- 2: Legislature — large representative body with policymaking or leadership selection role (de jure or de facto); examples: estates assemblies, premodern European legislatures, modern parliaments
+- 3: Popular Assembly — includes most citizens or a representative sample chosen by lot; examples: Athenian Ecclesia, Swiss Landsgemeinden
+
+**Code based on de facto functioning, not formal structures.**""",
+
+        coding_rule_reminder=(
+            "⚠️ **IMPORTANT:** Focus on the HIGHEST type of assembly that actually functioned during THIS LEADER'S REIGN. "
+            "Code de facto, not de jure. Default to Type 0 when evidence is absent — do NOT infer a council from regional "
+            "or civilizational patterns alone."
+        ),
+
         compact_definition=(
-            "Whether power is divided between multiple independent organizations (de facto, not de jure): "
-            "(0) unitary authority - power concentrated in one organization, or branches controlled by executive; "
-            "(1) separate powers - multiple independent bodies with policymaking authority (e.g., independent "
-            "legislature, judiciary, religious/military authority with checking power)."
+            "Type of assembly/council (de facto): "
+            "(0) None — purely autocratic rule; "
+            "(1) Council — small advisory council appointed by ruler, institutionalized (regular meetings, designated name, stable membership); "
+            "examples: privy councils, aristocratic councils, Ottoman divan; "
+            "(2) Legislature — large representative body with policymaking role (de jure or de facto); "
+            "examples: estates assemblies, premodern European legislatures, modern parliaments; "
+            "(3) Popular Assembly — includes most citizens or chosen by lot; examples: Athenian Ecclesia, Swiss Landsgemeinden. "
+            "Default to 0 when evidence is absent."
         )
     ),
-    
+
+    # =========================================================================
+    # ENTRY (Fine-grained, 11 categories)
+    # =========================================================================
+    "entry": IndicatorConfig(
+        name="entry",
+        display_name="executive entry mode",
+        specialization="executive selection and leadership transitions",
+        labels=["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10"],
+        task_description="the precise mode by which the executive came to power during a specific leader's reign",
+
+        definition="""
+## Definition of Executive Entry
+
+The manner in which executives enter office is widely regarded as a key indicator of their power while in office. Leader selection indicates the sorts of constraints executives are likely to face.
+
+## Entry Categories
+
+- **0 = Force.** Through the threat or application of force, such as a coup or rebellion.
+- **1 = Foreign power.** Appointed by a foreign power.
+- **2 = Ruling party.** Appointed by the ruling party in a one-party system.
+- **3 = Royal council.** Appointed by a royal council (members of the royal family or a conclave of aristocrats).
+- **4 = Hereditary.** Through hereditary succession (designated family heir inherits office).
+- **5 = Military.** Appointed by the military.
+- **6 = Legislature.** Appointed by the legislature or legislative body.
+- **7 = Head of state.** Appointed by the head of state.
+- **8 = Head of government.** Appointed by the head of government.
+- **9 = Popular election.** Directly through a popular election (regardless of the extension of the suffrage).
+- **10 = Other.** Other means, including clerical bodies such as the College of Cardinals.
+
+## Analysis Process
+
+1. Identify how THIS LEADER specifically came to power in this polity
+2. Distinguish the immediate mechanism (who/what selected them) from background conditions
+3. Match to the most specific applicable category above
+4. If multiple mechanisms apply, choose the primary/proximate one
+""",
+
+        task_instruction="""Determine the entry category (0–10) for how THIS LEADER came to power.
+
+- 0: Through force — coup, rebellion, conquest
+- 1: Appointed by foreign power
+- 2: Appointed by ruling party (one-party system)
+- 3: Appointed by royal council (royal family members or aristocratic conclave)
+- 4: Through hereditary succession
+- 5: Appointed by the military
+- 6: Appointed by the legislature
+- 7: Appointed by the head of state
+- 8: Appointed by the head of government
+- 9: Through direct popular election (extent of suffrage irrelevant)
+- 10: Other (e.g., clerical bodies such as College of Cardinals)""",
+
+        coding_rule_reminder="⚠️ **IMPORTANT:** Focus on how THIS SPECIFIC LEADER came to power. Choose the most specific applicable category.",
+
+        compact_definition=(
+            "How the executive came to power (choose one): "
+            "(0) Force — coup, rebellion, conquest; (1) Foreign power appointment; "
+            "(2) Ruling party appointment (one-party system); (3) Royal council appointment; "
+            "(4) Hereditary succession; (5) Military appointment; "
+            "(6) Legislature appointment; (7) Head of state appointment; "
+            "(8) Head of government appointment; (9) Direct popular election; "
+            "(10) Other (e.g., clerical bodies)."
+        )
+    ),
+
+    # =========================================================================
+    # ENTRY_4 (Coarse, 4 categories — independent robustness query)
+    # =========================================================================
+    "entry_4": IndicatorConfig(
+        name="entry_4",
+        display_name="executive entry (coarse)",
+        specialization="executive selection and leadership transitions",
+        labels=["0", "1", "2", "3"],
+        task_description="the coarse mode of executive entry for a specific leader",
+
+        definition="""
+## Definition of Executive Entry (Coarse Classification)
+
+This is a coarse classification of how executives enter office, grouped into four broad categories for cross-time comparability. It is an independent query — do NOT derive it from a fine-grained entry code.
+
+## Entry_4 Categories
+
+- **0 = Irregular.** Entry by force, through a foreign actor, or via military junta. Includes coups, rebellions, conquest, and foreign appointment.
+- **1 = Hereditary.** Entry through an institutionalized process by which a designated family heir inherits office.
+- **2 = Appointment.** Entry through an institutionalized process of appointment by a domestic body that is NOT democratically elected — such as a royal council, monarch, head of government, head of state, or ruling party in a one-party state.
+- **3 = Election.** Entry through direct popular election, selection by an elective body (e.g., legislature, electoral college, local governments), or selection by lot. The extent of suffrage or eligibility is irrelevant.
+
+## Analysis Process
+
+1. Identify how THIS LEADER came to power
+2. Classify using the four broad categories above
+3. When in doubt between Appointment and Election, check whether the selecting body was itself democratically elected
+""",
+
+        task_instruction="""Determine the coarse entry category (0, 1, 2, or 3) for how THIS LEADER came to power.
+
+- 0: Irregular — by force, foreign actor, or military (coup, rebellion, conquest, foreign appointment)
+- 1: Hereditary — institutionalized family succession
+- 2: Appointment — institutionalized appointment by non-elected domestic body (royal council, monarch, head of state/government, ruling party)
+- 3: Election — popular election, selection by elective body (legislature, electoral college, local governments), or by lot""",
+
+        coding_rule_reminder="⚠️ **IMPORTANT:** This is a coarse classification. Do NOT derive from fine-grained entry. Focus on THIS LEADER'S path to power.",
+
+        compact_definition=(
+            "Coarse entry classification — independent query for robustness: "
+            "(0) Irregular — force, foreign actor, military junta; "
+            "(1) Hereditary — institutionalized family succession; "
+            "(2) Appointment — institutionalized appointment by non-elected domestic body (royal council, monarch, head of state/government, ruling party); "
+            "(3) Election — popular election, legislature, local governments, or lot."
+        )
+    ),
+
+    # =========================================================================
+    # EXIT (Fine-grained, 16 categories)
+    # =========================================================================
+    "exit": IndicatorConfig(
+        name="exit",
+        display_name="executive exit mode",
+        specialization="executive transitions and leadership succession",
+        labels=["0", "1", "2", "3", "4", "5", "6", "7", "8",
+                "9", "10", "11", "12", "13", "14", "15"],
+        task_description="the precise circumstances of the executive's departure from office",
+
+        definition="""
+## Definition of Executive Exit
+
+The circumstances of an executive's departure from office says a lot about a leader's prerogative while in office. We distinguish regular from irregular exits, and deaths from voluntary departures.
+
+## Exit Categories
+
+- **0 = Voluntary retirement/abdication.** Abdicated or retired voluntarily, but NOT due to ill health.
+- **1 = Other regular exit.** Other regular institutional exit such as term limits or defeat in election.
+- **2 = Regular transition to another office.** Transition to another office type/typology by regular procedures.
+- **3 = Died on campaign (civil war, disease/accident).** Died of disease or accident on campaign in civil war.
+- **4 = Died on campaign (foreign war, disease/accident).** Died of disease or accident on campaign in a foreign war.
+- **5 = Died of natural causes.** Died of natural causes (not on campaign, not violent death).
+- **6 = Retired due to ill health.** Retired voluntarily but due to ill health.
+- **7 = Suicide.** Died by suicide.
+- **8 = Deposed by domestic actors.** Removed from office by domestic actors (not assassination).
+- **9 = Assassinated or forced suicide.** Killed or forced to commit suicide by rivals/opponents.
+- **10 = Died in battle (civil war).** Killed in battle during a civil war.
+- **11 = Died in battle (foreign war).** Killed in battle during a foreign war.
+- **12 = Irregular transition to another office.** Transition to another office by irregular procedures.
+- **13 = Deposed by foreign state.** Removed from office by a foreign state (occupation, intervention).
+- **14 = Unknown.** Circumstances of exit are unknown.
+- **15 = Still in office.** The leader is still in office at the end of the observation period.
+
+## Analysis Process
+
+1. Determine how this leader left power (or note if still in office)
+2. Distinguish between voluntary departures, institutional exits, natural deaths, and violent/forced removals
+3. Match to the most specific applicable category
+""",
+
+        task_instruction="""Determine the exit category (0–15) for how THIS LEADER left power.
+
+- 0: Voluntarily retired/abdicated (NOT due to ill health)
+- 1: Other regular exit (term limits, electoral defeat)
+- 2: Regular transition to another office
+- 3: Died on campaign in civil war (disease/accident)
+- 4: Died on campaign in foreign war (disease/accident)
+- 5: Died of natural causes
+- 6: Retired due to ill health
+- 7: Suicide
+- 8: Deposed by domestic actors
+- 9: Assassinated or forced suicide
+- 10: Died in battle in civil war
+- 11: Died in battle in foreign war
+- 12: Irregular transition to another office
+- 13: Deposed by foreign state
+- 14: Unknown
+- 15: Still in office""",
+
+        coding_rule_reminder="⚠️ **IMPORTANT:** Focus on how THIS SPECIFIC LEADER left power. If still ruling at end of observation period, use 15.",
+
+        compact_definition=(
+            "Circumstances of executive departure (choose one): "
+            "(0) Voluntary retirement/abdication (not ill health); (1) Other regular exit (term limits, electoral defeat); "
+            "(2) Regular transition to another office; (3) Died on campaign, civil war (disease/accident); "
+            "(4) Died on campaign, foreign war (disease/accident); (5) Died of natural causes; "
+            "(6) Retired due to ill health; (7) Suicide; (8) Deposed by domestic actors; "
+            "(9) Assassinated or forced suicide; (10) Died in battle, civil war; (11) Died in battle, foreign war; "
+            "(12) Irregular transition to another office; (13) Deposed by foreign state; "
+            "(14) Unknown; (15) Still in office."
+        )
+    ),
+
+    # =========================================================================
+    # EXIT_4 (Coarse, 4 categories — independent robustness query)
+    # =========================================================================
+    "exit_4": IndicatorConfig(
+        name="exit_4",
+        display_name="executive exit (coarse)",
+        specialization="executive transitions and leadership succession",
+        labels=["0", "1", "2", "3"],
+        task_description="the coarse mode of executive exit for a specific leader",
+
+        definition="""
+## Definition of Executive Exit (Coarse Classification)
+
+This is a coarse classification of how executives leave office, grouped into four broad categories for cross-time comparability. It is an independent query — do NOT derive it from a fine-grained exit code.
+
+## Exit_4 Categories
+
+- **0 = Irregular.** The executive is forcibly removed or retires under duress. Includes coups, assassinations, forced exile, forced abdication, or deposition by domestic or foreign actors.
+- **1 = Natural.** The executive retires due to ill health or dies in office (whether by natural causes, on campaign, or in battle).
+- **2 = Voluntary.** The executive voluntarily retires or abdicates, NOT due to ill health.
+- **3 = Institutionalized.** The executive exits at (or near) the expiration of a term, after electoral defeat, or as part of a regular transition to another government office.
+
+## Analysis Process
+
+1. Determine how this leader left power
+2. Classify using the four broad categories above
+3. Distinguish: was departure driven by force/duress, health, voluntary choice, or institutional norms?
+""",
+
+        task_instruction="""Determine the coarse exit category (0, 1, 2, or 3) for how THIS LEADER left power.
+
+- 0: Irregular — forcibly removed, deposed, assassinated, or under duress
+- 1: Natural — died in office (any cause) or retired due to ill health
+- 2: Voluntary — voluntarily retired or abdicated (NOT due to ill health)
+- 3: Institutionalized — term expiration, electoral defeat, or regular institutional transition to another office""",
+
+        coding_rule_reminder="⚠️ **IMPORTANT:** This is a coarse classification. Do NOT derive from fine-grained exit. Focus on THIS LEADER'S departure from power.",
+
+        compact_definition=(
+            "Coarse exit classification — independent query for robustness: "
+            "(0) Irregular — forcibly removed, deposed, assassinated, or under duress; "
+            "(1) Natural — died in office (any cause) or retired due to ill health; "
+            "(2) Voluntary — voluntarily retired or abdicated (not ill health); "
+            "(3) Institutionalized — term expiration, electoral defeat, or regular institutional transition."
+        )
+    ),
+
+    # =========================================================================
+    # SYMBOLIC POWER
+    # =========================================================================
+    "symbolic_power": IndicatorConfig(
+        name="symbolic_power",
+        display_name="symbolic power",
+        specialization="executive power and political symbolism",
+        labels=["0", "1", "2", "3"],
+        task_description="the degree of symbolic power reflected in the trappings of the executive office during a specific leader's reign",
+
+        definition="""
+## Definition of Symbolic Power
+
+The power of the executive is to some extent reflected in the trappings of the office. Monarchs typically inhabit grandly appointed palaces and courts, with courtesans, servants, special rituals, forms of address, and physical objects symbolizing special power. Sometimes leaders are regarded as godlike. Note: **this scale is non-monotonic with respect to leader power** — higher codes do not always mean more actual power. Purely ceremonial leaders are excluded.
+
+## Symbolic Power Categories
+
+- **0 = Plain.** The trappings of the office are plain and simple. Little distinguishes the personage of the ruler from others in the realm. Example: British prime minister (10 Downing Street).
+- **1 = Decorated.** The trappings of the office are impressive but connected to the office rather than the officeholder, who is understood as mortal. Example: American president.
+- **2 = Deified.** The trappings of the office are impressive and the holder is regarded as having divine or quasi-divine status, separate and apart from mere mortals. Examples: many kings in the premodern era.
+- **3 = Ceremonial.** The trappings of office are so extensive, and so demanding, that they serve as a constraint on the exercise of power, separating the leader from the springs of policymaking. The executive's role is as much ceremonial as executive; approval of initiatives is formal. Example: Japanese emperor during most periods.
+
+## Analysis Process
+
+1. Identify the ceremonial and symbolic elements associated with the executive office during this leader's reign
+2. Assess whether the officeholder is regarded as mortal (0/1) or divine (2) or ceremonially constrained (3)
+3. Determine if the trappings of office enhance or constrain actual executive power
+""",
+
+        task_instruction="""Determine the symbolic power category (0, 1, 2, or 3) for this leader's office.
+
+- 0: Plain — plain and simple trappings; ruler little distinguished from others in the realm
+- 1: Decorated — impressive trappings but connected to the office, officeholder understood as mortal
+- 2: Deified — holder regarded as divine or quasi-divine
+- 3: Ceremonial — trappings so extensive they constrain power, separating leader from policymaking
+
+**Note:** This scale is non-monotonic — code 3 (Ceremonial) does NOT mean most powerful.""",
+
+        coding_rule_reminder="⚠️ **IMPORTANT:** This scale is non-monotonic with respect to leader power. Focus on the trappings during THIS LEADER'S REIGN.",
+
+        compact_definition=(
+            "Trappings of executive office (non-monotonic with leader power; excludes purely ceremonial leaders): "
+            "(0) Plain — plain and simple, ruler little distinguished from others; "
+            "(1) Decorated — impressive but office-connected, officeholder understood as mortal; example: US president; "
+            "(2) Deified — holder regarded as divine or quasi-divine; examples: many premodern kings; "
+            "(3) Ceremonial — trappings so extensive they constrain power, separating leader from policymaking; example: Japanese emperor."
+        )
+    ),
+
     # =========================================================================
     # ELECTIONS (DEPENDS ON ASSEMBLY = 2)
     # =========================================================================
@@ -522,29 +762,28 @@ Remember:
         display_name="assembly elections status",
         specialization="electoral systems and representative institutions",
         labels=["0", "1", "2"],
-        task_description="whether members of the large assembly were elected and whether elections were contested by factions or parties",
+        task_description="whether members of the large legislature (assembly = 2) were elected and whether elections were contested by organized factions",
         depends_on={"assembly": "2"},
 
         definition="""
 ## Definition of Elections
 
-This indicator codes whether members of an existing **large assembly** (assembly = 2) are **elected** to their positions. It is only applicable when a large assembly exists.
+This indicator codes whether members of an existing **Legislature (assembly = 2)** are **elected** to their positions. It is only applicable when a large representative legislature exists (NOT for popular assemblies, assembly = 3).
 
 **An election** refers to a selection procedure in which:
 - Members are chosen by an electorate through defined rules (e.g., majority, proportionality)
 - These rules translate votes into seats
-- The electorate must be considerably larger than the body itself (though it may be far short of universal suffrage)
+- The electorate must be considerably larger than the body itself (though far short of universal suffrage is acceptable)
 
 ## Election Categories
 
 **No Elections (0):**
 - Assembly members are NOT elected
-- Members are appointed, hereditary, or selected by other non-electoral means
-- Examples: appointed councils, hereditary nobility in legislature
+- Members are appointed, hereditary, or selected by non-electoral means
+- Also: pass-through for rows where assembly ≠ 2
 
 **Elections Exist (1):**
-- Most members of the assembly are elected
-- Elections follow defined rules translating votes into seats
+- Most members of the assembly are elected by defined rules
 - Electorate is larger than the body itself
 - Elections exist but are NOT organized by factions or parties
 
@@ -555,35 +794,32 @@ This indicator codes whether members of an existing **large assembly** (assembly
 
 ## Important Notes
 
-- This indicator assumes assembly = 2 (large assembly exists)
-- Focus on whether MOST members are elected, not all
-- The extent of suffrage (who can vote) is NOT relevant for coding
+- This indicator assumes assembly = 2 (Legislature). Rows where assembly ≠ 2 pass through with elections = 0.
+- The extent of suffrage is NOT relevant for coding
 - The key distinction for code 2 is organized factions/parties, not just informal competition
 
 ## Analysis Process
 
-1. Confirm that a large assembly (Type 2) exists during this leader's reign
+1. Confirm that a Legislature (assembly = 2) exists during this leader's reign
 2. Determine how members of the assembly obtain their positions
-3. If elected: Are there defined rules translating votes to seats? Is the electorate larger than the body?
-4. If elections exist: Are they contested by organized factions or parties?
+3. If elected: are elections contested by organized factions or parties?
 """,
 
-        task_instruction="""Determine the elections category (0, 1, or 2) for how assembly members are selected during this leader's reign.
+        task_instruction="""Determine the elections category (0, 1, or 2) for this leader's reign.
 
-**This indicator only applies when a large assembly (assembly = 2) exists.**
+**This indicator only applies when a Legislature (assembly = 2) exists.**
 
-Categories:
-- 0: No elections — members appointed, hereditary, or selected by non-electoral means
-- 1: Elections exist — most members elected by an electorate through defined rules, NOT organized by factions/parties
-- 2: Competitive elections — elections contested by organized factions or parties""",
+- 0: No elections — members appointed, hereditary, or non-electoral
+- 1: Elections exist — most members elected by defined rules, NOT organized by factions/parties
+- 2: Competitive elections — contested by organized factions or parties""",
 
-        coding_rule_reminder="""⚠️ **IMPORTANT:** This indicator only applies when assembly = 2. Focus on the selection method for assembly members during THIS LEADER'S REIGN.""",
+        coding_rule_reminder="⚠️ **IMPORTANT:** This indicator only applies when assembly = 2 (Legislature). Focus on the selection method for assembly members during THIS LEADER'S REIGN.",
 
         compact_definition=(
-            "Whether large assembly members are elected (only if assembly = 2): "
-            "(0) no elections — members appointed, hereditary, or non-electoral; "
-            "(1) elections exist — most members elected by electorate through defined rules; "
-            "(2) competitive elections — contested by organized factions or parties."
+            "Whether Legislature (assembly = 2) members are elected (not applicable for assembly ≠ 2): "
+            "(0) No elections — members appointed, hereditary, or non-electoral; "
+            "(1) Elections exist — most members elected by electorate through defined rules, no organized factions; "
+            "(2) Competitive elections — contested by organized factions or parties."
         )
     ),
 }
@@ -603,34 +839,41 @@ COMPACT_DEFINITIONS: Dict[str, str] = {
 # PROMPT BUILDERS
 # =============================================================================
 
-def build_system_prompt(indicator: str) -> str:
-    """
-    Build system prompt for an indicator (FULL version).
-    
-    Args:
-        indicator: Name of the indicator
-        
-    Returns:
-        Complete system prompt string
-    """
+def build_system_prompt(indicator: str, reasoning: bool = True) -> str:
+    """Build system prompt for an indicator (full version)."""
     if indicator not in INDICATOR_CONFIGS:
         raise ValueError(f"Unknown indicator: {indicator}. Must be one of {list(INDICATOR_CONFIGS.keys())}")
-    
+
     config = INDICATOR_CONFIGS[indicator]
-    
-    # Build header
+
     header = SYSTEM_PROMPT_HEADER.format(
         specialization=config.specialization,
         task_description=config.task_description
     )
-    
-    # Build output format
-    label_display = f'"{config.labels[0]}"' if len(config.labels) == 2 else f'one of {config.labels}'
-    output_format = OUTPUT_FORMAT_TEMPLATE.format(
-        indicator=config.name,
-        valid_labels=label_display
-    )
-    
+
+    if config.multi_select:
+        output_format = f"""
+## Output Requirements
+
+Provide a JSON object with exactly these fields:
+- "{config.name}": Must be a JSON array of selected values from {config.labels}, e.g. ["1", "4"]. Use ["0"] if none apply.
+- {"'reasoning': Your step-by-step reasoning following the analysis process (string)" + chr(10) + "- " if reasoning else ""}"confidence_score": Integer from 1 to 100 based on evidence quality
+
+**CRITICAL OUTPUT FORMAT:**
+- Respond with ONLY a JSON object
+- Do NOT include markdown code fences (```json)
+- Do NOT include any text before or after the JSON
+- Your response must start with {{ and end with }}
+- The "{config.name}" field MUST be a JSON array of valid values from {config.labels}. NEVER use null, empty string, or a plain string. If none apply, use ["0"].
+"""
+    else:
+        label_display = f'"{config.labels[0]}"' if len(config.labels) == 2 else f'one of {config.labels}'
+        template = OUTPUT_FORMAT_TEMPLATE if reasoning else OUTPUT_FORMAT_TEMPLATE_NO_REASONING
+        output_format = template.format(
+            indicator=config.name,
+            valid_labels=label_display
+        )
+
     return header + config.definition + output_format
 
 
@@ -639,37 +882,24 @@ def build_user_prompt(
     polity: str,
     name: str,
     start_year: int,
-    end_year: int
+    end_year: int,
+    reasoning: bool = True
 ) -> str:
-    """
-    Build user prompt for an indicator with leader-level information (FULL version).
-    
-    Args:
-        indicator: Name of the indicator
-        polity: Name of the polity
-        name: Name of the leader
-        start_year: Start year of the leader's reign
-        end_year: End year of the leader's reign
-        
-    Returns:
-        Complete user prompt string
-    """
+    """Build user prompt for an indicator with leader-level information (full version)."""
     if indicator not in INDICATOR_CONFIGS:
         raise ValueError(f"Unknown indicator: {indicator}. Must be one of {list(INDICATOR_CONFIGS.keys())}")
-    
+
     config = INDICATOR_CONFIGS[indicator]
-    
-    # Format label display for JSON example
-    if len(config.labels) == 2:
+
+    if config.multi_select:
+        label_format = f'array, e.g. ["{config.labels[1]}"] or ["{config.labels[1]}", "{config.labels[2]}"]'
+    elif len(config.labels) == 2:
         label_format = f"{config.labels[0]} or {config.labels[1]}"
     else:
         label_format = ", ".join(config.labels[:-1]) + f", or {config.labels[-1]}"
-    
-    # Handle tenure's special coding rule reminder with years
-    coding_rule = config.coding_rule_reminder
-    if indicator == "tenure":
-        coding_rule = coding_rule.format(start_year=start_year, end_year=end_year)
-    
+
+    reasoning_field = '"reasoning": "your analysis", ' if reasoning else ""
+
     return USER_PROMPT_TEMPLATE.format(
         indicator_display=config.display_name,
         polity=polity,
@@ -677,9 +907,10 @@ def build_user_prompt(
         start_year=start_year,
         end_year=end_year,
         task_instruction=config.task_instruction,
-        coding_rule_reminder=coding_rule,
+        coding_rule_reminder=config.coding_rule_reminder,
         indicator=config.name,
-        label_format=label_format
+        label_format=label_format,
+        reasoning_field=reasoning_field,
     )
 
 
@@ -714,50 +945,34 @@ def build_combined_prompt(
     include_elections: bool = False,
     assembly_value: Optional[str] = None
 ) -> Tuple[str, str]:
-    """
-    Build a combined prompt for multiple indicators (COMPACT version).
-    
-    Args:
-        polity: Name of the polity
-        name: Name of the leader
-        start_year: Start year of the leader's reign
-        end_year: End year of the leader's reign
-        indicators: List of indicator names to include
-        include_elections: Whether to include elections (requires assembly_value)
-        assembly_value: Value of assembly indicator (needed if include_elections=True)
-        
-    Returns:
-        Tuple of (system_prompt, user_prompt)
-    """
-    # Validate indicators
+    """Build a combined prompt for multiple indicators (compact version)."""
     valid_indicators = []
     for ind in indicators:
         if ind not in INDICATOR_CONFIGS:
             raise ValueError(f"Unknown indicator: {ind}")
-        # Skip elections if assembly != 2 or not explicitly included
         if ind == "elections":
             if include_elections and assembly_value == "2":
                 valid_indicators.append(ind)
         else:
             valid_indicators.append(ind)
-    
-    # Build indicator definitions section
+
     definitions_text = "## Indicator Definitions\n\n"
     for ind in valid_indicators:
         config = INDICATOR_CONFIGS[ind]
         definitions_text += f"**{ind}**: {config.compact_definition}\n\n"
-    
-    # Build output schema
+
     output_fields = []
     for ind in valid_indicators:
         config = INDICATOR_CONFIGS[ind]
-        labels_str = "/".join(config.labels)
-        output_fields.append(f'"{ind}": "{labels_str}"')
-    
+        if config.multi_select:
+            output_fields.append(f'"{ind}": ["select all from {config.labels}"]')
+        else:
+            labels_str = "/".join(config.labels)
+            output_fields.append(f'"{ind}": "{labels_str}"')
+
     output_schema = "{\n  " + ",\n  ".join(output_fields)
     output_schema += ',\n  "reasoning": "brief reasoning for each indicator",\n  "confidence_score": 1-100\n}'
-    
-    # Build user prompt
+
     user_prompt = f"""Please analyze the following leader's reign and classify each indicator:
 
 **Polity:** {polity}
@@ -791,55 +1006,29 @@ def get_prompt(
     polity: str,
     name: str,
     start_year: int,
-    end_year: int
+    end_year: int,
+    reasoning: bool = True
 ) -> Tuple[str, str]:
-    """
-    Get system and user prompts for a specific indicator (FULL version, leader-level).
-    
-    Args:
-        indicator: One of the indicator names
-        polity: Name of the polity
-        name: Name of the leader
-        start_year: Start year of the leader's reign
-        end_year: End year of the leader's reign
-        
-    Returns:
-        Tuple of (system_prompt, user_prompt)
-    """
-    system_prompt = build_system_prompt(indicator)
-    user_prompt = build_user_prompt(indicator, polity, name, start_year, end_year)
+    """Get system and user prompts for a specific indicator (full version, leader-level)."""
+    system_prompt = build_system_prompt(indicator, reasoning=reasoning)
+    user_prompt = build_user_prompt(indicator, polity, name, start_year, end_year, reasoning=reasoning)
     return system_prompt, user_prompt
 
 
 def get_compact_definition(indicator: str) -> str:
-    """
-    Get the compact definition for an indicator (for combined prompts).
-    
-    Args:
-        indicator: Name of the indicator
-        
-    Returns:
-        Compact definition string
-    """
+    """Get the compact definition for an indicator (for combined prompts)."""
     if indicator not in COMPACT_DEFINITIONS:
         raise ValueError(f"Unknown indicator: {indicator}")
     return COMPACT_DEFINITIONS[indicator]
 
 
 def get_all_indicators(include_dependent: bool = True) -> List[str]:
-    """
-    Return list of all indicator names.
-    
-    Args:
-        include_dependent: Whether to include indicators with dependencies (e.g., elections)
-        
-    Returns:
-        List of indicator names
-    """
+    """Return list of all indicator names."""
     if include_dependent:
         return list(INDICATOR_CONFIGS.keys())
     else:
-        return [name for name, config in INDICATOR_CONFIGS.items() if config.depends_on is None]
+        return [name for name, config in INDICATOR_CONFIGS.items()
+                if config.depends_on is None]
 
 
 def get_independent_indicators() -> List[str]:
@@ -871,28 +1060,19 @@ def get_indicator_config(indicator: str) -> IndicatorConfig:
 
 
 def check_dependency(indicator: str, previous_results: Dict[str, str]) -> bool:
-    """
-    Check if an indicator's dependencies are satisfied.
-    
-    Args:
-        indicator: Name of the indicator to check
-        previous_results: Dictionary of previous indicator results
-        
-    Returns:
-        True if dependencies are satisfied (or no dependencies), False otherwise
-    """
+    """Check if an indicator's dependencies are satisfied."""
     config = INDICATOR_CONFIGS.get(indicator)
     if config is None:
         raise ValueError(f"Unknown indicator: {indicator}")
-    
+
     if config.depends_on is None:
         return True
-    
+
     for dep_indicator, required_value in config.depends_on.items():
         actual_value = previous_results.get(dep_indicator)
         if actual_value != required_value:
             return False
-    
+
     return True
 
 
@@ -903,54 +1083,67 @@ def check_dependency(indicator: str, previous_results: Dict[str, str]) -> bool:
 COVE_QUESTION_TEMPLATES: Dict[str, List[str]] = {
     "sovereign": [
         "Was {polity} a colony, protectorate, or vassal of another power during {name}'s reign ({start_year}-{end_year})?",
-        "Did {polity} conduct independent foreign policy under {name}?",
-        "Did {polity} pay tribute to any external power during {name}'s rule?"
+        "Did {polity} conduct independent domestic governance under {name}?",
+        "Did {polity} pay tribute or acknowledge suzerainty to any external power during {name}'s rule?"
     ],
-    "powersharing": [
-        "Who held executive power in {polity} during {name}'s reign ({start_year}-{end_year})?",
-        "Were there co-rulers, regents, or collegial bodies sharing executive authority with {name}?",
-        "Could {name} make major decisions unilaterally in {polity}?"
+    "federalism": [
+        "Did sub-national units in {polity} have constitutionally or compactly protected powers during {name}'s reign ({start_year}-{end_year})?",
+        "Were there representative bodies for local or regional units at the central level in {polity} under {name}?",
+        "Could the central government in {polity} freely abolish or override local units during {name}'s reign?"
     ],
-    "assembly": [
-        "What deliberative or advisory bodies existed in {polity} during {name}'s reign ({start_year}-{end_year})?",
-        "Was any such body a small advisory council appointed by the ruler (institutionalized, regular meetings, designated name)?",
-        "Was there a large assembly that played a role in policymaking or leadership selection under {name}?",
-        "Did these bodies actually meet and function, or were they merely nominal?"
+    "checks": [
+        "What independent bodies existed adjacent to the executive in {polity} during {name}'s reign ({start_year}-{end_year})?",
+        "Did any body (judiciary, legislature, religious, military, aristocracy) have the capacity to regularly block or override {name}'s executive actions?",
+        "How frequently did independent organizations actually challenge or constrain {name}'s actions in {polity}?"
     ],
-    "appointment": [
-        "How did {name} come to power in {polity}?",
-        "Was {name}'s succession hereditary, elected, or appointed?",
-        "What role did assemblies or councils play in {name}'s selection?"
-    ],
-    "tenure": [
-        "How long did {name} rule {polity}?",
-        "What was the typical tenure length for rulers in {polity} during this era?",
-        "Were there term limits or expected tenure lengths in {polity} during {name}'s time?"
-    ],
-    "exit": [
-        "How did {name} leave power in {polity}?",
-        "Did {name} die in office, abdicate voluntarily, or face removal?",
-        "Were there institutional mechanisms for succession when {name}'s rule ended?"
+    "checks_actors": [
+        "Which independent groups or bodies had the capacity to resist the executive in {polity} during {name}'s reign ({start_year}-{end_year})?",
+        "Did local actors (clans, tribes, civil society, media) have the capacity or proclivity to resist {name}'s actions?",
+        "Did military actors, clergy, or aristocracy constrain {name}'s executive power in {polity}?",
+        "Did bureaucracy, judiciary, assembly, or advisory council have the capacity to resist {name}'s actions?"
     ],
     "collegiality": [
         "What was the formal executive structure in {polity} during {name}'s reign ({start_year}-{end_year})?",
-        "Was there a cabinet, council, or collegial body that shared decision-making with {name}?",
-        "Did {name} dominate decision-making, or were decisions genuinely shared among multiple actors?",
+        "Was there a cabinet, council, or collegial body that genuinely shared decision-making with {name}?",
+        "Did {name} dominate decision-making, or were decisions genuinely shared among co-equals?",
         "Were there co-rulers, regents, or formally constituted bodies sharing executive power with {name}?"
     ],
-    "separate_powers": [
-        "What independent institutions existed in {polity} during {name}'s reign ({start_year}-{end_year})?",
-        "Was the legislature independent from {name}'s control?",
-        "Did an independent judiciary have the capacity to check {name}'s power?",
-        "Were there religious or military authorities with checking power over {name}?",
-        "Did multiple independent organizations have authority over policymaking under {name}?"
+    "assembly": [
+        "What deliberative or advisory bodies existed in {polity} during {name}'s reign ({start_year}-{end_year})?",
+        "Was any such body a small advisory council (institutionalized, regular meetings, designated name) appointed by the ruler?",
+        "Was there a large representative legislature that played a role in policymaking or leadership selection under {name}?",
+        "Was there a popular assembly that included most citizens of {polity} or a sample chosen by lot under {name}?"
+    ],
+    "entry": [
+        "How did {name} come to power in {polity}?",
+        "Was {name}'s assumption of leadership through force, hereditary succession, appointment, or election?",
+        "Who or what specifically selected or installed {name} as leader of {polity}?"
+    ],
+    "entry_4": [
+        "How did {name} come to power in {polity}?",
+        "Was {name}'s path to power irregular (force/foreign), hereditary, through domestic appointment, or through election?",
+        "Was the body that selected {name} itself democratically elected?"
+    ],
+    "exit": [
+        "How did {name} leave power in {polity}?",
+        "Did {name} die in office, retire voluntarily, face forced removal, or transition to another office?",
+        "Was {name}'s departure the result of institutional processes, personal choice, health, or external force?"
+    ],
+    "exit_4": [
+        "How did {name} leave power in {polity}?",
+        "Was {name}'s departure irregular (forced/under duress), natural (death/ill health), voluntary, or institutionalized (term/election)?",
+        "Were there institutional mechanisms governing {name}'s departure from power in {polity}?"
+    ],
+    "symbolic_power": [
+        "What ceremonial or symbolic elements were associated with the executive office in {polity} during {name}'s reign ({start_year}-{end_year})?",
+        "Was {name} regarded as divine or quasi-divine, or as an ordinary mortal?",
+        "Did the trappings of {name}'s office enhance or constrain actual executive power?"
     ],
     "elections": [
-        "How were members of the large assembly selected in {polity} during {name}'s reign ({start_year}-{end_year})?",
+        "How were members of the large legislature selected in {polity} during {name}'s reign ({start_year}-{end_year})?",
         "Were assembly members elected by an electorate considerably larger than the body itself?",
-        "If elections existed, were they contested by organized factions or parties?",
-        "What was the size of the electorate relative to the assembly in {polity} under {name}?"
-    ]
+        "If elections existed, were they contested by organized factions or parties in {polity} under {name}?"
+    ],
 }
 
 
@@ -961,22 +1154,10 @@ def get_cove_questions(
     start_year: int,
     end_year: int
 ) -> List[str]:
-    """
-    Get Chain of Verification questions for an indicator (leader-level).
-    
-    Args:
-        indicator: Name of the indicator
-        polity: Name of the polity
-        name: Name of the leader
-        start_year: Start year of the leader's reign
-        end_year: End year of the leader's reign
-        
-    Returns:
-        List of formatted questions
-    """
+    """Get Chain of Verification questions for an indicator (leader-level)."""
     if indicator not in COVE_QUESTION_TEMPLATES:
         raise ValueError(f"No CoVe questions defined for indicator: {indicator}")
-    
+
     return [
         q.format(polity=polity, name=name, start_year=start_year, end_year=end_year)
         for q in COVE_QUESTION_TEMPLATES[indicator]
@@ -995,23 +1176,10 @@ def get_all_prompts_for_leader(
     indicators: Optional[List[str]] = None,
     exclude_dependent: bool = False
 ) -> Dict[str, Tuple[str, str]]:
-    """
-    Get prompts for all (or specified) indicators for a single leader.
-    
-    Args:
-        polity: Name of the polity
-        name: Name of the leader
-        start_year: Start year of the leader's reign
-        end_year: End year of the leader's reign
-        indicators: Optional list of indicators to include (default: all)
-        exclude_dependent: Whether to exclude indicators with dependencies
-        
-    Returns:
-        Dictionary mapping indicator name to (system_prompt, user_prompt) tuple
-    """
+    """Get prompts for all (or specified) indicators for a single leader."""
     if indicators is None:
         indicators = get_all_indicators(include_dependent=not exclude_dependent)
-    
+
     return {
         ind: get_prompt(ind, polity, name, start_year, end_year)
         for ind in indicators
@@ -1020,18 +1188,10 @@ def get_all_prompts_for_leader(
 
 
 def get_expected_output_schema(indicators: Optional[List[str]] = None) -> Dict[str, dict]:
-    """
-    Get the expected output schema for specified indicators.
-    
-    Args:
-        indicators: Optional list of indicators (default: all)
-        
-    Returns:
-        Dictionary describing expected output fields per indicator
-    """
+    """Get the expected output schema for specified indicators."""
     if indicators is None:
         indicators = get_all_indicators()
-    
+
     return {
         ind: {
             "fields": {

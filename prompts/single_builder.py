@@ -4,10 +4,12 @@ Single Prompt Builder
 Combines multiple indicators into a single prompt.
 Efficient (fewer API calls) but may cause cross-indicator contamination.
 
-Indicators (based on "Growth of Executive Constraints" paper):
+Indicators:
 - sovereign (0/1)
 - federalism (0/1)
 - checks (0/1/2)
+- checks_actors (0-9, multi-select) — output as JSON array of selected values
+- symbolic_power (0/1/2/3)
 - collegiality (0/1)
 - assembly (0/1/2/3)
 - entry (0-10) — fine-grained, 11 categories
@@ -36,6 +38,7 @@ class IndicatorConfig:
     display_name: str
     labels: List[str]
     summary: str
+    multi_select: bool = False
 
 
 INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
@@ -100,6 +103,36 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
             "• 1 = Partial. Independent organizations may, on occasion, resist the executive. But their power is informal and/or their interventions are rare.\n"
             "• 2 = Full. Independent organizations have the capacity to regularly and effectively resist the executive. "
             "This includes settings where the checking body must approve legislation or has veto rights (e.g., judicial review)."
+        )
+    ),
+
+    # =========================================================================
+    # CHECKS ACTORS (Multi-select, 10 categories)
+    # =========================================================================
+    "checks_actors": IndicatorConfig(
+        name="checks_actors",
+        display_name="Checks (Actors)",
+        labels=["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"],
+        multi_select=True,
+        summary=(
+            "Effective checks exist when independent groups or bodies have the capacity to resist actions "
+            "taken by the executive. Select all actors that provide a check on the executive's actions. "
+            "The number of categories transfers into more effective checks.\n\n"
+            "Coding (select all that apply):\n"
+            "• 0 = None. There are no actors with this capacity or proclivity.\n"
+            "• 1 = Local. Examples: clans, tribes, ethnic groups, local governance units, civil society groups, "
+            "newspapers and other media.\n"
+            "• 2 = Military. Examples: officers, specific branches of the military, a warrior caste (e.g., Samurai).\n"
+            "• 3 = Clergy. Power is partly derived from their role as arbiters of a widely espoused religion or "
+            "set of beliefs. Examples: established church, priests, or caste (of any religion or denomination).\n"
+            "• 4 = Aristocracy. Examples: landed class, upper caste, nobility, hereditary elite, titled class, patriciate.\n"
+            "• 5 = Bourgeoisie. Examples: middle class, urbanites, artisans, traders, merchants, commercial classes, "
+            "capitalist class, business class, entrepreneurs, financiers, creditors.\n"
+            "• 6 = Bureaucracy. Examples: civil servants, Confucian scholars who serve as top-level advisors and bureaucrats.\n"
+            "• 7 = Judiciary. Examples: courts of law, tribunals, judicial bodies, adjudicative bodies, legal institutions.\n"
+            "• 8 = Assembly. Examples: popular assembly, legislature, parliament.\n"
+            "• 9 = Advisory council. Examples: royal council, council of state, regency council, privy council, "
+            "council of elders."
         )
     ),
 
@@ -234,6 +267,32 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
             "or as part of a transition to another government office."
         )
     ),
+
+    # =========================================================================
+    # SYMBOLIC POWER
+    # =========================================================================
+    "symbolic_power": IndicatorConfig(
+        name="symbolic_power",
+        display_name="Symbolic Power",
+        labels=["0", "1", "2", "3"],
+        summary=(
+            "The power of the executive is to some extent reflected in the trappings of the office. "
+            "Note: This scale is non-monotonic with respect to leader power — higher codes do not always mean "
+            "more actual power. Purely ceremonial leaders are excluded.\n\n"
+            "Coding:\n"
+            "• 0 = Plain. The trappings of the office are plain and simple. Little distinguishes the personage "
+            "of the ruler from others in the realm. Example: British prime minister (10 Downing Street).\n"
+            "• 1 = Decorated. The trappings of the office are impressive but connected to the office rather "
+            "than the officeholder, who is understood as mortal. Example: American president.\n"
+            "• 2 = Deified. The trappings of the office are impressive and the holder is regarded as having "
+            "divine or quasi-divine status, separate and apart from mere mortals. "
+            "Examples: many kings in the premodern era.\n"
+            "• 3 = Ceremonial. The trappings of office are so extensive, and so demanding, that they serve as "
+            "a constraint on the exercise of power, separating the leader from the springs of policymaking. "
+            "The executive's role is as much ceremonial as executive; approval of initiatives is formal. "
+            "Example: Japanese emperor during most periods."
+        )
+    ),
 }
 
 
@@ -302,6 +361,19 @@ INDICATOR_SUMMARIES: Dict[str, str] = {
         "(2) Full — independent organizations regularly and effectively resist, including veto rights or judicial review."
     ),
 
+    "checks_actors": (
+        "Checks (Actors): which actors provide a check on the executive (select all that apply, output as JSON array). "
+        "(0) None; (1) Local — clans, tribes, civil society, media; "
+        "(2) Military — officers, military branches, warrior caste; "
+        "(3) Clergy — established church, priests, religious caste; "
+        "(4) Aristocracy — nobility, hereditary elite, upper caste; "
+        "(5) Bourgeoisie — merchants, commercial classes, financiers; "
+        "(6) Bureaucracy — civil servants, Confucian scholars; "
+        "(7) Judiciary — courts, tribunals, legal institutions; "
+        "(8) Assembly — popular assembly, legislature, parliament; "
+        "(9) Advisory council — royal council, privy council, council of elders."
+    ),
+
     "collegiality": (
         "Collegiality: whether decisionmaking power is shared among multiple actors at the apex. "
         "Code based on de facto practice, not de jure rules. "
@@ -352,6 +424,14 @@ INDICATOR_SUMMARIES: Dict[str, str] = {
         "(2) Voluntary — voluntarily retired/abdicated (not ill health); "
         "(3) Institutionalized — term expiration, electoral defeat, regular transition."
     ),
+
+    "symbolic_power": (
+        "Symbolic Power: trappings of executive office (non-monotonic with leader power; excludes purely ceremonial leaders). "
+        "(0) Plain — plain and simple, ruler little distinguished from others in the realm; "
+        "(1) Decorated — impressive but office-connected, officeholder understood as mortal; "
+        "(2) Deified — holder regarded as divine or quasi-divine; "
+        "(3) Ceremonial — trappings so extensive they constrain power, separating leader from policymaking."
+    ),
 }
 
 
@@ -367,7 +447,8 @@ def get_all_indicators(include_robustness: bool = True) -> List[str]:
         include_robustness: Whether to include entry_4 and exit_4 (default True —
                             both are queried independently as robustness checks).
     """
-    base = ["sovereign", "federalism", "checks", "collegiality", "assembly", "entry", "exit"]
+    base = ["sovereign", "federalism", "checks", "checks_actors", "collegiality", "assembly",
+            "entry", "exit", "symbolic_power"]
 
     if include_robustness:
         base.extend(["entry_4", "exit_4"])
@@ -446,8 +527,12 @@ class SinglePromptBuilder:
         for ind in self.indicators:
             if ind in INDICATOR_CONFIGS:
                 config = INDICATOR_CONFIGS[ind]
-                labels_str = ", ".join([f'"{l}"' for l in config.labels])
-                prompt += f'- "{ind}": one of {labels_str}\n'
+                if config.multi_select:
+                    labels_str = str(config.labels)
+                    prompt += f'- "{ind}": JSON array of selected values from {labels_str} (select all that apply; use ["0"] if none apply)\n'
+                else:
+                    labels_str = ", ".join([f'"{l}"' for l in config.labels])
+                    prompt += f'- "{ind}": one of {labels_str}\n'
                 if self.reasoning:
                     prompt += f'- "{ind}_reasoning": brief justification (string)\n'
                 prompt += f'- "{ind}_confidence": integer 1–100\n'
@@ -540,8 +625,12 @@ class SinglePromptBuilderV2:
         for ind in self.indicators:
             if ind in INDICATOR_CONFIGS:
                 config = INDICATOR_CONFIGS[ind]
-                labels_str = " | ".join(config.labels)
-                prompt += f'- "{ind}": "{labels_str}" (string)\n'
+                if config.multi_select:
+                    labels_str = str(config.labels)
+                    prompt += f'- "{ind}": JSON array of selected values from {labels_str} (select all that apply)\n'
+                else:
+                    labels_str = " | ".join(config.labels)
+                    prompt += f'- "{ind}": "{labels_str}" (string)\n'
                 if self.reasoning:
                     prompt += f'- "{ind}_reasoning": concise evidence-based justification\n'
                 prompt += f'- "{ind}_confidence": 1–100 (integer)\n'
@@ -634,8 +723,12 @@ class SinglePromptBuilderV3:
         for ind in self.indicators:
             if ind in INDICATOR_CONFIGS:
                 config = INDICATOR_CONFIGS[ind]
-                labels_str = "/".join(config.labels)
-                fields.append(f'"{ind}" ({labels_str})')
+                if config.multi_select:
+                    labels_str = str(config.labels)
+                    fields.append(f'"{ind}" (array, select all from {labels_str})')
+                else:
+                    labels_str = "/".join(config.labels)
+                    fields.append(f'"{ind}" ({labels_str})')
                 if self.reasoning:
                     fields.append(f'"{ind}_reasoning"')
                 fields.append(f'"{ind}_confidence" (1-100)')

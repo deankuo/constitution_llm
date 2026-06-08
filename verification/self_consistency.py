@@ -129,7 +129,7 @@ class SelfConsistencyVerification(BaseVerification):
             else:
                 init_str = str(initial_prediction)
 
-            if init_str in str_valid:
+            if init_str:  # validate_indicator_response is already the gatekeeper
                 samples.insert(0, PredictionSample(
                     prediction=init_str,
                     reasoning="Initial prediction",
@@ -243,8 +243,10 @@ class SelfConsistencyVerification(BaseVerification):
                 sc_tokens=sc_tokens,
             )
 
-        # Count predictions
-        predictions = [s.prediction for s in samples if s.prediction in valid_labels]
+        # Count predictions. validate_indicator_response is the gatekeeper — a
+        # non-empty prediction string is already validated (supports single-label
+        # floats and multi-select canonical arrays like '["1","4"]').
+        predictions = [s.prediction for s in samples if s.prediction]
 
         if not predictions:
             # No valid predictions
@@ -343,7 +345,7 @@ class SelfConsistencyVerification(BaseVerification):
                     init_str = str(initial_prediction)
             else:
                 init_str = str(initial_prediction)
-            if init_str in str_valid:
+            if init_str:  # validate_indicator_response is already the gatekeeper
                 init_temp = prediction_temperature if prediction_temperature is not None else self.config.temperatures[0]
                 samples.append(PredictionSample(
                     prediction=init_str,

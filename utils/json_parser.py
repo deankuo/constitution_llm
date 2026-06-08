@@ -157,31 +157,40 @@ def validate_indicator_response(
 
     str_labels = [str(v) for v in valid_labels]
 
-    def _parse_label(val) -> 'float | None':
-        """Convert val to a float label, or return None if unresolvable."""
-        if val is None:
-            return None
-        # Direct string match ("0", "1", "2")
-        if str(val) in str_labels:
-            try:
-                return float(val)
-            except (ValueError, TypeError):
+    # Multi-select indicator: LLM returns a JSON array (e.g. checks_actors).
+    # Parse, validate each element, sort, and store as a canonical JSON string
+    # so that self-consistency majority voting uses exact-match comparison.
+    if isinstance(raw_value, list):
+        valid_items = sorted(set(
+            str(item) for item in raw_value
+            if str(item) in str_labels
+        ))
+        result[indicator] = json.dumps(valid_items, separators=(',', ':')) if valid_items else None
+    else:
+        def _parse_label(val) -> 'float | None':
+            """Convert val to a float label, or return None if unresolvable."""
+            if val is None:
                 return None
-        # Numeric coercion (handles integers 0/1/2 and floats 0.0/1.0/2.0)
-        try:
-            coerced = str(int(float(val)))
-            if coerced in str_labels:
-                return float(coerced)
-        except (ValueError, TypeError):
-            pass
-        # Leading-digit extraction for descriptive strings like "2 (by election)"
-        m = re.match(r'^\s*([0-9]+)', str(val))
-        if m and m.group(1) in str_labels:
-            return float(m.group(1))
-        return None
+            # Direct string match ("0", "1", "2")
+            if str(val) in str_labels:
+                try:
+                    return float(val)
+                except (ValueError, TypeError):
+                    return None
+            # Numeric coercion (handles integers 0/1/2 and floats 0.0/1.0/2.0)
+            try:
+                coerced = str(int(float(val)))
+                if coerced in str_labels:
+                    return float(coerced)
+            except (ValueError, TypeError):
+                pass
+            # Leading-digit extraction for descriptive strings like "2 (by election)"
+            m = re.match(r'^\s*([0-9]+)', str(val))
+            if m and m.group(1) in str_labels:
+                return float(m.group(1))
+            return None
 
-    parsed_label = _parse_label(raw_value)
-    result[indicator] = parsed_label
+        result[indicator] = _parse_label(raw_value)
 
     # Ensure reasoning exists (check both 'reasoning' and '{indicator}_reasoning')
     reasoning_key = f'{indicator}_reasoning'
