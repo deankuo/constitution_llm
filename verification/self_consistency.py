@@ -9,6 +9,7 @@ The key insight is that consistent predictions across temperature variations
 are more likely to be correct.
 """
 
+import ast
 from collections import Counter
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
@@ -137,7 +138,7 @@ class SelfConsistencyVerification(BaseVerification):
                 ))
 
         # Aggregate predictions
-        aggregated = self._aggregate_predictions(samples, str_valid)
+        aggregated = self._aggregate_predictions(samples, str_valid, indicator=indicator)
 
         return aggregated
 
@@ -210,7 +211,8 @@ class SelfConsistencyVerification(BaseVerification):
     def _aggregate_predictions(
         self,
         samples: List[PredictionSample],
-        valid_labels: List[str]
+        valid_labels: List[str],
+        indicator: str = '',
     ) -> VerificationResult:
         """Aggregate samples using majority voting."""
         # Sum token and cost usage across all SC sample responses
@@ -274,10 +276,26 @@ class SelfConsistencyVerification(BaseVerification):
         # Get original prediction (first sample = initial main-call prediction)
         original_prediction = samples[0].prediction
 
-        # Tie-breaking: when no two samples agree (all predictions differ),
-        # fall back to the original prediction rather than an arbitrary winner.
+        # Tie-breaking when no two samples agree (all predictions differ).
+        # Multi-select (checks_actors): use the intersection of all prediction sets.
+        # If the intersection is empty, verified = None (no shared consensus).
+        # Single-select: fall back to the original prediction.
         if majority_count == 1:
-            majority_prediction = original_prediction
+            is_multi_select = indicator == 'checks_actors'
+            if is_multi_select:
+                sets = []
+                for p in predictions:
+                    try:
+                        sets.append(set(ast.literal_eval(p)))
+                    except (ValueError, SyntaxError):
+                        pass
+                if len(sets) == len(predictions):
+                    common = set.intersection(*sets)
+                    majority_prediction = str(sorted(common)) if common else None
+                else:
+                    majority_prediction = None
+            else:
+                majority_prediction = original_prediction
 
         # Uncertainty label — generalises beyond the n=3 case:
         #   none  = unanimous (all agree)
@@ -375,7 +393,7 @@ class SelfConsistencyVerification(BaseVerification):
                 temperature=temp,
             ))
 
-        return self._aggregate_predictions(samples, str_valid)
+        return self._aggregate_predictions(samples, str_valid, indicator=indicator)
 
 
 def create_self_consistency_verifier(

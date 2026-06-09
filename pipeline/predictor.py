@@ -496,6 +496,13 @@ class Predictor:
                     )
 
                 verified_prediction = verify_result.verified_prediction
+                # SC stores multi-select results as str([1, 4]); convert back to native list
+                if isinstance(verified_prediction, str) and verified_prediction.startswith('['):
+                    import ast as _ast
+                    try:
+                        verified_prediction = _ast.literal_eval(verified_prediction)
+                    except (ValueError, SyntaxError):
+                        pass
                 verification_details = verify_result.verification_details
                 agreement_ratio = verify_result.agreement_ratio
                 sc_uncertainty = (verification_details or {}).get('sc_uncertainty')

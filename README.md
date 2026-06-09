@@ -26,7 +26,7 @@ A sophisticated pipeline for analyzing historical polities to predict political 
   - **Elections** (downstream only, via `post_processing.py`): Legislative elections — pass-through 0 when assembly ≠ 2 (0/1/2)
 
 - **Verification Methods**:
-  - **Self-Consistency**: `n_samples` additional calls + the initial prediction = `n_samples+1` total votes; majority wins. Adds `{ind}_verified`, `{ind}_agreement` (0.0–1.0), and `{ind}_uncertainty` (`none`/`low`/`high`) columns. When all votes differ, falls back to the initial prediction. If `--verify-indicators` is omitted, defaults automatically to all `--indicators`.
+  - **Self-Consistency**: `n_samples` additional calls + the initial prediction = `n_samples+1` total votes; majority wins. Adds `{ind}_verified`, `{ind}_agreement` (0.0–1.0), and `{ind}_uncertainty` (`none`/`low`/`high`) columns. When all votes differ: single-select indicators fall back to the initial prediction; `checks_actors` (multi-select) uses the **intersection** of all prediction sets — if the intersection is empty the verified value is `null`. If `--verify-indicators` is omitted, defaults automatically to all `--indicators`.
   - **API-call efficiency**: In `--mode single` / `--mode sequential` (all indicators share one prompt), SC makes `n_samples` additional calls **at the prompt level** — all indicators share those calls. Total calls per row = `1 + n_samples`, not `1 + n_indicators × n_samples`. In `--mode multiple` (one prompt per indicator), SC makes `n_samples` calls per indicator as before.
   - **Chain of Verification (CoVe)**: Cross-model verification with factual questions (4 questions for constitution)
   - **Note**: `--verify both` currently runs CoVe only (sequential verification not yet implemented)
@@ -384,7 +384,7 @@ python main.py --help
 | Argument | Description | Default |
 |----------|-------------|---------|
 | `--mode` | Prompt mode: `single`, `multiple`, or `sequential` | `multiple` |
-| `--indicators` | Indicators to predict | `['constitution']` |
+| `--indicators` | Indicators to predict (validated against `ALL_INDICATORS` at startup) | `['constitution']` |
 | `--models` | Model identifier (first value used) | `Gemini=gemini-2.5-pro` |
 | `--verify` | Verification: `none`, `self_consistency`, `cove`, `both` | `none` |
 | `--verify-indicators` | Which indicators to apply verification to (omit to apply to all `--indicators`) | None → all |
@@ -655,15 +655,15 @@ INDICATOR_LABELS = {
 ### CSV Columns
 
 For each indicator `{ind}`:
-- `{ind}_prediction` - Prediction ("0"/"1"/"2")
+- `{ind}_prediction` - Prediction (`"0"`/`"1"`/`"2"` for single-select; `[2, 4]` native int list for `checks_actors`)
 - `{ind}_reasoning` - Reasoning text (omitted if `--reasoning False`)
 - `{ind}_confidence` - Score 1-100
 
 With verification:
-- `{ind}_verified` - Final prediction after verification
+- `{ind}_verified` - Final prediction after verification (same type as `_prediction`; can be `null` for `checks_actors` when all samples disagree and have no overlapping labels)
 - `{ind}_verification` - Verification details
 - `{ind}_agreement` - Agreement ratio 0.0–1.0 (self-consistency only)
-- `{ind}_uncertainty` - `none` (all agree) / `low` (majority ≥ 2) / `high` (all differ, falls back to initial prediction) (self-consistency only)
+- `{ind}_uncertainty` - `none` (all agree) / `low` (majority ≥ 2) / `high` (all differ) (self-consistency only)
 
 With search mode (leader pipeline, all modes — row-level):
 - `search_queries` - Pipe-delimited search queries with source markers (e.g., `[Wikipedia] query | [Serper] query`)
