@@ -160,6 +160,16 @@ def validate_indicator_response(
     # Multi-select indicator: LLM returns a JSON array (e.g. checks_actors).
     # Parse, validate each element, sort, and store as a canonical JSON string
     # so that self-consistency majority voting uses exact-match comparison.
+    # Also handle the case where the LLM returns a JSON-encoded string like '["1","4"]'
+    # instead of a native list.
+    if not isinstance(raw_value, list) and isinstance(raw_value, str):
+        try:
+            parsed = json.loads(raw_value)
+            if isinstance(parsed, list):
+                raw_value = parsed
+        except (json.JSONDecodeError, ValueError):
+            pass
+
     if isinstance(raw_value, list):
         valid_items = sorted(set(
             str(item) for item in raw_value

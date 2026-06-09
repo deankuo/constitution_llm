@@ -77,7 +77,7 @@ USER_PROMPT_TEMPLATE = """Please analyze the {indicator_display} of the followin
 {coding_rule_reminder}
 
 Respond with a single JSON object:
-{{"{indicator}": "{label_format}", {reasoning_field}"confidence_score": 1-100}}
+{response_example}
 """
 
 
@@ -891,14 +891,18 @@ def build_user_prompt(
 
     config = INDICATOR_CONFIGS[indicator]
 
-    if config.multi_select:
-        label_format = f'array, e.g. ["{config.labels[1]}"] or ["{config.labels[1]}", "{config.labels[2]}"]'
-    elif len(config.labels) == 2:
-        label_format = f"{config.labels[0]} or {config.labels[1]}"
-    else:
-        label_format = ", ".join(config.labels[:-1]) + f", or {config.labels[-1]}"
-
     reasoning_field = '"reasoning": "your analysis", ' if reasoning else ""
+
+    if config.multi_select:
+        # Show an actual JSON array in the example so the model returns an array, not a string
+        example_array = f'["{config.labels[1]}", "{config.labels[2]}"]'
+        response_example = f'{{"{config.name}": {example_array}, {reasoning_field}"confidence_score": 1-100}}'
+    else:
+        if len(config.labels) == 2:
+            label_format = f"{config.labels[0]} or {config.labels[1]}"
+        else:
+            label_format = ", ".join(config.labels[:-1]) + f", or {config.labels[-1]}"
+        response_example = f'{{"{config.name}": "{label_format}", {reasoning_field}"confidence_score": 1-100}}'
 
     return USER_PROMPT_TEMPLATE.format(
         indicator_display=config.display_name,
@@ -908,9 +912,7 @@ def build_user_prompt(
         end_year=end_year,
         task_instruction=config.task_instruction,
         coding_rule_reminder=config.coding_rule_reminder,
-        indicator=config.name,
-        label_format=label_format,
-        reasoning_field=reasoning_field,
+        response_example=response_example,
     )
 
 

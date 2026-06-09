@@ -1127,6 +1127,14 @@ Examples:
         if args.use_batch:
             print("Batch:    Gemini Batch API (50% cost savings)")
 
+        # Validate indicator names early to catch typos before any API calls.
+        _valid_set = set(ALL_INDICATORS)
+        _bad = [i for i in args.indicators if i not in _valid_set]
+        if _bad:
+            parser.error(
+                f"Unknown indicator(s): {_bad}. Valid options: {ALL_INDICATORS}"
+            )
+
         # When --verify is set but --verify-indicators is omitted, verify all
         # predicted indicators rather than silently doing nothing.
         _verify_indicators = args.verify_indicators
