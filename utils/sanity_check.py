@@ -25,21 +25,19 @@ load_dotenv()
 # Import configuration from root config.py
 # Use try/except to handle both package import and direct script execution
 try:
-    from config import DEFAULT_MAX_TOKENS
+    from config import ALL_INDICATORS, DEFAULT_DELAY, DEFAULT_MAX_TOKENS, DEFAULT_PRIMARY_MODEL
 except ImportError:
     # When run as script, add parent directory to path
     _parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
     if _parent_dir not in sys.path:
         sys.path.insert(0, _parent_dir)
-    from config import DEFAULT_MAX_TOKENS
+    from config import ALL_INDICATORS, DEFAULT_DELAY, DEFAULT_MAX_TOKENS, DEFAULT_PRIMARY_MODEL
 
 try:
     from utils.langsmith_utils import traceable
 except ImportError:
     from langsmith_utils import traceable  # direct execution fallback
 
-# All available indicators (new single_builder.py schema)
-ALL_INDICATORS = ['constitution', 'sovereign', 'federalism', 'checks', 'collegiality', 'assembly', 'entry', 'entry_4', 'exit', 'exit_4', 'elections']
 
 
 def fix_column_types(df: pd.DataFrame) -> pd.DataFrame:
@@ -56,7 +54,7 @@ def fix_column_types(df: pd.DataFrame) -> pd.DataFrame:
         DataFrame with corrected column types
     """
     # Columns that should be strings
-    string_cols = ['territorynamehistorical', 'id', 'region']
+    string_cols = ['territorynamehistorical', 'polity_name', 'id', 'region']
 
     # Reasoning and document name columns should be strings
     for col in df.columns:
@@ -72,7 +70,9 @@ def fix_column_types(df: pd.DataFrame) -> pd.DataFrame:
     for indicator in ALL_INDICATORS:
         pred_col = f'{indicator}_prediction'
         if pred_col in df.columns:
-            # Convert to nullable Int64 (capital I)
+            if indicator == 'checks_actors':
+                # checks_actors_prediction stores a native list of ints — skip Int64 conversion
+                continue
             df[pred_col] = pd.to_numeric(df[pred_col], errors='coerce')
             df[pred_col] = df[pred_col].astype('Int64')  # Nullable integer type
 
@@ -119,7 +119,7 @@ def identify_failed_rows(
     reasoning_col: Optional[str] = None,
     document_name_col: Optional[str] = None,
     min_confidence: Optional[float] = None,
-    min_reasoning_length: Optional[int] = 100,
+    min_reasoning_length: Optional[int] = None,
     check_na: bool = True,
     check_negative: bool = True,
     check_uncodified: bool = False,
@@ -397,7 +397,7 @@ def save_for_reprocessing(
 def reprocess_with_main(
     input_csv: str,
     output_csv: str,
-    models: List[str] = ['Gemini=gemini-2.5-pro'],
+    models: List[str] = None,
     temperature: float = 0.0,
     max_tokens: int = DEFAULT_MAX_TOKENS,
     delay: float = 2.0,
@@ -423,6 +423,9 @@ def reprocess_with_main(
         True if reprocessing succeeded, False otherwise
     """
     import subprocess
+
+    if models is None:
+        models = [f'Gemini={DEFAULT_PRIMARY_MODEL}']
 
     # Build command
     cmd = [
@@ -612,11 +615,11 @@ def sanity_check_and_reprocess(
     temp_failed_csv: str = './data/temp/temp_failed_rows.csv',
     temp_reprocessed_csv: str = './data/temp/temp_reprocessed_rows.csv',
     min_confidence: Optional[float] = None,
-    min_reasoning_length: Optional[int] = 100,
+    min_reasoning_length: Optional[int] = None,
     pipeline: str = 'leader',
     mode: str = 'multiple',
     indicators: Optional[List[str]] = None,
-    model: str = 'gemini-2.5-pro',
+    model: str = DEFAULT_PRIMARY_MODEL,
     verify: str = 'none',
     n_samples: int = 0,
     temperature: float = 0.0,
@@ -624,6 +627,8 @@ def sanity_check_and_reprocess(
     random_sequence: bool = False,
     cleanup_temp_files: bool = True,
     reasoning: bool = True,
+    parallel_rows: int = 0,
+    delay: float = DEFAULT_DELAY,
     **kwargs
 ) -> pd.DataFrame:
     """
@@ -653,6 +658,9 @@ def sanity_check_and_reprocess(
         cleanup_temp_files: Whether to delete temporary files after completion
         reasoning: Whether reasoning is included in predictions (default True).
                    When False, skips reasoning-length checks.
+        parallel_rows: Number of rows to process concurrently when reprocessing (0 = auto: use
+                       number of failed rows, capped at 8). Maps to --parallel-rows in main.py.
+        delay: Delay between API calls in seconds (default: DEFAULT_DELAY from config).
         **kwargs: Additional arguments passed to identify_failed_rows
 
     Returns:
@@ -679,6 +687,10 @@ def sanity_check_and_reprocess(
     df = fix_column_types(df)
     print(f"Loaded {len(df)} rows from {input_csv}\n")
 
+    # Cache of per-indicator failed index sets built in Step 2 (single mode only).
+    # Reused in Step 6 to avoid redundant identify_failed_rows calls.
+    _single_mode_failed_sets: dict = {}
+
     # Step 2: Identify failed rows
     print("Step 2: Identifying failed rows...")
 
@@ -688,9 +700,9 @@ def sanity_check_and_reprocess(
 
         # Determine which indicators to check
         if indicators is None:
-            # Auto-detect: check all standard indicators (new pipeline schema)
-            check_indicators = ['sovereign', 'federalism', 'checks', 'collegiality', 'assembly', 'entry', 'entry_4', 'exit', 'exit_4']
-            # Also check constitution if columns exist
+            # Auto-detect: all pipeline indicators except constitution and elections
+            check_indicators = [i for i in ALL_INDICATORS if i not in ('constitution', 'elections')]
+            # Prepend constitution if its columns are present
             if 'constitution_prediction' in df.columns or 'constitution_confidence' in df.columns:
                 check_indicators.insert(0, 'constitution')
         else:
@@ -723,6 +735,7 @@ def sanity_check_and_reprocess(
                 failed_indices = set(ind_failed.index.tolist())
                 all_failed_indices.update(failed_indices)
                 indicator_failures[ind] = len(failed_indices)
+                _single_mode_failed_sets[ind] = failed_indices
 
         print(f"\n{'='*80}")
         print("SINGLE MODE: Summary of failures by indicator")
@@ -767,6 +780,9 @@ def sanity_check_and_reprocess(
     print("\nStep 4: Reprocessing failed rows...")
     import subprocess
 
+    # Resolve parallel_rows: 0 = auto (use failed row count, capped at 8)
+    actual_parallel_rows = parallel_rows if parallel_rows > 0 else min(len(failed_df), 8)
+
     # Build reprocessing command based on pipeline level
     if pipeline == 'polity':
         # Polity pipeline: legacy, constitution only
@@ -779,16 +795,18 @@ def sanity_check_and_reprocess(
             '--models', model,
             '--verify', verify,
             '--temperature', str(temperature),
+            '--parallel-rows', str(actual_parallel_rows),
+            '--delay', str(delay),
         ]
         print(f"Reprocessing indicator: constitution (polity pipeline)")
     else:
-        # Leader pipeline: modular, supports all 7 indicators
+        # Leader pipeline: modular, supports all indicators
         # For single mode: reprocess ALL indicators together
         # For multiple mode: reprocess only specified indicators
         if indicators is None:
             if mode == 'single':
-                indicators = ['sovereign', 'federalism', 'checks', 'collegiality', 'assembly', 'entry', 'entry_4', 'exit', 'exit_4']
-                print(f"Single mode: Will reprocess all 9 indicators together: {indicators}")
+                indicators = [i for i in ALL_INDICATORS if i not in ('constitution', 'elections')]
+                print(f"Single mode: Will reprocess all {len(indicators)} indicators together: {indicators}")
             else:
                 indicators = [indicator]
                 print(f"Multiple mode: Will reprocess indicator: {indicator}")
@@ -805,6 +823,8 @@ def sanity_check_and_reprocess(
             '--models', model,
             '--verify', verify,
             '--temperature', str(temperature),
+            '--parallel-rows', str(actual_parallel_rows),
+            '--delay', str(delay),
         ]
 
         # Self-consistency n_samples pass-through
@@ -873,23 +893,8 @@ def sanity_check_and_reprocess(
     final_df = df.copy()
 
     if mode == 'single':
-        # indicator_failures maps indicator -> count; rebuild index sets here
-        # We already have `indicator_failures` dict from Step 2 (single-mode branch).
-        # Re-derive the index sets using the same logic so we can filter rows per ind.
-        _ind_failed_indices: dict = {}
-        for ind in check_indicators:
-            _check_unc = False if ind == 'constitution' else kwargs.get('check_uncodified', False)
-            _failed = identify_failed_rows(
-                df, indicator=ind,
-                min_confidence=min_confidence,
-                min_reasoning_length=min_reasoning_length,
-                check_uncodified=_check_unc,
-                **{k: v for k, v in kwargs.items() if k != 'check_uncodified'}
-            )
-            if len(_failed) > 0:
-                _ind_failed_indices[ind] = set(_failed.index.tolist())
-
-        for ind, failed_idx_set in _ind_failed_indices.items():
+        # Reuse index sets cached in Step 2 — no redundant identify_failed_rows calls.
+        for ind, failed_idx_set in _single_mode_failed_sets.items():
             ind_cols = _cols_for_indicator(ind, reprocessed_df)
             if not ind_cols:
                 continue
@@ -983,8 +988,8 @@ Examples:
     parser.add_argument('--indicators', nargs='+',
                        help='List of indicators to reprocess (default: same as --indicator)')
     parser.add_argument('--min-confidence', type=float, help='Minimum confidence score (1-100)')
-    parser.add_argument('--min-reasoning-length', type=int, default=100,
-                       help='Minimum reasoning length (default: 100)')
+    parser.add_argument('--min-reasoning-length', type=int, default=None,
+                       help='Minimum reasoning length (default: disabled). Short reasoning is not a failure signal.')
     parser.add_argument('--pipeline', choices=['leader', 'polity'], default='leader',
                        help=(
                            'Pipeline to use for reprocessing (default: leader). '
@@ -1010,6 +1015,10 @@ Examples:
     parser.add_argument('--no-cleanup', action='store_true', help='Keep temporary files')
     parser.add_argument('--reasoning', type=lambda x: x.lower() == 'true', default=True,
                        help='Whether reasoning is included in predictions (default: True). When False, skips reasoning-length checks.')
+    parser.add_argument('--parallel-rows', type=int, default=0,
+                       help='Rows to process concurrently when reprocessing (0 = auto: use number of failed rows, max 8)')
+    parser.add_argument('--delay', type=float, default=DEFAULT_DELAY,
+                       help=f'Delay between API calls in seconds (default: {DEFAULT_DELAY})')
 
     args = parser.parse_args()
 
@@ -1030,5 +1039,7 @@ Examples:
         random_sequence=args.random_sequence,
         check_null_prediction=args.check_null_prediction,
         cleanup_temp_files=not args.no_cleanup,
-        reasoning=args.reasoning
+        reasoning=args.reasoning,
+        parallel_rows=args.parallel_rows,
+        delay=args.delay,
     )

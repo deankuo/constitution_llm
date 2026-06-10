@@ -115,16 +115,8 @@ class BasePromptBuilder(ABC):
         Returns:
             List of indicator names
         """
-        return [
-            'constitution',
-            'sovereign',
-            'assembly',
-            'appointment',
-            'tenure',
-            'exit',
-            'collegiality',
-            'separate_powers',
-        ]
+        from config import ALL_INDICATORS
+        return [i for i in ALL_INDICATORS if i != 'elections']
 
     def get_indicator_labels(self, indicator: str) -> List[str]:
         """

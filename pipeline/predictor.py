@@ -40,7 +40,7 @@ from utils.langsmith_utils import traceable
 class PredictionConfig:
     """Configuration for prediction pipeline."""
     mode: PromptMode = PromptMode.MULTIPLE
-    indicators: List[str] = field(default_factory=lambda: ['sovereign', 'federalism', 'checks', 'collegiality', 'assembly', 'entry', 'entry_4', 'exit', 'exit_4'])
+    indicators: List[str] = field(default_factory=lambda: ['sovereign', 'federalism', 'checks', 'checks_actors', 'collegiality', 'assembly', 'entry', 'entry_4', 'exit', 'exit_4', 'symbolic_power'])
     verify: VerificationType = VerificationType.NONE
     verify_indicators: List[str] = field(default_factory=list)
     model: str = DEFAULT_PRIMARY_MODEL
@@ -572,7 +572,7 @@ def create_predictor(
     """
     config = PredictionConfig(
         mode=PromptMode(mode),
-        indicators=indicators or ['sovereign', 'federalism', 'checks', 'collegiality', 'assembly', 'entry', 'entry_4', 'exit', 'exit_4'],
+        indicators=indicators or ['sovereign', 'federalism', 'checks', 'checks_actors', 'collegiality', 'assembly', 'entry', 'entry_4', 'exit', 'exit_4', 'symbolic_power'],
         verify=VerificationType(verify),
         verify_indicators=verify_indicators or [],
         model=model,

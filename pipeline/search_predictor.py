@@ -185,8 +185,9 @@ class SearchPredictor:
         self.mode = mode
 
         default_indicators = [
-            'sovereign', 'assembly', 'appointment', 'tenure',
-            'exit', 'collegiality', 'separate_powers',
+            'sovereign', 'federalism', 'checks', 'checks_actors',
+            'collegiality', 'assembly', 'entry', 'entry_4',
+            'exit', 'exit_4', 'symbolic_power',
         ]
         self.indicators = indicators or default_indicators
 
