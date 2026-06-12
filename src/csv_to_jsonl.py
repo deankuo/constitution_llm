@@ -3,8 +3,8 @@
 Convert a CSV file to JSONL (JSON Lines) format.
 
 Usage:
-    python scripts/csv_to_jsonl.py -i data/input.csv -o data/input.jsonl
-    python scripts/csv_to_jsonl.py -i data/input.csv                    # auto-names output
+    python src/csv_to_jsonl.py -i data/input.csv -o data/input.jsonl
+    python src/csv_to_jsonl.py -i data/input.csv                    # auto-names output
 """
 
 import argparse

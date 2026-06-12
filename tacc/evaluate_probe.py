@@ -26,8 +26,10 @@ Usage:
 """
 
 import csv
+import json
 import argparse
 from pathlib import Path
+import sys
 
 # ── Evaluation specs ──────────────────────────────────────────────────────────
 # Maps each gen_* column to its ground truth column and comparison type.
@@ -46,7 +48,7 @@ EVAL_SPECS = [
 
 def _numeric_correct(gt: str, pred: str, window: int) -> bool:
     try:
-        return abs(int(pred) - int(gt)) <= window
+        return abs(round(float(pred)) - round(float(gt))) <= window
     except (ValueError, TypeError):
         return False
 
@@ -89,17 +91,19 @@ def parse_args():
                    help="Tolerance ±N years for entry/exit year questions (default: 3)")
     p.add_argument("--tenure-window", type=int, default=5,
                    help="Tolerance ±N years for tenure questions (default: 5)")
+    p.add_argument("--output", default=None,
+                   help="Path to save evaluation results as JSON (e.g. results.json)")
     return p.parse_args()
 
 
 # ── Per-file evaluation ───────────────────────────────────────────────────────
 
 def evaluate_file(path: str, year_window: int, tenure_window: int):
-    """Return (available_cols, counts_dict) for one CSV file."""
+    """Return (available_cols, counts_dict, augmented_rows) for one CSV file."""
     with open(path, newline="") as f:
         rows = list(csv.DictReader(f))
     if not rows:
-        return set(), {}
+        return set(), {}, []
 
     available = {s["gen_col"] for s in EVAL_SPECS if s["gen_col"] in rows[0]}
     counts: dict[str, list[int]] = {s["gen_col"]: [0, 0] for s in EVAL_SPECS}
@@ -111,11 +115,16 @@ def evaluate_file(path: str, year_window: int, tenure_window: int):
             gt   = row.get(spec["gt_col"], "")
             pred = row.get(spec["gen_col"], "")
             c    = is_correct(spec, gt, pred, year_window, tenure_window)
+            row[f"correct_{spec['gen_col']}"] = c
             if c != "":
                 counts[spec["gen_col"]][0] += c
                 counts[spec["gen_col"]][1] += 1
 
-    return available, counts
+        valid = [row[f"correct_{s['gen_col']}"] for s in EVAL_SPECS
+                 if f"correct_{s['gen_col']}" in row and row[f"correct_{s['gen_col']}"] != ""]
+        row["avg_accuracy"] = sum(valid) / len(valid) if valid else ""
+
+    return available, counts, rows
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -131,16 +140,39 @@ def main():
     results = []
     all_available: set[str] = set()
     for path, label in zip(args.input, labels):
-        available, counts = evaluate_file(path, args.year_window, args.tenure_window)
+        available, counts, augmented_rows = evaluate_file(path, args.year_window, args.tenure_window)
         if not available:
             print(f"Warning: no gen_* columns or no rows in {path!r} — skipping.")
             continue
-        results.append((label, available, counts))
+        results.append((label, available, counts, augmented_rows, path))
         all_available |= available
 
     if not results:
         print("No valid input files.")
         return
+
+    if args.output:
+        if len(results) > 1:
+            print("Error: --output only supports a single --input file.")
+            sys.exit(1)
+
+        ext = Path(args.output).suffix.lower()
+        if ext not in (".json", ".csv"):
+            print(f"Error: --output must end in .json or .csv (got {ext!r})")
+            sys.exit(1)
+
+        _, _, _, augmented_rows, _ = results[0]
+
+        if ext == ".csv":
+            fieldnames = list(augmented_rows[0].keys())
+            with open(args.output, "w", newline="") as f:
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(augmented_rows)
+        else:
+            Path(args.output).write_text(json.dumps(augmented_rows, indent=2))
+
+        print(f"Results saved to {args.output}")
 
     print(
         f"\nEvaluation  "
@@ -150,7 +182,7 @@ def main():
 
     # ── Single-file: original compact layout ──────────────────────────────
     if len(results) == 1:
-        label, available, counts = results[0]
+        label, available, counts, _, _ = results[0]
         col_w   = max(len(s["gen_col"]) for s in EVAL_SPECS if s["gen_col"] in available)
         divider = "-" * (col_w + 34)
         print(f"{'Question':<{col_w}}   {'Correct':>7}   {'Total':>5}   Accuracy")
@@ -189,7 +221,7 @@ def main():
         if spec["gen_col"] not in all_available:
             continue
         cells = []
-        for i, (label, available, counts) in enumerate(results):
+        for i, (label, available, counts, _, _) in enumerate(results):
             if spec["gen_col"] not in available:
                 cells.append(f"{'—':>{cell_w}}")
             else:

@@ -48,7 +48,7 @@ A sophisticated pipeline for analyzing historical polities to predict political 
 
 - **Gemini Batch API** (`--use-batch`): Submit predictions as a batch job for 50% cost savings. Compatible with `--search-mode forced` (pre-search + batch). Verification runs synchronously after batch completes. Batches are split by `--checkpoint-interval` (default 500 rows) for checkpointing.
 
-- **CSV & JSONL Input**: Accepts both CSV and JSONL input files (auto-detected by extension). Convert between formats with `scripts/csv_to_jsonl.py`.
+- **CSV & JSONL Input**: Accepts both CSV and JSONL input files (auto-detected by extension). Convert between formats with `src/csv_to_jsonl.py`.
 
 - **LangSmith Observability** (optional): Trace all LLM calls, prompts, and outputs in the [LangSmith](https://smith.langchain.com/) dashboard. Zero overhead when disabled. Set `LANGCHAIN_TRACING_V2=true` in `.env` to enable.
 
@@ -280,7 +280,7 @@ constitution_llm/
 │   ├── langsmith_utils.py         # LangSmith tracing (conditional, zero-overhead)
 │   └── sanity_check.py            # Failed row identification + reprocessing
 │
-├── scripts/
+├── src/
 │   └── csv_to_jsonl.py            # CSV to JSONL conversion utility
 │
 ├── tests/
