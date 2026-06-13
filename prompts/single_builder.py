@@ -7,15 +7,13 @@ Efficient (fewer API calls) but may cause cross-indicator contamination.
 Indicators:
 - sovereign (0/1)
 - federalism (0/1)
-- checks (0/1/2)
-- checks_actors (0-9, multi-select) — output as JSON array of selected values
-- symbolic_power (0/1/2/3)
+- checks (0-9, multi-select) — output as JSON array of selected values
 - collegiality (0/1)
+- petition (0/1)
 - assembly (0/1/2/3)
 - entry (0-10) — fine-grained, 11 categories
-- entry_4 (0-3) — coarse, independent query for robustness check
 - exit (0-15) — fine-grained, 16 categories
-- exit_4 (0-3) — coarse, independent query for robustness check
+- symbolism (0/1/2/3, non-monotonic)
 
 NOTE: elections is a downstream indicator derived via post_processing.py.
       It is NOT included in this prompt (hard-coded 0 when assembly != 2).
@@ -86,31 +84,10 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
     ),
 
     # =========================================================================
-    # CHECKS
+    # CHECKS (Multi-select, 10 categories — formerly checks_actors)
     # =========================================================================
     "checks": IndicatorConfig(
         name="checks",
-        display_name="Checks",
-        labels=["0", "1", "2"],
-        summary=(
-            "Effective checks exist when independent bodies adjacent to the executive have the capacity to resist actions taken by the executive. "
-            "Countervailing powers might be exercised by legislative, judicial, religious, military, caste, aristocratic, or bureaucratic organizations, "
-            "by a privy council or council of elders, by a head of state (if not part of the executive), or by constituent units "
-            "(regional and local governments, tribes, clans et al.). "
-            "Actors such as the media, civil society groups, or ordinary citizens are not considered here as their influence is apt to be sporadic.\n\n"
-            "Coding:\n"
-            "• 0 = None. There are no independent organizations with the capacity to resist the executive.\n"
-            "• 1 = Partial. Independent organizations may, on occasion, resist the executive. But their power is informal and/or their interventions are rare.\n"
-            "• 2 = Full. Independent organizations have the capacity to regularly and effectively resist the executive. "
-            "This includes settings where the checking body must approve legislation or has veto rights (e.g., judicial review)."
-        )
-    ),
-
-    # =========================================================================
-    # CHECKS ACTORS (Multi-select, 10 categories)
-    # =========================================================================
-    "checks_actors": IndicatorConfig(
-        name="checks_actors",
         display_name="Checks (Actors)",
         labels=["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"],
         multi_select=True,
@@ -152,6 +129,28 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
             "Coding:\n"
             "• 0 = Non-collegial. Examples: most presidencies, monarchies, and dictatorships.\n"
             "• 1 = Collegial. Examples: most cabinets, some military juntas, many regencies, Roman consuls, Switzerland's modern presidency."
+        )
+    ),
+    
+    # =========================================================================
+    # PETITIONS
+    # =========================================================================
+    "petition": IndicatorConfig(
+        name="petition",
+        display_name="Petition",
+        labels=["0", "1"],
+        summary=(
+            "A petition is a formal process by which a citizen or subject may lodge a complaint or "
+            "request for redress with a high official, e.g., a head of state, legislature, court, or "
+            "ombudsman. The petition may take the form of a face-to-face meeting (the \"bell of justice\" "
+            "tradition in Asia), a letter, or an electronic communication. It may have individual or "
+            "multiple signatories. Whatever the particulars, the process is regularized and to some "
+            "extent institutionalized — it is part of the governance structure, and as such may "
+            "influence decisionmaking at the top.\n\n"
+            "Coding:\n"
+            "• 0 = No. Use of petition is extremely rare and probably ineffective, or there is no record "
+            "of its existence.\n"
+            "• 1 = Yes. Petitions are a fairly regular feature of political life."
         )
     ),
 
@@ -203,25 +202,6 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
     ),
 
     # =========================================================================
-    # ENTRY_4 (Coarse, 4 categories - independent robustness query)
-    # =========================================================================
-    "entry_4": IndicatorConfig(
-        name="entry_4",
-        display_name="Entry (4-category)",
-        labels=["0", "1", "2", "3"],
-        summary=(
-            "Coarse classification of executive entry — an independent query for robustness check.\n\n"
-            "Coding:\n"
-            "• 0 = Irregular. By force, foreign actor, military junta.\n"
-            "• 1 = Hereditary. Institutionalized process by which a designated family heir inherits office.\n"
-            "• 2 = Appointment. Institutionalized process of appointment by a domestic body that is not democratically elected "
-            "such as a royal council, monarch, or ruling party in a one-party state.\n"
-            "• 3 = Election. Direct popular election, selection by elective body (e.g., legislature or electoral college), "
-            "by local governments, or by lot. The extent of suffrage or eligibility is irrelevant."
-        )
-    ),
-
-    # =========================================================================
     # EXIT (Fine-grained, 16 categories)
     # =========================================================================
     "exit": IndicatorConfig(
@@ -251,29 +231,11 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
     ),
 
     # =========================================================================
-    # EXIT_4 (Coarse, 4 categories - independent robustness query)
+    # SYMBOLISM (formerly symbolic_power)
     # =========================================================================
-    "exit_4": IndicatorConfig(
-        name="exit_4",
-        display_name="Exit (4-category)",
-        labels=["0", "1", "2", "3"],
-        summary=(
-            "Coarse classification of executive exit — an independent query for robustness check.\n\n"
-            "Coding:\n"
-            "• 0 = Irregular. Executive is forcibly removed or retires under duress.\n"
-            "• 1 = Natural. Executive retires due to ill health or dies in office.\n"
-            "• 2 = Voluntary. Executive voluntarily retires or abdicates (not due to ill health).\n"
-            "• 3 = Institutionalized. Executive exits at (or near) the expiration of a term, after electoral defeat, "
-            "or as part of a transition to another government office."
-        )
-    ),
-
-    # =========================================================================
-    # SYMBOLIC POWER
-    # =========================================================================
-    "symbolic_power": IndicatorConfig(
-        name="symbolic_power",
-        display_name="Symbolic Power",
+    "symbolism": IndicatorConfig(
+        name="symbolism",
+        display_name="Symbolism",
         labels=["0", "1", "2", "3"],
         summary=(
             "The power of the executive is to some extent reflected in the trappings of the office. "
@@ -297,46 +259,6 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
 
 
 # =============================================================================
-# MAPPING TABLES (reference only — entry_4 and exit_4 are queried independently)
-# These tables are retained for post-hoc consistency checks and future use.
-# The pipeline does NOT use these mappings; it queries entry_4 and exit_4 directly.
-# =============================================================================
-
-ENTRY_TO_ENTRY_4: Dict[str, str | None] = {
-    "0": "0",   # Force → Irregular
-    "1": "0",   # Foreign power → Irregular
-    "2": "2",   # Ruling party → Appointment
-    "3": "2",   # Royal council → Appointment
-    "4": "1",   # Hereditary → Hereditary
-    "5": "2",   # Military → Irregular
-    "6": "3",   # Legislature → Election
-    "7": "2",   # Head of state → Appointment
-    "8": "2",   # Head of government → Appointment
-    "9": "3",   # Popular election → Election
-    "10": None,  # Other (clerical) → Election
-}
-
-EXIT_TO_EXIT_4: Dict[str, str | None] = {
-    "0": "2",   # Abdicated/retired voluntarily (not ill health) → Voluntary
-    "1": "3",   # Other regular exit (term limits, defeat) → Institutionalized
-    "2": "3",   # Transition to another office (regular) → Institutionalized
-    "3": "0",   # Died on campaign, civil war (disease/accident) → Natural
-    "4": "0",   # Died on campaign, foreign war (disease/accident) → Natural
-    "5": "1",   # Died of natural causes → Natural
-    "6": "1",   # Retired due to ill health → Natural
-    "7": "0",   # Suicide → Natural
-    "8": "0",   # Deposed by domestic actors → Irregular
-    "9": "0",   # Assassinated/forced suicide → Irregular
-    "10": "0",  # Died in battle, civil war → Irregular
-    "11": "0",  # Died in battle, foreign war → Irregular
-    "12": "0",  # Transition to another office (irregular) → Irregular
-    "13": "0",  # Deposed by foreign state → Irregular
-    "14": None, # Unknown → N/A
-    "15": None, # Still in office → N/A
-}
-
-
-# =============================================================================
 # COMPACT SUMMARIES FOR COMBINED PROMPTS
 # =============================================================================
 
@@ -355,13 +277,6 @@ INDICATOR_SUMMARIES: Dict[str, str] = {
     ),
 
     "checks": (
-        "Checks: capacity of independent bodies to resist executive actions. "
-        "(0) None — no independent organizations can resist the executive; "
-        "(1) Partial — independent organizations may occasionally resist, but informally or rarely; "
-        "(2) Full — independent organizations regularly and effectively resist, including veto rights or judicial review."
-    ),
-
-    "checks_actors": (
         "Checks (Actors): which actors provide a check on the executive (select all that apply, output as JSON array). "
         "(0) None; (1) Local — clans, tribes, civil society, media; "
         "(2) Military — officers, military branches, warrior caste; "
@@ -381,6 +296,12 @@ INDICATOR_SUMMARIES: Dict[str, str] = {
         "(1) Collegial — power shared among co-equals (cabinets, juntas, regencies, Roman consuls, Swiss presidency)."
     ),
 
+    "petition": (
+        "Petition: whether citizens or subjects could regularly lodge complaints or requests with high officials. "
+        "(0) No — petition use is extremely rare, probably ineffective, or unrecorded; "
+        "(1) Yes — petitions are a fairly regular feature of political life."
+    ),
+
     "assembly": (
         "Assembly: body designed to govern, select leaders, or assist in governing. "
         "(0) None; "
@@ -397,14 +318,6 @@ INDICATOR_SUMMARIES: Dict[str, str] = {
         "(9) Direct popular election; (10) Other (e.g., clerical bodies)."
     ),
 
-    "entry_4": (
-        "Entry (4-category): coarse classification, queried independently for robustness. "
-        "(0) Irregular — force, foreign power, military; "
-        "(1) Hereditary — designated family heir; "
-        "(2) Appointment — royal council, head of state/government, ruling party; "
-        "(3) Election — popular election, legislature, lot."
-    ),
-
     "exit": (
         "Exit: circumstances of executive departure from office. "
         "(0) Abdicated/retired voluntarily (not ill health); (1) Other regular exit (term limits, defeat); "
@@ -417,16 +330,8 @@ INDICATOR_SUMMARIES: Dict[str, str] = {
         "(14) Unknown; (15) Still in office."
     ),
 
-    "exit_4": (
-        "Exit (4-category): coarse classification, queried independently for robustness. "
-        "(0) Irregular — forcibly removed or under duress; "
-        "(1) Natural — died in office or retired due to ill health; "
-        "(2) Voluntary — voluntarily retired/abdicated (not ill health); "
-        "(3) Institutionalized — term expiration, electoral defeat, regular transition."
-    ),
-
-    "symbolic_power": (
-        "Symbolic Power: trappings of executive office (non-monotonic with leader power; excludes purely ceremonial leaders). "
+    "symbolism": (
+        "Symbolism: trappings of executive office (non-monotonic with leader power; excludes purely ceremonial leaders). "
         "(0) Plain — plain and simple, ruler little distinguished from others in the realm; "
         "(1) Decorated — impressive but office-connected, officeholder understood as mortal; "
         "(2) Deified — holder regarded as divine or quasi-divine; "
@@ -439,36 +344,15 @@ INDICATOR_SUMMARIES: Dict[str, str] = {
 # HELPER FUNCTIONS
 # =============================================================================
 
-def get_all_indicators(include_robustness: bool = True) -> List[str]:
-    """
-    Return the default indicator list.
-
-    Args:
-        include_robustness: Whether to include entry_4 and exit_4 (default True —
-                            both are queried independently as robustness checks).
-    """
-    base = ["sovereign", "federalism", "checks", "checks_actors", "collegiality", "assembly",
-            "entry", "exit", "symbolic_power"]
-
-    if include_robustness:
-        base.extend(["entry_4", "exit_4"])
-
-    return base
+def get_all_indicators() -> List[str]:
+    """Return the default indicator list."""
+    return ["sovereign", "federalism", "checks", "collegiality", "petition", "assembly",
+            "entry", "exit", "symbolism"]
 
 
 def get_categorical_indicators() -> List[str]:
     """Return all categorical (non-continuous) indicator names."""
     return list(INDICATOR_CONFIGS.keys())
-
-
-def map_entry_to_4(entry_value: str) -> Optional[str]:
-    """Map fine-grained entry value to 4-category (reference only, not used by pipeline)."""
-    return ENTRY_TO_ENTRY_4.get(entry_value)
-
-
-def map_exit_to_4(exit_value: str) -> Optional[str]:
-    """Map fine-grained exit value to 4-category (reference only, not used by pipeline)."""
-    return EXIT_TO_EXIT_4.get(exit_value)
 
 
 # =============================================================================
@@ -488,10 +372,10 @@ class SinglePromptBuilder:
         self,
         indicators: Optional[List[str]] = None,
         reasoning: bool = True,
-        include_robustness: bool = True
+        include_robustness: bool = False  # deprecated, kept for backward compatibility
     ):
         if indicators is None:
-            indicators = get_all_indicators(include_robustness=include_robustness)
+            indicators = get_all_indicators()
         self.indicators = indicators
         self.reasoning = reasoning
 
@@ -513,7 +397,10 @@ class SinglePromptBuilder:
         prompt = (
             "You are a political scientist coding executive constraints for historical leaders.\n\n"
             "**Core rule:** Code de facto (actual) practice, not de jure (formal) arrangements. "
-            "Focus on THIS specific leader's reign. When evidence is uncertain, prefer the more conservative (lower) code.\n\n"
+            "Focus on THIS specific leader's reign. When evidence is uncertain: for ordinal indicators "
+            "(sovereign, federalism, collegiality, assembly, petition) prefer the lower code; "
+            "for nominal indicators (entry, exit) and the non-monotonic symbolism scale, "
+            "do NOT default to the lower label — lower the confidence_score instead and give your best estimate.\n\n"
             "## Indicator Definitions\n\n"
         )
 
@@ -571,10 +458,10 @@ class SinglePromptBuilderV2:
         self,
         indicators: Optional[List[str]] = None,
         reasoning: bool = True,
-        include_robustness: bool = True
+        include_robustness: bool = False  # deprecated, kept for backward compatibility
     ):
         if indicators is None:
-            indicators = get_all_indicators(include_robustness=include_robustness)
+            indicators = get_all_indicators()
         self.indicators = indicators
         self.reasoning = reasoning
 
@@ -600,7 +487,7 @@ class SinglePromptBuilderV2:
             "**Annotation Rules:**\n"
             "1. Always code actual (de facto) behavior, never formal (de jure) arrangements.\n"
             "2. Evaluate conditions as they existed during THIS leader's specific reign.\n"
-            "3. When evidence is ambiguous or insufficient, assign the more conservative (lower) code.\n"
+            "3. When evidence is ambiguous: for ordinal indicators (sovereign, federalism, collegiality, assembly, petition), assign the lower code. For nominal indicators (entry, exit) and symbolism (non-monotonic), lower the confidence_score instead — do not default to the lower label.\n"
             "4. Each indicator is independent — do not let your assessment of one influence another.\n\n"
             "## Indicator Reference\n\n"
         )
@@ -669,10 +556,10 @@ class SinglePromptBuilderV3:
         self,
         indicators: Optional[List[str]] = None,
         reasoning: bool = True,
-        include_robustness: bool = True
+        include_robustness: bool = False  # deprecated, kept for backward compatibility
     ):
         if indicators is None:
-            indicators = get_all_indicators(include_robustness=include_robustness)
+            indicators = get_all_indicators()
         self.indicators = indicators
         self.reasoning = reasoning
 
@@ -694,7 +581,10 @@ class SinglePromptBuilderV3:
         prompt = (
             "You are a political historian classifying executive constraints for historical leaders. "
             "Code based on de facto (actual) practice, not de jure arrangements. "
-            "Focus on this specific leader's reign. Prefer conservative codes when uncertain.\n\n"
+            "Focus on this specific leader's reign. When uncertain: for ordinal indicators "
+            "(sovereign, federalism, collegiality, assembly, petition) prefer the lower code; "
+            "for nominal (entry, exit) or non-monotonic (symbolism) indicators, lower the confidence_score — "
+            "do not default to the lower label.\n\n"
             "## Indicator Definitions\n\n"
         )
 

@@ -81,15 +81,13 @@ ALL_INDICATORS = [
     'constitution',
     'sovereign',
     'federalism',
-    'checks',
-    'checks_actors',
+    'checks',        # multi-select 0-9 (formerly checks_actors)
     'collegiality',
+    'petition',
     'assembly',
     'entry',
-    'entry_4',
     'exit',
-    'exit_4',
-    'symbolic_power',
+    'symbolism',
     'elections',  # downstream only (post_processing.py)
 ]
 
@@ -120,15 +118,13 @@ INDICATOR_LABELS = {
     # Leader-level — bare names (new pipeline)
     'sovereign': ['0', '1'],
     'federalism': ['0', '1'],
-    'checks': ['0', '1', '2'],
-    'checks_actors': ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'],
+    'checks': ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'],  # multi-select
     'collegiality': ['0', '1'],
+    'petition': ['0', '1'],
     'assembly': ['0', '1', '2', '3'],
     'entry': ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10'],
-    'entry_4': ['0', '1', '2', '3'],
     'exit': ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15'],
-    'exit_4': ['0', '1', '2', '3'],
-    'symbolic_power': ['0', '1', '2', '3'],
+    'symbolism': ['0', '1', '2', '3'],
     'elections': ['0', '1', '2'],
     'constitution': ['0', '1', '2'],
 }

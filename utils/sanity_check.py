@@ -70,8 +70,8 @@ def fix_column_types(df: pd.DataFrame) -> pd.DataFrame:
     for indicator in ALL_INDICATORS:
         pred_col = f'{indicator}_prediction'
         if pred_col in df.columns:
-            if indicator == 'checks_actors':
-                # checks_actors_prediction stores a native list of ints — skip Int64 conversion
+            if indicator == 'checks':
+                # checks_prediction stores a native list of ints (multi-select) — skip Int64 conversion
                 continue
             df[pred_col] = pd.to_numeric(df[pred_col], errors='coerce')
             df[pred_col] = df[pred_col].astype('Int64')  # Nullable integer type

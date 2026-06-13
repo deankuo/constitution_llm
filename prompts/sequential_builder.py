@@ -73,7 +73,7 @@ class SequentialPromptBuilder(BasePromptBuilder):
         """
         # Default to all indicators if not specified
         if indicators is None:
-            indicators = ['constitution', 'sovereign', 'federalism', 'checks', 'checks_actors', 'collegiality', 'assembly', 'entry', 'exit', 'symbolic_power', 'entry_4', 'exit_4']
+            indicators = ['constitution', 'sovereign', 'federalism', 'checks', 'collegiality', 'petition', 'assembly', 'entry', 'exit', 'symbolism']
 
         super().__init__(indicators, reasoning)
 
@@ -101,7 +101,7 @@ class SequentialPromptBuilder(BasePromptBuilder):
 
         Returns constitution first, then others in standard order.
         """
-        default = ['constitution', 'sovereign', 'federalism', 'checks', 'checks_actors', 'collegiality', 'assembly', 'entry', 'exit', 'symbolic_power', 'entry_4', 'exit_4']
+        default = ['constitution', 'sovereign', 'federalism', 'checks', 'collegiality', 'petition', 'assembly', 'entry', 'exit', 'symbolism']
         return [ind for ind in default if ind in self.indicators]
 
     def build(

@@ -277,11 +277,11 @@ class SelfConsistencyVerification(BaseVerification):
         original_prediction = samples[0].prediction
 
         # Tie-breaking when no two samples agree (all predictions differ).
-        # Multi-select (checks_actors): use the intersection of all prediction sets.
+        # Multi-select (checks): use the intersection of all prediction sets.
         # If the intersection is empty, verified = None (no shared consensus).
         # Single-select: fall back to the original prediction.
         if majority_count == 1:
-            is_multi_select = indicator == 'checks_actors'
+            is_multi_select = indicator == 'checks'
             if is_multi_select:
                 sets = []
                 for p in predictions:

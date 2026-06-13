@@ -5,21 +5,17 @@ Political Indicators Prompt Templates (Leader-Level)
 Current indicator schema (aligned with single_builder.py):
 - Sovereign         (0/1)
 - Federalism        (0/1)
-- Checks            (0/1/2)
-- Checks Actors     (0-9, multi-select)
+- Checks            (0-9, multi-select; formerly checks_actors)
 - Collegiality      (0/1)
+- Petition          (0/1)
 - Assembly          (0/1/2/3)
 - Entry             (0-10, fine-grained)
-- Entry_4           (0-3, coarse robustness check)
 - Exit              (0-15, fine-grained)
-- Exit_4            (0-3, coarse robustness check)
-- Symbolic Power    (0/1/2/3)
+- Symbolism         (0/1/2/3, non-monotonic; formerly symbolic_power)
 - Elections         (0/1/2, downstream — depends on Assembly = 2)
 
 Note: Constitution is handled separately in constitution.py.
 Note: Tenure is excluded — it is a continuous variable, not a categorical label.
-Note: Entry_4 and Exit_4 are queried independently as robustness checks; they are
-      NOT derived from Entry/Exit via mapping tables.
 """
 
 from typing import List, Tuple, Dict, Optional
@@ -211,72 +207,11 @@ Federalism refers to a **division of sovereignty between central and local units
     ),
 
     # =========================================================================
-    # CHECKS
+    # CHECKS (Multi-select, 10 categories — formerly checks_actors)
     # =========================================================================
     "checks": IndicatorConfig(
         name="checks",
-        display_name="executive checks",
-        specialization="executive constraints and institutional design",
-        labels=["0", "1", "2"],
-        task_description="the level of effective checks on executive power during a specific leader's reign",
-
-        definition="""
-## Definition of Checks
-
-Effective checks exist when **independent bodies adjacent to the executive have the capacity to resist actions taken by the executive**. Where such checks exist, executive power is to some extent constrained. Countervailing powers might be exercised by legislative, judicial, religious, military, caste, aristocratic, or bureaucratic organizations, by a privy council or council of elders, by a head of state (if not part of the executive), or by constituent units (regional/local governments, tribes, clans).
-
-**Full Checks (2):**
-- Independent organizations have the capacity to *regularly and effectively* resist the executive
-- The checking body must approve legislation, has veto rights, or exercises judicial review
-- Examples: strong independent judiciary, legislature with binding veto over executive, powerful religious or military authority that routinely constrains executive actions
-
-**Partial Checks (1):**
-- Independent organizations may, on occasion, resist the executive
-- Their power is informal and/or their interventions are rare or limited
-- Examples: a council that can occasionally constrain the ruler but does not routinely do so, a religious authority that sometimes intervenes
-
-**No Checks (0):**
-- No independent organizations with the capacity to resist the executive
-- All potentially checking bodies are subordinate to or controlled by the executive
-
-## Important Notes
-
-- Actors such as the media, civil society groups, or ordinary citizens are NOT counted — their influence is sporadic
-- Code based on de facto (actual) capacity to resist, not formal constitutional arrangements
-- A checking body that exists on paper but is controlled by the executive → code as 0
-
-## Analysis Process
-
-1. Identify independent bodies adjacent to the executive during this leader's reign
-2. Assess whether these bodies have the capacity to actually resist executive actions
-3. Determine the regularity and effectiveness of this resistance (full vs. partial vs. none)
-""",
-
-        task_instruction="""Determine the level of effective checks on executive power (0, 1, or 2) during this leader's reign.
-
-- 0 (None): No independent organizations with capacity to resist the executive
-- 1 (Partial): Independent organizations may occasionally resist, but their power is informal or interventions are rare
-- 2 (Full): Independent organizations regularly and effectively resist; includes bodies with approval/veto rights or judicial review
-
-**Note:** Media, civil society, and ordinary citizens are NOT counted. Code de facto capacity, not formal structure.""",
-
-        coding_rule_reminder="⚠️ **IMPORTANT:** Code based on ACTUAL capacity to resist, not formal constitutional arrangements. Focus on THIS LEADER'S REIGN.",
-
-        compact_definition=(
-            "Whether independent bodies can resist the executive (de facto, not de jure): "
-            "(0) None — no independent organizations can resist the executive; "
-            "(1) Partial — independent organizations may occasionally resist, but informally or rarely; "
-            "(2) Full — independent organizations regularly and effectively resist, including veto rights or judicial review. "
-            "Note: media and civil society are NOT counted."
-        )
-    ),
-
-    # =========================================================================
-    # CHECKS ACTORS (Multi-select, 10 categories)
-    # =========================================================================
-    "checks_actors": IndicatorConfig(
-        name="checks_actors",
-        display_name="checks actors",
+        display_name="checks",
         specialization="comparative politics and executive constraints",
         labels=["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"],
         multi_select=True,
@@ -390,6 +325,47 @@ If a body is formally collegial but actually dominated by a single actor → Cod
             "examples: most presidencies, monarchies, dictatorships. "
             "(1) Collegial — decisions genuinely shared among co-equals; "
             "examples: cabinets with independent ministers, military juntas, Roman consuls, regencies, Swiss presidency."
+        )
+    ),
+
+    # =========================================================================
+    # PETITION
+    # =========================================================================
+    "petition": IndicatorConfig(
+        name="petition",
+        display_name="petition",
+        specialization="governance institutions and political access",
+        labels=["0", "1"],
+        task_description="whether petitioning was a regular and institutionalized feature of political life during a specific leader's reign",
+
+        definition="""
+## Definition of Petition
+
+A petition is a formal process by which a citizen or subject may lodge a complaint or request for redress with a high official, e.g., a head of state, legislature, court, or ombudsman. The petition may take the form of a face-to-face meeting (the "bell of justice" tradition in Asia), a letter, or an electronic communication. It may have individual or multiple signatories. Whatever the particulars, the process is regularized and to some extent institutionalized — it is part of the governance structure, and as such may influence decisionmaking at the top.
+
+## Petition Categories
+
+- **0 = No.** Use of petition is extremely rare and probably ineffective, or there is no record of its existence.
+- **1 = Yes.** Petitions are a fairly regular feature of political life.
+
+## Analysis Process
+
+1. Identify any institutionalized petition mechanisms during this leader's reign
+2. Assess whether petitioning was regularized and effective, or rare and ineffective
+3. Focus on de facto practice, not merely formal existence of petition mechanisms
+""",
+
+        task_instruction="""Determine whether petitioning was a regular and institutionalized feature of political life (0 or 1) during this leader's reign.
+
+- 0 (No): Use of petition is extremely rare and probably ineffective, or there is no record of its existence.
+- 1 (Yes): Petitions are a fairly regular feature of political life — citizens or subjects regularly lodge complaints or requests with high officials.""",
+
+        coding_rule_reminder="⚠️ **IMPORTANT:** Focus on whether petitioning was actually practiced and effective during THIS LEADER'S REIGN. Code based on de facto use, not formal existence of mechanisms.",
+
+        compact_definition=(
+            "Whether petitioning was a regularized feature of governance: "
+            "(0) No — petition use is extremely rare, probably ineffective, or unrecorded; "
+            "(1) Yes — petitions are a fairly regular feature of political life, citizens or subjects regularly lodge complaints or requests."
         )
     ),
 
@@ -537,53 +513,6 @@ The manner in which executives enter office is widely regarded as a key indicato
     ),
 
     # =========================================================================
-    # ENTRY_4 (Coarse, 4 categories — independent robustness query)
-    # =========================================================================
-    "entry_4": IndicatorConfig(
-        name="entry_4",
-        display_name="executive entry (coarse)",
-        specialization="executive selection and leadership transitions",
-        labels=["0", "1", "2", "3"],
-        task_description="the coarse mode of executive entry for a specific leader",
-
-        definition="""
-## Definition of Executive Entry (Coarse Classification)
-
-This is a coarse classification of how executives enter office, grouped into four broad categories for cross-time comparability. It is an independent query — do NOT derive it from a fine-grained entry code.
-
-## Entry_4 Categories
-
-- **0 = Irregular.** Entry by force, through a foreign actor, or via military junta. Includes coups, rebellions, conquest, and foreign appointment.
-- **1 = Hereditary.** Entry through an institutionalized process by which a designated family heir inherits office.
-- **2 = Appointment.** Entry through an institutionalized process of appointment by a domestic body that is NOT democratically elected — such as a royal council, monarch, head of government, head of state, or ruling party in a one-party state.
-- **3 = Election.** Entry through direct popular election, selection by an elective body (e.g., legislature, electoral college, local governments), or selection by lot. The extent of suffrage or eligibility is irrelevant.
-
-## Analysis Process
-
-1. Identify how THIS LEADER came to power
-2. Classify using the four broad categories above
-3. When in doubt between Appointment and Election, check whether the selecting body was itself democratically elected
-""",
-
-        task_instruction="""Determine the coarse entry category (0, 1, 2, or 3) for how THIS LEADER came to power.
-
-- 0: Irregular — by force, foreign actor, or military (coup, rebellion, conquest, foreign appointment)
-- 1: Hereditary — institutionalized family succession
-- 2: Appointment — institutionalized appointment by non-elected domestic body (royal council, monarch, head of state/government, ruling party)
-- 3: Election — popular election, selection by elective body (legislature, electoral college, local governments), or by lot""",
-
-        coding_rule_reminder="⚠️ **IMPORTANT:** This is a coarse classification. Do NOT derive from fine-grained entry. Focus on THIS LEADER'S path to power.",
-
-        compact_definition=(
-            "Coarse entry classification — independent query for robustness: "
-            "(0) Irregular — force, foreign actor, military junta; "
-            "(1) Hereditary — institutionalized family succession; "
-            "(2) Appointment — institutionalized appointment by non-elected domestic body (royal council, monarch, head of state/government, ruling party); "
-            "(3) Election — popular election, legislature, local governments, or lot."
-        )
-    ),
-
-    # =========================================================================
     # EXIT (Fine-grained, 16 categories)
     # =========================================================================
     "exit": IndicatorConfig(
@@ -659,58 +588,11 @@ The circumstances of an executive's departure from office says a lot about a lea
     ),
 
     # =========================================================================
-    # EXIT_4 (Coarse, 4 categories — independent robustness query)
+    # SYMBOLISM (formerly symbolic_power)
     # =========================================================================
-    "exit_4": IndicatorConfig(
-        name="exit_4",
-        display_name="executive exit (coarse)",
-        specialization="executive transitions and leadership succession",
-        labels=["0", "1", "2", "3"],
-        task_description="the coarse mode of executive exit for a specific leader",
-
-        definition="""
-## Definition of Executive Exit (Coarse Classification)
-
-This is a coarse classification of how executives leave office, grouped into four broad categories for cross-time comparability. It is an independent query — do NOT derive it from a fine-grained exit code.
-
-## Exit_4 Categories
-
-- **0 = Irregular.** The executive is forcibly removed or retires under duress. Includes coups, assassinations, forced exile, forced abdication, or deposition by domestic or foreign actors.
-- **1 = Natural.** The executive retires due to ill health or dies in office (whether by natural causes, on campaign, or in battle).
-- **2 = Voluntary.** The executive voluntarily retires or abdicates, NOT due to ill health.
-- **3 = Institutionalized.** The executive exits at (or near) the expiration of a term, after electoral defeat, or as part of a regular transition to another government office.
-
-## Analysis Process
-
-1. Determine how this leader left power
-2. Classify using the four broad categories above
-3. Distinguish: was departure driven by force/duress, health, voluntary choice, or institutional norms?
-""",
-
-        task_instruction="""Determine the coarse exit category (0, 1, 2, or 3) for how THIS LEADER left power.
-
-- 0: Irregular — forcibly removed, deposed, assassinated, or under duress
-- 1: Natural — died in office (any cause) or retired due to ill health
-- 2: Voluntary — voluntarily retired or abdicated (NOT due to ill health)
-- 3: Institutionalized — term expiration, electoral defeat, or regular institutional transition to another office""",
-
-        coding_rule_reminder="⚠️ **IMPORTANT:** This is a coarse classification. Do NOT derive from fine-grained exit. Focus on THIS LEADER'S departure from power.",
-
-        compact_definition=(
-            "Coarse exit classification — independent query for robustness: "
-            "(0) Irregular — forcibly removed, deposed, assassinated, or under duress; "
-            "(1) Natural — died in office (any cause) or retired due to ill health; "
-            "(2) Voluntary — voluntarily retired or abdicated (not ill health); "
-            "(3) Institutionalized — term expiration, electoral defeat, or regular institutional transition."
-        )
-    ),
-
-    # =========================================================================
-    # SYMBOLIC POWER
-    # =========================================================================
-    "symbolic_power": IndicatorConfig(
-        name="symbolic_power",
-        display_name="symbolic power",
+    "symbolism": IndicatorConfig(
+        name="symbolism",
+        display_name="symbolism",
         specialization="executive power and political symbolism",
         labels=["0", "1", "2", "3"],
         task_description="the degree of symbolic power reflected in the trappings of the executive office during a specific leader's reign",
@@ -1094,11 +976,6 @@ COVE_QUESTION_TEMPLATES: Dict[str, List[str]] = {
         "Could the central government in {polity} freely abolish or override local units during {name}'s reign?"
     ],
     "checks": [
-        "What independent bodies existed adjacent to the executive in {polity} during {name}'s reign ({start_year}-{end_year})?",
-        "Did any body (judiciary, legislature, religious, military, aristocracy) have the capacity to regularly block or override {name}'s executive actions?",
-        "How frequently did independent organizations actually challenge or constrain {name}'s actions in {polity}?"
-    ],
-    "checks_actors": [
         "Which independent groups or bodies had the capacity to resist the executive in {polity} during {name}'s reign ({start_year}-{end_year})?",
         "Did local actors (clans, tribes, civil society, media) have the capacity or proclivity to resist {name}'s actions?",
         "Did military actors, clergy, or aristocracy constrain {name}'s executive power in {polity}?",
@@ -1116,27 +993,22 @@ COVE_QUESTION_TEMPLATES: Dict[str, List[str]] = {
         "Was there a large representative legislature that played a role in policymaking or leadership selection under {name}?",
         "Was there a popular assembly that included most citizens of {polity} or a sample chosen by lot under {name}?"
     ],
+    "petition": [
+        "Was there a formal or institutionalized process by which citizens or subjects could lodge complaints or requests with {name} or other high officials in {polity} ({start_year}-{end_year})?",
+        "Was petitioning a regular and effective feature of political life in {polity} during {name}'s reign?",
+        "What forms did petitioning take in {polity} during {name}'s reign — formal hearings, written requests, or other mechanisms?"
+    ],
     "entry": [
         "How did {name} come to power in {polity}?",
         "Was {name}'s assumption of leadership through force, hereditary succession, appointment, or election?",
         "Who or what specifically selected or installed {name} as leader of {polity}?"
-    ],
-    "entry_4": [
-        "How did {name} come to power in {polity}?",
-        "Was {name}'s path to power irregular (force/foreign), hereditary, through domestic appointment, or through election?",
-        "Was the body that selected {name} itself democratically elected?"
     ],
     "exit": [
         "How did {name} leave power in {polity}?",
         "Did {name} die in office, retire voluntarily, face forced removal, or transition to another office?",
         "Was {name}'s departure the result of institutional processes, personal choice, health, or external force?"
     ],
-    "exit_4": [
-        "How did {name} leave power in {polity}?",
-        "Was {name}'s departure irregular (forced/under duress), natural (death/ill health), voluntary, or institutionalized (term/election)?",
-        "Were there institutional mechanisms governing {name}'s departure from power in {polity}?"
-    ],
-    "symbolic_power": [
+    "symbolism": [
         "What ceremonial or symbolic elements were associated with the executive office in {polity} during {name}'s reign ({start_year}-{end_year})?",
         "Was {name} regarded as divine or quasi-divine, or as an ordinary mortal?",
         "Did the trappings of {name}'s office enhance or constrain actual executive power?"

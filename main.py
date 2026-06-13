@@ -3,7 +3,7 @@ Constitution Analysis Pipeline - Polity Level
 
 This script analyzes historical polities to determine political indicators
 including constitution, sovereign, federalism, checks, collegiality,
-assembly, entry, entry_4, exit, exit_4, and (downstream) elections.
+petition, assembly, entry, exit, symbolism, and (downstream) elections.
 
 Supports multiple LLM providers:
 - OpenAI (GPT models)
@@ -819,8 +819,8 @@ Examples:
 
   # --- LEADER level (new modular pipeline) ---
 
-  # Predict core indicators with multiple prompts (default mode)
-  python main.py --pipeline leader --indicators sovereign federalism checks collegiality assembly entry entry_4 exit exit_4
+  # Predict all indicators (default: single mode)
+  python main.py --pipeline leader --indicators constitution sovereign federalism checks collegiality petition assembly entry exit symbolism
 
   # With agentic search (LLM decides whether to search)
   python main.py --pipeline leader --indicators sovereign assembly checks --search-mode agentic --test 10
@@ -829,22 +829,22 @@ Examples:
   python main.py --pipeline leader --indicators sovereign assembly checks --search-mode forced --test 10
 
   # With Gemini Batch API (50% cost savings, no search)
-  python main.py --pipeline leader --indicators sovereign assembly checks --models gemini-2.5-pro --use-batch --test 20
+  python main.py --pipeline leader --indicators sovereign assembly checks --models gemini-3.1-pro-preview --use-batch --test 20
 
   # With forced search + Gemini Batch API (pre-search + batch)
-  python main.py --pipeline leader --indicators sovereign assembly checks --models gemini-2.5-pro --search-mode forced --use-batch --test 20
+  python main.py --pipeline leader --indicators sovereign assembly checks --models gemini-3.1-pro-preview --search-mode forced --use-batch --test 20
 
   # With self-consistency verification on assembly
   python main.py --pipeline leader --indicators assembly --verify self_consistency --verify-indicators assembly
 
-  # Single prompt mode — all indicators in one LLM call
-  python main.py --pipeline leader --mode single --indicators sovereign federalism checks collegiality assembly entry entry_4 exit exit_4
+  # Multiple prompt mode — separate LLM call per indicator
+  python main.py --pipeline leader --mode multiple --indicators sovereign federalism checks collegiality petition assembly entry exit symbolism
 
   # Sequential mode with a user-defined indicator order
-  python main.py --pipeline leader --mode sequential --indicators sovereign federalism checks collegiality assembly entry entry_4 exit exit_4 --sequence assembly sovereign checks collegiality federalism entry entry_4 exit exit_4
+  python main.py --pipeline leader --mode sequential --indicators sovereign federalism checks collegiality assembly entry exit symbolism --sequence assembly sovereign checks collegiality federalism entry exit symbolism
 
   # Sequential mode with randomised indicator order
-  python main.py --pipeline leader --mode sequential --indicators sovereign federalism checks collegiality assembly entry entry_4 exit exit_4 --random-sequence
+  python main.py --pipeline leader --mode sequential --indicators sovereign federalism checks collegiality assembly entry exit symbolism --random-sequence
 
   # CoVe verification with a Bedrock verifier model
   python main.py --pipeline leader --indicators constitution --verify cove --verify-indicators constitution --verifier-model us.anthropic.claude-sonnet-4-5-20250929-v1:0
@@ -978,8 +978,8 @@ Examples:
     parser.add_argument(
         '--mode',
         choices=['single', 'multiple', 'sequential'],
-        default='multiple',
-        help='Prompt mode: single (unified prompt), multiple (separate prompts), or sequential (7 indicators in sequence)'
+        default='single',
+        help='Prompt mode: single (unified prompt), multiple (separate prompts), or sequential (all indicators in sequence)'
     )
     parser.add_argument(
         '--indicators',

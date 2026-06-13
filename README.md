@@ -14,19 +14,17 @@ A sophisticated pipeline for analyzing historical polities to predict political 
   - **Constitution**: No written law / code of law / full constitution (0/1/2)
   - **Sovereign**: Independent vs. colony/vassal/tributary (0/1)
   - **Federalism**: Unitary vs. federal/confederal division of sovereignty (0/1)
-  - **Checks**: Level of effective checks on the executive — none / partial / full (0/1/2)
-  - **Checks Actors**: Which actors check the executive — multi-select from 10 categories (0–9)
+  - **Checks**: Which actors check the executive — multi-select from 10 categories (0–9)
   - **Collegiality**: Single actor dominates vs. decisions genuinely shared by a constituted body (0/1)
+  - **Petition**: Petitioning as a regular feature of political life (0/1)
   - **Assembly**: None / advisory council / legislature / popular assembly (0/1/2/3)
   - **Entry**: How the executive came to power — 11 fine-grained categories (0–10)
-  - **Entry_4**: Coarse entry — irregular / hereditary / appointment / election (0–3, independent robustness query)
   - **Exit**: Circumstances of executive departure — 16 fine-grained categories (0–15)
-  - **Exit_4**: Coarse exit — irregular / natural / voluntary / institutionalized (0–3, independent robustness query)
-  - **Symbolic Power**: Trappings of executive office — plain / decorated / deified / ceremonial (0/1/2/3)
+  - **Symbolism**: Trappings of executive office — plain / decorated / deified / ceremonial (0/1/2/3, non-monotonic)
   - **Elections** (downstream only, via `post_processing.py`): Legislative elections — pass-through 0 when assembly ≠ 2 (0/1/2)
 
 - **Verification Methods**:
-  - **Self-Consistency**: `n_samples` additional calls + the initial prediction = `n_samples+1` total votes; majority wins. Adds `{ind}_verified`, `{ind}_agreement` (0.0–1.0), and `{ind}_uncertainty` (`none`/`low`/`high`) columns. When all votes differ: single-select indicators fall back to the initial prediction; `checks_actors` (multi-select) uses the **intersection** of all prediction sets — if the intersection is empty the verified value is `null`. If `--verify-indicators` is omitted, defaults automatically to all `--indicators`.
+  - **Self-Consistency**: `n_samples` additional calls + the initial prediction = `n_samples+1` total votes; majority wins. Adds `{ind}_verified`, `{ind}_agreement` (0.0–1.0), and `{ind}_uncertainty` (`none`/`low`/`high`) columns. When all votes differ: single-select indicators fall back to the initial prediction; `checks` (multi-select) uses the **intersection** of all prediction sets — if the intersection is empty the verified value is `null`. If `--verify-indicators` is omitted, defaults automatically to all `--indicators`.
   - **API-call efficiency**: In `--mode single` / `--mode sequential` (all indicators share one prompt), SC makes `n_samples` additional calls **at the prompt level** — all indicators share those calls. Total calls per row = `1 + n_samples`, not `1 + n_indicators × n_samples`. In `--mode multiple` (one prompt per indicator), SC makes `n_samples` calls per indicator as before.
   - **Chain of Verification (CoVe)**: Cross-model verification with factual questions (4 questions for constitution)
   - **Note**: `--verify both` currently runs CoVe only (sequential verification not yet implemented)
@@ -124,24 +122,23 @@ LANGCHAIN_PROJECT=constitution-llm
 ### Leader Pipeline
 
 ```bash
-# Run predictions for all non-constitution indicators
+# Run predictions for all indicators (default: single mode)
 python main.py --pipeline leader \
-  --indicators sovereign assembly entry exit collegiality checks federalism \
-  --models gemini-2.5-pro \
-  --mode multiple \
+  --indicators constitution sovereign federalism checks collegiality petition assembly entry exit symbolism \
+  --models gemini-3.1-pro-preview \
   --test 5
 
 # Process 4 leader rows in parallel (faster batch runs)
 python main.py --pipeline leader \
   --indicators sovereign assembly \
-  --models gemini-2.5-pro \
+  --models gemini-3.1-pro-preview \
   --parallel-rows 4 \
   --test 20
 
 # Run with Self-Consistency verification
 python main.py --pipeline leader \
   --indicators assembly entry \
-  --models gemini-2.5-pro \
+  --models gemini-3.1-pro-preview \
   --verify self_consistency \
   --verify-indicators assembly \
   --test 10
@@ -150,7 +147,7 @@ python main.py --pipeline leader \
 # Note: Verifier model can be set in .env as BEDROCK_VERIFIER_MODEL
 python main.py --pipeline leader \
   --indicators constitution \
-  --models gemini-2.5-pro \
+  --models gemini-3.1-pro-preview \
   --verify cove \
   --verify-indicators constitution \
   --test 5
@@ -158,7 +155,7 @@ python main.py --pipeline leader \
 # Or override verifier model via CLI
 python main.py --pipeline leader \
   --indicators constitution \
-  --models gemini-2.5-pro \
+  --models gemini-3.1-pro-preview \
   --verify cove \
   --verify-indicators constitution \
   --verifier-model anthropic.claude-opus-4-5-20250514-v1:0 \
@@ -174,12 +171,12 @@ python main.py --pipeline polity --test 5
 # With Self-Consistency verification
 python main.py --pipeline polity \
   --verify self_consistency \
-  --models Gemini=gemini-2.5-pro \
+  --models Gemini=gemini-3.1-pro-preview \
   --test 5
 
 # Multiple models in parallel
 python main.py --pipeline polity \
-  -m GPT=gpt-4o Gemini=gemini-2.5-pro \
+  -m GPT=gpt-4o Gemini=gemini-3.1-pro-preview \
   -i data/plt_polity_data_v2.csv \
   -o data/results/polity_results.csv
 ```
@@ -195,10 +192,10 @@ import os
 
 # Configure
 config = PredictionConfig(
-    mode=PromptMode.MULTIPLE,
+    mode=PromptMode.SINGLE,
     indicators=['sovereign', 'assembly', 'collegiality'],
     verify=VerificationType.NONE,
-    model='gemini-2.5-pro',
+    model='gemini-3.1-pro-preview',
     temperature=0.0
 )
 
@@ -383,9 +380,9 @@ python main.py --help
 
 | Argument | Description | Default |
 |----------|-------------|---------|
-| `--mode` | Prompt mode: `single`, `multiple`, or `sequential` | `multiple` |
-| `--indicators` | Indicators to predict (validated against `ALL_INDICATORS` at startup) | `['constitution']` |
-| `--models` | Model identifier (first value used) | `Gemini=gemini-2.5-pro` |
+| `--mode` | Prompt mode: `single`, `multiple`, or `sequential` | `single` |
+| `--indicators` | Indicators to predict (validated against `ALL_INDICATORS` at startup) | all leader indicators |
+| `--models` | Model identifier (first value used) | `Gemini=gemini-3.1-pro-preview` |
 | `--verify` | Verification: `none`, `self_consistency`, `cove`, `both` | `none` |
 | `--verify-indicators` | Which indicators to apply verification to (omit to apply to all `--indicators`) | None → all |
 | `--verifier-model` | Model for CoVe verification | Bedrock Claude |
@@ -398,17 +395,17 @@ python main.py --help
 | `--checkpoint-interval` | Rows per batch/checkpoint | `500` |
 | `--search-mode` | Search mode: `none`, `agentic`, `forced` | `none` |
 | `--use-batch` | Use Gemini Batch API (50% cost savings, Gemini only) | `False` |
-| `--logprobs` | Request token-level log probabilities for uncertainty quantification. Adds `{indicator}_logprob` columns. Supported: `gemini-2.5-flash`, `gemini-2.5-pro` | `False` |
+| `--logprobs` | Request token-level log probabilities for uncertainty quantification. Adds `{indicator}_logprob` columns. Supported: `gemini-2.5-flash`, `gemini-3.1-pro-preview` | `False` |
 
 #### Polity Pipeline Arguments (constitution only, supports multiple models)
 
 | Argument | Description | Default |
 |----------|-------------|---------|
-| `--models` | One or more models in `KEY=model` format | `Gemini=gemini-2.5-pro` |
+| `--models` | One or more models in `KEY=model` format | `Gemini=gemini-3.1-pro-preview` |
 | `--verify` | Verification: `none`, `self_consistency`, `cove`, `both` | `none` |
 | `--verifier-model` | Model for CoVe verification | None |
 | `--search-mode` | Search mode: `none`, `agentic`, `forced` | `none` |
-| `--logprobs` | Token-level log probabilities (gemini-2.5-flash / gemini-2.5-pro only) | `False` |
+| `--logprobs` | Token-level log probabilities (gemini-2.5-flash / gemini-3.1-pro-preview only) | `False` |
 | `--temperature` | Generation temperature | 0 |
 | `--max_tokens` | Max tokens per response | 32768 |
 | `--delay` | Delay between API calls | 1.0 |
@@ -418,32 +415,32 @@ python main.py --help
 ```bash
 # --- LEADER PIPELINE ---
 
-# Basic multi-indicator prediction
+# Basic multi-indicator prediction (default: single mode)
 python main.py --pipeline leader \
-  --indicators sovereign assembly entry \
-  --models gemini-2.5-pro \
+  --indicators constitution sovereign federalism checks collegiality petition assembly entry exit symbolism \
+  --models gemini-3.1-pro-preview \
   --test 10
 
 # Sequential mode with user-defined order
 python main.py --pipeline leader \
   --mode sequential \
-  --indicators constitution sovereign assembly collegiality checks entry exit \
-  --sequence assembly constitution sovereign exit collegiality checks entry \
-  --models gemini-2.5-pro \
+  --indicators constitution sovereign assembly collegiality checks entry exit symbolism \
+  --sequence assembly constitution sovereign exit collegiality checks entry symbolism \
+  --models gemini-3.1-pro-preview \
   --test 5
 
 # Sequential mode with random order
 python main.py --pipeline leader \
   --mode sequential \
-  --indicators constitution sovereign assembly collegiality checks entry exit \
+  --indicators constitution sovereign assembly collegiality checks entry exit symbolism \
   --random-sequence \
-  --models gemini-2.5-pro \
+  --models gemini-3.1-pro-preview \
   --test 5
 
 # Self-Consistency verification
 python main.py --pipeline leader \
   --indicators assembly \
-  --models gemini-2.5-pro \
+  --models gemini-3.1-pro-preview \
   --verify self_consistency \
   --verify-indicators assembly \
   --n-samples 5 \
@@ -453,16 +450,16 @@ python main.py --pipeline leader \
 # CoVe verification for constitution
 python main.py --pipeline leader \
   --indicators constitution \
-  --models gemini-2.5-pro \
+  --models gemini-3.1-pro-preview \
   --verify cove \
   --verify-indicators constitution \
   --verifier-model anthropic.claude-sonnet-4-5-20250929-v1:0 \
   --test 5
 
-# Full batch (all non-constitution indicators), 4 rows in parallel
+# Full batch (all indicators), 4 rows in parallel
 python main.py --pipeline leader \
-  --indicators sovereign federalism assembly entry entry_4 exit exit_4 collegiality checks \
-  --models gemini-2.5-pro \
+  --indicators constitution sovereign federalism checks collegiality petition assembly entry exit symbolism \
+  --models gemini-3.1-pro-preview \
   --mode multiple \
   --parallel-rows 4 \
   --input data/plt_leaders_data.csv \
@@ -472,20 +469,20 @@ python main.py --pipeline leader \
 
 # Basic polity-level constitution run
 python main.py --pipeline polity \
-  --models Gemini=gemini-2.5-pro \
+  --models Gemini=gemini-3.1-pro-preview \
   --input data/plt_polity_data_v2.csv \
   --output data/results/polity_001.csv
 
 # With self-consistency verification
 python main.py --pipeline polity \
-  --models Gemini=gemini-2.5-pro \
+  --models Gemini=gemini-3.1-pro-preview \
   --verify self_consistency \
   --n-samples 3 \
   --test 10
 
 # With CoVe verification
 python main.py --pipeline polity \
-  --models Gemini=gemini-2.5-pro \
+  --models Gemini=gemini-3.1-pro-preview \
   --verify cove \
   --verifier-model us.anthropic.claude-sonnet-4-5-20250929-v1:0 \
   --test 5
@@ -495,19 +492,18 @@ python main.py --pipeline polity \
 
 The pipeline supports three distinct prompt modes, each with different characteristics:
 
-#### 1. Multiple Mode (Default, Recommended)
+#### 1. Single Mode (Default)
+- **How it works**: All indicators merged into one unified prompt
+- **Pros**: Fewer API calls, lower cost, single LLM call for all indicators
+- **Cons**: Potential cross-indicator contamination (predictions may influence each other)
+- **Example**: 10 indicators = 1 LLM call with unified definitions
+
+#### 2. Multiple Mode
 - **How it works**: Separate LLM call for each indicator
 - **Pros**: No cross-indicator contamination, independent predictions
 - **Cons**: More API calls, higher cost
 - **Use when**: You want the most accurate predictions and cost is not a primary concern
-- **Example**: 8 indicators = 8 separate LLM calls
-
-#### 2. Single Mode
-- **How it works**: All indicators merged into one unified prompt
-- **Pros**: Fewer API calls, lower cost
-- **Cons**: Potential cross-indicator contamination (predictions may influence each other)
-- **Use when**: You want to reduce costs and are willing to accept potential contamination
-- **Example**: 7 indicators = 1 LLM call with unified definitions
+- **Example**: 10 indicators = 10 separate LLM calls
 
 #### 3. Sequential Mode
 - **How it works**: All indicators presented as distinct sequential sections in one prompt
@@ -582,11 +578,11 @@ The `--use-batch` flag submits predictions to the Gemini Batch API for **50% cos
 ```bash
 # Basic batch mode (no search)
 python main.py --pipeline leader --indicators sovereign assembly \
-    --models gemini-2.5-pro --use-batch --test 20
+    --models gemini-3.1-pro-preview --use-batch --test 20
 
 # Pre-search + batch (forced search compatible)
 python main.py --pipeline leader --indicators sovereign assembly \
-    --models gemini-2.5-pro --search-mode forced --use-batch --test 20
+    --models gemini-3.1-pro-preview --search-mode forced --use-batch --test 20
 ```
 
 **How batching works:**
@@ -613,7 +609,7 @@ python main.py --pipeline leader --indicators sovereign assembly \
 
 ```python
 # Default models
-DEFAULT_PRIMARY_MODEL = "gemini-2.5-pro"
+DEFAULT_PRIMARY_MODEL = "gemini-3.1-pro-preview"
 DEFAULT_VERIFIER_MODEL = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"  # From BEDROCK_VERIFIER_MODEL env
 
 # LLM Parameters
@@ -627,26 +623,24 @@ DEFAULT_MAX_RETRIES = 3
 
 # Indicators
 ALL_INDICATORS = [
-    'constitution', 'sovereign', 'federalism', 'checks', 'checks_actors',
-    'collegiality', 'assembly', 'entry', 'entry_4', 'exit', 'exit_4',
-    'symbolic_power',
+    'constitution', 'sovereign', 'federalism', 'checks',  # checks = multi-select 0-9
+    'collegiality', 'petition', 'assembly',
+    'entry', 'exit', 'symbolism',
     'elections',  # downstream only (post_processing.py)
 ]
 
 INDICATOR_LABELS = {
-    'constitution':   ['0', '1', '2'],
-    'sovereign':      ['0', '1'],
-    'federalism':     ['0', '1'],
-    'checks':         ['0', '1', '2'],
-    'checks_actors':  ['0','1','2','3','4','5','6','7','8','9'],  # multi-select
-    'collegiality':   ['0', '1'],
-    'assembly':       ['0', '1', '2', '3'],
-    'entry':          ['0','1','2','3','4','5','6','7','8','9','10'],
-    'entry_4':        ['0', '1', '2', '3'],
-    'exit':           ['0','1','2','3','4','5','6','7','8','9','10','11','12','13','14','15'],
-    'exit_4':         ['0', '1', '2', '3'],
-    'symbolic_power': ['0', '1', '2', '3'],
-    'elections':      ['0', '1', '2'],
+    'constitution': ['0', '1', '2'],
+    'sovereign':    ['0', '1'],
+    'federalism':   ['0', '1'],
+    'checks':       ['0','1','2','3','4','5','6','7','8','9'],  # multi-select
+    'collegiality': ['0', '1'],
+    'petition':     ['0', '1'],
+    'assembly':     ['0', '1', '2', '3'],
+    'entry':        ['0','1','2','3','4','5','6','7','8','9','10'],
+    'exit':         ['0','1','2','3','4','5','6','7','8','9','10','11','12','13','14','15'],
+    'symbolism':    ['0', '1', '2', '3'],
+    'elections':    ['0', '1', '2'],
 }
 ```
 
@@ -655,12 +649,12 @@ INDICATOR_LABELS = {
 ### CSV Columns
 
 For each indicator `{ind}`:
-- `{ind}_prediction` - Prediction (`"0"`/`"1"`/`"2"` for single-select; `[2, 4]` native int list for `checks_actors`)
+- `{ind}_prediction` - Prediction (`"0"`/`"1"`/`"2"` for single-select; `[2, 4]` native int list for `checks` multi-select)
 - `{ind}_reasoning` - Reasoning text (omitted if `--reasoning False`)
 - `{ind}_confidence` - Score 1-100
 
 With verification:
-- `{ind}_verified` - Final prediction after verification (same type as `_prediction`; can be `null` for `checks_actors` when all samples disagree and have no overlapping labels)
+- `{ind}_verified` - Final prediction after verification (same type as `_prediction`; can be `null` for `checks` multi-select when all samples disagree and have no overlapping labels)
 - `{ind}_verification` - Verification details
 - `{ind}_agreement` - Agreement ratio 0.0–1.0 (self-consistency only)
 - `{ind}_uncertainty` - `none` (all agree) / `low` (majority ≥ 2) / `high` (all differ) (self-consistency only)
@@ -694,11 +688,11 @@ from pipeline.predictor import Predictor, PredictionConfig
 from config import PromptMode, VerificationType
 
 config = PredictionConfig(
-    mode=PromptMode.MULTIPLE,
+    mode=PromptMode.SINGLE,
     indicators=['sovereign', 'assembly'],
     verify=VerificationType.SELF_CONSISTENCY,
     verify_indicators=['assembly'],
-    model='gemini-2.5-pro',
+    model='gemini-3.1-pro-preview',
     temperature=0.0,
     sc_n_samples=3,
     sc_temperatures=[0.0, 0.5, 1.0]
@@ -832,7 +826,7 @@ python utils/sanity_check.py \
 --min-confidence     # Minimum confidence threshold (1-100)
 --min-reasoning-length  # Minimum reasoning length (default: 100)
 --mode               # Prompt mode: single, multiple, or sequential (leader only, default: multiple)
---model              # Model identifier (default: gemini-2.5-pro)
+--model              # Model identifier (default: gemini-3.1-pro-preview)
 --verify             # Verification: none, self_consistency, cove, both
 --n-samples          # Additional self-consistency samples when --verify=self_consistency (0 = single call)
 --verifier-model     # Model for CoVe verification
@@ -850,7 +844,7 @@ python utils/sanity_check.py \
     -o data/results/predictions_fixed.csv \
     --indicator constitution \
     --verify cove \
-    --model Gemini=gemini-2.5-pro
+    --model Gemini=gemini-3.1-pro-preview
 ```
 
 **Example with Sequential Mode:**
@@ -862,7 +856,7 @@ python utils/sanity_check.py \
     --indicators constitution sovereign assembly \
     --mode sequential \
     --sequence assembly sovereign constitution \
-    --model Gemini=gemini-2.5-pro
+    --model Gemini=gemini-3.1-pro-preview
 
 # Sequential mode with random order
 python utils/sanity_check.py \
@@ -871,7 +865,7 @@ python utils/sanity_check.py \
     --indicators constitution sovereign assembly \
     --mode sequential \
     --random-sequence \
-    --model Gemini=gemini-2.5-pro
+    --model Gemini=gemini-3.1-pro-preview
 ```
 
 **Column Naming Support:**
@@ -903,13 +897,13 @@ Output columns added: `elections_prediction`, `elections_confidence`, `elections
 python pipeline/post_processing.py \
     --input  data/results/predictions.csv \
     --output data/results/predictions_extended.csv \
-    --model  gemini-2.5-pro
+    --model  gemini-3.1-pro-preview
 
 # 4 rows in parallel, with forced search
 python pipeline/post_processing.py \
     --input  data/results/predictions.csv \
     --output data/results/predictions_extended.csv \
-    --model  gemini-2.5-pro \
+    --model  gemini-3.1-pro-preview \
     --parallel-rows 4 \
     --search-mode forced
 
@@ -932,7 +926,7 @@ python pipeline/post_processing.py \
 |----------|-------------|---------|
 | `--input` | Predictions file (CSV or JSONL) from the main pipeline | required |
 | `--output` | Output CSV path | required |
-| `--model` | LLM model identifier | `gemini-2.5-pro` |
+| `--model` | LLM model identifier | `gemini-3.1-pro-preview` |
 | `--assembly-col` | Column name with assembly predictions | `assembly_prediction` |
 | `--parallel-rows` | Concurrent rows to process | `1` |
 | `--n-samples` | Additional self-consistency samples (0 = single call, no SC) | `0` |
@@ -960,13 +954,13 @@ chmod +x run.sh
 # Run a leader pipeline experiment
 ./run.sh --pipeline leader \
   --indicators sovereign assembly \
-  --models gemini-2.5-pro \
+  --models gemini-3.1-pro-preview \
   --test 20
 
 # Run in background (survives sleep/logout, uses caffeinate)
 ./run.sh --background --pipeline leader \
   --indicators sovereign assembly entry exit collegiality checks federalism \
-  --models gemini-2.5-pro \
+  --models gemini-3.1-pro-preview \
   --input data/plt_leaders_data.csv \
   --output data/results/full_run.csv
 

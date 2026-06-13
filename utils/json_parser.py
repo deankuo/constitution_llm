@@ -157,7 +157,7 @@ def validate_indicator_response(
 
     str_labels = [str(v) for v in valid_labels]
 
-    # Multi-select indicator: LLM returns a JSON array (e.g. checks_actors).
+    # Multi-select indicator: LLM returns a JSON array (e.g. checks).
     # Validate each element, sort, and store as a native list of ints so that
     # the JSON output shows [2, 4] rather than ["2", "4"]. SC majority voting
     # converts to str([2, 4]) = '[2, 4]' for exact-match comparison.
