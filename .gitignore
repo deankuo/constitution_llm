@@ -92,3 +92,6 @@ data/temp/
 
 # shell history
 tacc/*.slurm
+
+# uv
+.venv/
