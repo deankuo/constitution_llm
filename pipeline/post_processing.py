@@ -43,7 +43,8 @@ Usage
       --input  data/results/predictions.csv \\
       --output data/results/predictions_extended.csv \\
       --model  gemini-2.5-pro \\
-      --parallel-rows 4
+      --parallel-rows 4 \\
+      --mode single --prompt-version v1
 
 The original columns are never modified.
 """
@@ -116,6 +117,7 @@ An election is a selection procedure in which:
 - Focus on whether MOST members are elected, not necessarily all.
 - The key distinction for code 2 is organized factions/parties, not just informal competition.
 - Code based on de facto (actual) practice, not de jure (formal) rules.
+- When evidence is uncertain or absent, default to 0 — if legislative elections existed, the historical record would usually mention it, so silence indicates absence.
 
 ## Output Requirements
 
@@ -148,6 +150,114 @@ Determine the elections category:
 Respond with a single JSON object:
 {{"elections": "0, 1, or 2", "reasoning": "your analysis", "confidence_score": 1-100}}
 """
+
+
+# =============================================================================
+# ELECTIONS SINGLE-MODE PROMPTS (V1/V2/V3 — single_builder.py style)
+# =============================================================================
+
+ELECTIONS_SINGLE_V1_SYSTEM_PROMPT = """You are a political scientist coding executive constraints for historical leaders.
+
+**Core rule:** Code de facto (actual) practice, not de jure (formal) arrangements. Focus on THIS specific leader's reign. When evidence is uncertain: this indicator can safely default to 0 / None — if legislative elections existed, the historical record would usually mention it, so silence indicates absence.
+
+## Elections
+
+A legislative election refers to a regularized selection procedure in which members are chosen by an electorate. That electorate must be considerably larger than the body itself, though it may be limited to a small portion of the general population.
+
+**A LARGE ASSEMBLY (Type 2) is KNOWN TO EXIST** in the polity below. Your task is to determine whether members of that assembly were elected to their positions, and—if so—whether those elections were contested by organized factions or parties.
+
+Coding:
+• 0 = None. Examples: appointive legislatures, polities without a legislature (Assembly=0, 1, or 3).
+• 1 = Non-competitive. Elections without identifiable parties or factions, or where one party/faction monopolizes the field. May consist of a vote by acclamation.
+• 2 = Competitive. Elections are organized by multiple factions or parties. Although the contest may not be free and fair, contestants have a reasonable expectation of winning power at some point in the future. Turnover is conceivable.
+
+## Output Format
+
+Respond with ONLY a valid JSON object — no markdown fences, no extra text.
+
+Fields required:
+- "elections": one of "0", "1", "2"
+- "elections_reasoning": brief justification (string)
+- "elections_confidence": integer 1–100
+"""
+
+ELECTIONS_SINGLE_V1_USER_PROMPT_TEMPLATE = """Classify the elections indicator for the following leader:
+
+**Polity:** {polity}
+**Leader:** {name}
+**Reign:** {start_year}-{end_year}
+
+A LARGE ASSEMBLY (Type 2) is KNOWN TO EXIST. Return a single JSON object with all required fields."""
+
+ELECTIONS_SINGLE_V2_SYSTEM_PROMPT = """You are an expert annotator for the "Growth of Executive Constraints" dataset. Your job is to assign precise numerical codes to historical leaders based on the indicator definition below. These codes will be used in academic research, so accuracy is paramount.
+
+**Annotation Rules:**
+1. Always code actual (de facto) behavior, never formal (de jure) arrangements.
+2. Evaluate conditions as they existed during THIS leader's specific reign.
+3. When evidence is uncertain: this indicator can safely default to 0 — if legislative elections existed, the historical record would usually mention it, so silence indicates absence.
+
+## Elections Indicator Reference
+
+A legislative election refers to a regularized selection procedure in which members are chosen by an electorate. That electorate must be considerably larger than the body itself, though it may be limited to a small portion of the general population.
+
+**A LARGE ASSEMBLY (Type 2) is KNOWN TO EXIST. Determine whether its members are elected.**
+
+Coding:
+• 0 = None — appointive legislatures or polities without a legislature (Assembly=0, 1, or 3).
+• 1 = Non-competitive — elections without identifiable parties or factions, or where one party/faction monopolizes the field; may be a vote by acclamation.
+• 2 = Competitive — elections organized by multiple factions or parties; although contests may not be free and fair, contestants have a reasonable expectation of winning power at some point.
+
+## Step-by-Step Instructions
+
+1. Recall relevant historical facts about this leader's reign.
+2. Determine whether assembly members are selected by an electorate larger than the body itself.
+3. If elected: assess whether elections are contested by organized factions or parties.
+4. Assign the appropriate code. Record your confidence (1–100).
+
+## Required JSON Output
+
+Output ONLY a JSON object with these fields (no markdown, no preamble):
+- "elections": "0" | "1" | "2" (string)
+- "elections_reasoning": concise evidence-based justification
+- "elections_confidence": 1–100 (integer)
+"""
+
+ELECTIONS_SINGLE_V2_USER_PROMPT_TEMPLATE = """Annotate the following leader:
+
+Polity: {polity}
+Leader: {name}
+Reign: {start_year}–{end_year}
+
+A LARGE ASSEMBLY (Type 2) is KNOWN TO EXIST. Apply the indicator definition strictly. Return your annotation as a single JSON object."""
+
+ELECTIONS_SINGLE_V3_SYSTEM_PROMPT = """You are a political historian classifying executive constraints for historical leaders. Code based on de facto (actual) practice, not de jure arrangements. Focus on this specific leader's reign. When uncertain: elections defaults to 0 — if legislative elections existed, the historical record would usually mention it.
+
+## Elections
+
+A LARGE ASSEMBLY (Type 2) EXISTS. A legislative election is a regularized selection procedure where members are chosen by an electorate considerably larger than the body itself.
+
+Elections (0/1/2):
+• 0 = None — not elected (appointive, hereditary, or no legislature).
+• 1 = Non-competitive — elected but no organized factions/parties; may be by acclamation.
+• 2 = Competitive — organized factions/parties compete; turnover conceivable.
+
+## Output
+
+Respond with ONLY a valid JSON object (no markdown fences):
+- "elections": "0"/"1"/"2"
+- "elections_reasoning": brief justification
+- "elections_confidence": 1–100
+"""
+
+ELECTIONS_SINGLE_V3_USER_PROMPT_TEMPLATE = """Classify: **{polity}** | **{name}** | **{start_year}-{end_year}**
+
+A LARGE ASSEMBLY (Type 2) EXISTS. Return JSON with: "elections" ("0"/"1"/"2"), "elections_reasoning", "elections_confidence" (1-100)"""
+
+_SINGLE_PROMPTS = {
+    "v1": (ELECTIONS_SINGLE_V1_SYSTEM_PROMPT, ELECTIONS_SINGLE_V1_USER_PROMPT_TEMPLATE),
+    "v2": (ELECTIONS_SINGLE_V2_SYSTEM_PROMPT, ELECTIONS_SINGLE_V2_USER_PROMPT_TEMPLATE),
+    "v3": (ELECTIONS_SINGLE_V3_SYSTEM_PROMPT, ELECTIONS_SINGLE_V3_USER_PROMPT_TEMPLATE),
+}
 
 
 # =============================================================================
@@ -186,6 +296,8 @@ class ElectionsClassifier:
         use_logprobs: bool = False,
         n_samples: int = 0,
         sc_temperatures: Optional[List[float]] = None,
+        mode: str = "single",
+        prompt_version: str = "v1",
     ):
         self.model = model
         self.use_logprobs = use_logprobs
@@ -198,6 +310,8 @@ class ElectionsClassifier:
         self.max_workers = max_workers
         self.delay = delay
         self.search_mode = search_mode
+        self.mode = mode
+        self.prompt_version = prompt_version if mode == "single" else None
         self.serper_api_key = serper_api_key
         self.pre_searcher = None
         if search_mode == SearchMode.FORCED:
@@ -324,7 +438,12 @@ class ElectionsClassifier:
             or "?"
         )
 
-        user_prompt = ELECTIONS_USER_PROMPT_TEMPLATE.format(
+        if self.mode == "single":
+            system_prompt_tmpl, user_prompt_tmpl = _SINGLE_PROMPTS[self.prompt_version or "v1"]
+        else:
+            system_prompt_tmpl, user_prompt_tmpl = ELECTIONS_SYSTEM_PROMPT, ELECTIONS_USER_PROMPT_TEMPLATE
+
+        user_prompt = user_prompt_tmpl.format(
             polity=polity,
             name=name,
             start_year=start_year,
@@ -355,7 +474,7 @@ class ElectionsClassifier:
             )
             provider = detect_provider(self.model)
             agent_kwargs = dict(
-                system_prompt=ELECTIONS_SYSTEM_PROMPT,
+                system_prompt=system_prompt_tmpl,
                 user_prompt=user_prompt,
                 serper_api_key=self.serper_api_key,
                 force_search=False,
@@ -373,7 +492,7 @@ class ElectionsClassifier:
             parsed = parse_json_response(content or '', verbose=False)
         else:
             response = self.llm.call(
-                system_prompt=ELECTIONS_SYSTEM_PROMPT,
+                system_prompt=system_prompt_tmpl,
                 user_prompt=user_prompt,
                 temperature=temperature,
             )
@@ -382,8 +501,11 @@ class ElectionsClassifier:
         pred = str(parsed.get("elections", "0"))
         if pred not in ("0", "1", "2"):
             pred = "0"
-        conf = parsed.get("confidence_score")
-        reason = parsed.get("reasoning", "")
+        conf = (parsed.get("confidence_score")
+                or parsed.get("elections_confidence"))
+        reason = (parsed.get("reasoning")
+                  or parsed.get("elections_reasoning")
+                  or "")
 
         # Extract logprob of the 'elections' value token (Gemini only)
         logprob = None
@@ -558,6 +680,27 @@ Examples:
             "Example: --n-samples 2 → 3 total votes."
         )
     )
+    parser.add_argument(
+        "--mode",
+        choices=["single", "multiple"],
+        default="single",
+        help=(
+            "Prompt mode for elections (default: single).\n"
+            "  single   — single_builder.py-style condensed prompt (select version with --prompt-version).\n"
+            "  multiple — detailed multiple_builder.py-style prompt."
+        )
+    )
+    parser.add_argument(
+        "--prompt-version",
+        choices=["v1", "v2", "v3"],
+        default="v1",
+        help=(
+            "Single-mode prompt version (default: v1; ignored when --mode multiple).\n"
+            "  v1 — political scientist framing (default).\n"
+            "  v2 — expert annotator framing with step-by-step instructions.\n"
+            "  v3 — compact/minimal token-efficient framing."
+        )
+    )
 
     args = parser.parse_args()
 
@@ -604,6 +747,8 @@ Examples:
         serper_api_key=os.getenv("SERPER_API_KEY", ""),
         use_logprobs=args.logprobs,
         n_samples=args.n_samples,
+        mode=args.mode,
+        prompt_version=args.prompt_version,
     )
 
     result_df = classifier.classify(df)

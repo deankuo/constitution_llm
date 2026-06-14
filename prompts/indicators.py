@@ -144,7 +144,7 @@ To the extent that executive power in a polity is beholden to another polity, we
 - Sovereign (1): Independent domestic governance, no subordination to foreign power; includes city-states, nation-states, empires, tributary states with primary domestic responsibility
 - Not Sovereign (0): Colony, protectorate, vassal, distant overseas territory not fully incorporated into the metropole""",
 
-        coding_rule_reminder="⚠️ **IMPORTANT:** Focus on the status during THIS LEADER'S REIGN, not the entire polity history.",
+        coding_rule_reminder="⚠️ **IMPORTANT:** Focus on the status during THIS LEADER'S REIGN, not the entire polity history. Default to 1 (Sovereign) when evidence is ambiguous — overlordship or loss of domestic control would normally be recorded, so silence indicates the polity governed its own domestic affairs. Be more cautious for premodern and non-Western polities where semi-sovereign status may go unrecorded.",
 
         compact_definition=(
             "Whether the polity conducts domestic affairs without foreign subordination: "
@@ -455,7 +455,7 @@ Types:
         name="entry",
         display_name="executive entry mode",
         specialization="executive selection and leadership transitions",
-        labels=["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10"],
+        labels=["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "99"],
         task_description="the precise mode by which the executive came to power during a specific leader's reign",
 
         definition="""
@@ -476,6 +476,7 @@ The manner in which executives enter office is widely regarded as a key indicato
 - **8 = Head of government.** Appointed by the head of government.
 - **9 = Popular election.** Directly through a popular election (regardless of the extension of the suffrage).
 - **10 = Other.** Other means, including clerical bodies such as the College of Cardinals.
+- **99 = Unknown.** The circumstances of executive entry are unknown.
 
 ## Analysis Process
 
@@ -485,7 +486,7 @@ The manner in which executives enter office is widely regarded as a key indicato
 4. If multiple mechanisms apply, choose the primary/proximate one
 """,
 
-        task_instruction="""Determine the entry category (0–10) for how THIS LEADER came to power.
+        task_instruction="""Determine the entry category (0–10 or 99) for how THIS LEADER came to power.
 
 - 0: Through force — coup, rebellion, conquest
 - 1: Appointed by foreign power
@@ -497,7 +498,8 @@ The manner in which executives enter office is widely regarded as a key indicato
 - 7: Appointed by the head of state
 - 8: Appointed by the head of government
 - 9: Through direct popular election (extent of suffrage irrelevant)
-- 10: Other (e.g., clerical bodies such as College of Cardinals)""",
+- 10: Other (e.g., clerical bodies such as College of Cardinals)
+- 99: Unknown (circumstances of entry are unknown)""",
 
         coding_rule_reminder="⚠️ **IMPORTANT:** Focus on how THIS SPECIFIC LEADER came to power. Choose the most specific applicable category.",
 
@@ -508,7 +510,7 @@ The manner in which executives enter office is widely regarded as a key indicato
             "(4) Hereditary succession; (5) Military appointment; "
             "(6) Legislature appointment; (7) Head of state appointment; "
             "(8) Head of government appointment; (9) Direct popular election; "
-            "(10) Other (e.g., clerical bodies)."
+            "(10) Other (e.g., clerical bodies); (99) Unknown."
         )
     ),
 
@@ -520,7 +522,7 @@ The manner in which executives enter office is widely regarded as a key indicato
         display_name="executive exit mode",
         specialization="executive transitions and leadership succession",
         labels=["0", "1", "2", "3", "4", "5", "6", "7", "8",
-                "9", "10", "11", "12", "13", "14", "15"],
+                "9", "10", "11", "12", "13", "14", "99"],
         task_description="the precise circumstances of the executive's departure from office",
 
         definition="""
@@ -544,8 +546,8 @@ The circumstances of an executive's departure from office says a lot about a lea
 - **11 = Died in battle (foreign war).** Killed in battle during a foreign war.
 - **12 = Irregular transition to another office.** Transition to another office by irregular procedures.
 - **13 = Deposed by foreign state.** Removed from office by a foreign state (occupation, intervention).
-- **14 = Unknown.** Circumstances of exit are unknown.
-- **15 = Still in office.** The leader is still in office at the end of the observation period.
+- **14 = Still in office.** The leader is still in office at the end of the observation period.
+- **99 = Unknown.** Circumstances of exit are unknown.
 
 ## Analysis Process
 
@@ -554,7 +556,7 @@ The circumstances of an executive's departure from office says a lot about a lea
 3. Match to the most specific applicable category
 """,
 
-        task_instruction="""Determine the exit category (0–15) for how THIS LEADER left power.
+        task_instruction="""Determine the exit category (0–14 or 99) for how THIS LEADER left power.
 
 - 0: Voluntarily retired/abdicated (NOT due to ill health)
 - 1: Other regular exit (term limits, electoral defeat)
@@ -570,10 +572,10 @@ The circumstances of an executive's departure from office says a lot about a lea
 - 11: Died in battle in foreign war
 - 12: Irregular transition to another office
 - 13: Deposed by foreign state
-- 14: Unknown
-- 15: Still in office""",
+- 14: Still in office
+- 99: Unknown""",
 
-        coding_rule_reminder="⚠️ **IMPORTANT:** Focus on how THIS SPECIFIC LEADER left power. If still ruling at end of observation period, use 15.",
+        coding_rule_reminder="⚠️ **IMPORTANT:** Focus on how THIS SPECIFIC LEADER left power. If still ruling at end of observation period, use 14.",
 
         compact_definition=(
             "Circumstances of executive departure (choose one): "
@@ -583,7 +585,7 @@ The circumstances of an executive's departure from office says a lot about a lea
             "(6) Retired due to ill health; (7) Suicide; (8) Deposed by domestic actors; "
             "(9) Assassinated or forced suicide; (10) Died in battle, civil war; (11) Died in battle, foreign war; "
             "(12) Irregular transition to another office; (13) Deposed by foreign state; "
-            "(14) Unknown; (15) Still in office."
+            "(14) Still in office; (99) Unknown."
         )
     ),
 

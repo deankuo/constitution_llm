@@ -182,7 +182,7 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
     "entry": IndicatorConfig(
         name="entry",
         display_name="Entry",
-        labels=["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10"],
+        labels=["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "99"],
         summary=(
             "The manner in which executives enter office is widely regarded as a key to their power while in office. "
             "Leader selection indicates the sorts of constraints executives are likely to face.\n\n"
@@ -197,7 +197,8 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
             "• 7 = Appointed by the head of state\n"
             "• 8 = Appointed by the head of government\n"
             "• 9 = Directly through a popular election (regardless of the extension of the suffrage)\n"
-            "• 10 = Other (including clerical bodies such as the College of Cardinals)"
+            "• 10 = Other (including clerical bodies such as the College of Cardinals)\n"
+            "• 99 = Unknown (circumstances of entry are unknown)"
         )
     ),
 
@@ -207,7 +208,7 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
     "exit": IndicatorConfig(
         name="exit",
         display_name="Exit",
-        labels=["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15"],
+        labels=["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "99"],
         summary=(
             "The circumstances of an executive's departure from office says a lot about a leader's prerogative while in office.\n\n"
             "Coding:\n"
@@ -225,8 +226,8 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
             "• 11 = Died in battle in foreign war\n"
             "• 12 = Transition to another office by irregular procedures\n"
             "• 13 = Through deposition by a foreign state\n"
-            "• 14 = Unknown\n"
-            "• 15 = Still in office"
+            "• 14 = Still in office\n"
+            "• 99 = Unknown"
         )
     ),
 
@@ -315,7 +316,7 @@ INDICATOR_SUMMARIES: Dict[str, str] = {
         "(0) Force (coup, rebellion); (1) Foreign power; (2) Ruling party (one-party system); "
         "(3) Royal council; (4) Hereditary succession; (5) Military; "
         "(6) Legislature; (7) Head of state; (8) Head of government; "
-        "(9) Direct popular election; (10) Other (e.g., clerical bodies)."
+        "(9) Direct popular election; (10) Other (e.g., clerical bodies); (99) Unknown."
     ),
 
     "exit": (
@@ -327,7 +328,7 @@ INDICATOR_SUMMARIES: Dict[str, str] = {
         "(8) Deposed by domestic actors; (9) Assassinated/forced suicide; "
         "(10) Died in battle, civil war; (11) Died in battle, foreign war; "
         "(12) Transition to another office (irregular); (13) Deposed by foreign state; "
-        "(14) Unknown; (15) Still in office."
+        "(14) Still in office; (99) Unknown."
     ),
 
     "symbolism": (
@@ -397,10 +398,12 @@ class SinglePromptBuilder:
         prompt = (
             "You are a political scientist coding executive constraints for historical leaders.\n\n"
             "**Core rule:** Code de facto (actual) practice, not de jure (formal) arrangements. "
-            "Focus on THIS specific leader's reign. When evidence is uncertain: for ordinal indicators "
-            "(sovereign, federalism, collegiality, assembly, petition) prefer the lower code; "
-            "for nominal indicators (entry, exit) and the non-monotonic symbolism scale, "
-            "do NOT default to the lower label — lower the confidence_score instead and give your best estimate.\n\n"
+            "Focus on THIS specific leader's reign.\n"
+            "When evidence is uncertain, apply the indicator-appropriate default:\n"
+            "• Institutional-presence indicators (federalism, checks, collegiality, petition, assembly): default to 0 / None / No — if such an institution existed, the historical record would usually mention it, so silence indicates absence.\n"
+            "• Sovereignty: default to 1 / Sovereign — overlordship or loss of domestic control would normally be recorded, so silence indicates the polity governed its own domestic affairs. (Be more cautious for premodern and non-Western polities, where semi-sovereign status may go unrecorded.)\n"
+            "• Assembly is ordinal (0<1<2<3): when choosing among present-but-ambiguous levels, prefer the lower level.\n"
+            "• Nominal indicators (entry, exit) and the non-monotonic symbolism scale: do NOT default to a lower label. If the evidence genuinely does not support any category, output \"N/A\" (entry/exit only) or your best estimate, and lower the confidence_score rather than forcing a code.\n\n"
             "## Indicator Definitions\n\n"
         )
 
@@ -487,7 +490,11 @@ class SinglePromptBuilderV2:
             "**Annotation Rules:**\n"
             "1. Always code actual (de facto) behavior, never formal (de jure) arrangements.\n"
             "2. Evaluate conditions as they existed during THIS leader's specific reign.\n"
-            "3. When evidence is ambiguous: for ordinal indicators (sovereign, federalism, collegiality, assembly, petition), assign the lower code. For nominal indicators (entry, exit) and symbolism (non-monotonic), lower the confidence_score instead — do not default to the lower label.\n"
+            "3. When evidence is uncertain, apply the indicator-appropriate default:\n"
+            "   • Institutional-presence indicators (federalism, checks, collegiality, petition, assembly): default to 0 / None / No — if such an institution existed, the historical record would usually mention it, so silence indicates absence.\n"
+            "   • Sovereignty: default to 1 / Sovereign — silence indicates the polity governed its own domestic affairs. (Be more cautious for premodern and non-Western polities.)\n"
+            "   • Assembly is ordinal (0<1<2<3): when choosing among present-but-ambiguous levels, prefer the lower level.\n"
+            "   • Nominal indicators (entry, exit) and the non-monotonic symbolism scale: do NOT default to a lower label — lower the confidence_score instead.\n"
             "4. Each indicator is independent — do not let your assessment of one influence another.\n\n"
             "## Indicator Reference\n\n"
         )
@@ -581,8 +588,10 @@ class SinglePromptBuilderV3:
         prompt = (
             "You are a political historian classifying executive constraints for historical leaders. "
             "Code based on de facto (actual) practice, not de jure arrangements. "
-            "Focus on this specific leader's reign. When uncertain: for ordinal indicators "
-            "(sovereign, federalism, collegiality, assembly, petition) prefer the lower code; "
+            "Focus on this specific leader's reign. When uncertain: for institutional-presence indicators "
+            "(federalism, checks, collegiality, petition, assembly) default to 0; "
+            "for sovereignty default to 1; "
+            "for assembly prefer the lower ordinal level when ambiguous; "
             "for nominal (entry, exit) or non-monotonic (symbolism) indicators, lower the confidence_score — "
             "do not default to the lower label.\n\n"
             "## Indicator Definitions\n\n"
