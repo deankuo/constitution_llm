@@ -189,9 +189,9 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
         display_name="Entry",
         labels=["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "99"],
         summary=(
-            "IMPORTANT: Code the manner of entry at the START of this reign, not later events. If it cannot be determined, use 99 (do NOT guess to avoid it).\n\n"
+            "IMPORTANT: Code the manner of entry at the START of this tenure, not later events. If it cannot be determined, use 99 (do NOT guess to avoid it).\n\n"
             "The manner in which the executive entered office. Code the manner of entry at the START "
-            "of this leader's reign (the accession in {start_year}).\n\n"
+            "of this leader's tenure (the accession in {start_year}).\n\n"
             "Coding:\n"
             "• 0 = Through the threat or application of force, such as a coup or rebellion\n"
             "• 1 = Appointed by a foreign power\n"
@@ -216,9 +216,9 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
         display_name="Exit",
         labels=["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "99"],
         summary=(
-            "IMPORTANT: Code the manner of entry at the START of this reign, not later events. If it cannot be determined, use 99 (do NOT guess to avoid it).\n\n"
+            "IMPORTANT: Code the manner of entry at the START of this tenure, not later events. If it cannot be determined, use 99 (do NOT guess to avoid it).\n\n"
             "The circumstances of the executive's departure from office. Code the manner of exit at "
-            "the END of this leader's reign (the departure in {end_year}).\n\n"
+            "the END of this leader's tenure (the departure in {end_year}).\n\n"
             "Coding:\n"
             "• 0 = Abdicated or retired voluntarily but NOT due to ill health\n"
             "• 1 = Other regular exit (e.g., term limits or defeat in election)\n"
@@ -408,7 +408,7 @@ class SinglePromptBuilder:
         prompt = (
             "You are a political scientist coding executive constraints for historical leaders.\n\n"
             "**Core rule:** Code de facto (actual) practice, not de jure (formal) arrangements. "
-            "Focus on THIS specific leader's reign.\n"
+            "Focus on THIS specific leader's tenure.\n"
             "When evidence is uncertain, apply the indicator-appropriate default:\n"
             "• Institutional-presence indicators (federalism, checks, collegiality, petition, assembly): default to 0 / None / No — if such an institution existed, the historical record would usually mention it, so silence indicates absence.\n"
             "• Sovereignty: default to 1 / Sovereign — overlordship or loss of domestic control would normally be recorded, so silence indicates the polity governed its own domestic affairs. (Be more cautious for premodern and non-Western polities, where semi-sovereign status may go unrecorded.)\n"
@@ -446,12 +446,12 @@ class SinglePromptBuilder:
         start_year: int,
         end_year: Optional[int]
     ) -> str:
-        reign = f"{start_year}-{end_year if end_year is not None else 'present'}"
+        tenure = f"{start_year}-{end_year if end_year is not None else 'present'}"
         return (
             f"Classify the following leader on all indicators:\n\n"
             f"**Polity:** {polity}\n"
             f"**Leader:** {name}\n"
-            f"**Reign:** {reign}\n\n"
+            f"**Tenure:** {tenure}\n\n"
             f"Return a single JSON object with all required fields."
         )
 
@@ -499,7 +499,7 @@ class SinglePromptBuilderV2:
             "definitions below. These codes will be used in academic research, so accuracy is paramount.\n\n"
             "**Annotation Rules:**\n"
             "1. Always code actual (de facto) behavior, never formal (de jure) arrangements.\n"
-            "2. Evaluate conditions as they existed during THIS leader's specific reign.\n"
+            "2. Evaluate conditions as they existed during THIS leader's specific tenure.\n"
             "3. When evidence is uncertain, apply the indicator-appropriate default:\n"
             "   • Institutional-presence indicators (federalism, checks, collegiality, petition, assembly): default to 0 / None / No — if such an institution existed, the historical record would usually mention it, so silence indicates absence.\n"
             "   • Sovereignty: default to 1 / Sovereign — silence indicates the polity governed its own domestic affairs. (Be more cautious for premodern and non-Western polities.)\n"
@@ -518,7 +518,7 @@ class SinglePromptBuilderV2:
         prompt += (
             "## Step-by-Step Instructions\n\n"
             "For each indicator:\n"
-            "1. Recall relevant historical facts about this leader's reign.\n"
+            "1. Recall relevant historical facts about this leader's tenure.\n"
             "2. Match those facts to the indicator definitions above.\n"
             "3. Assign the appropriate code.\n"
             "4. Record your confidence (1–100) based on quality of evidence.\n\n"
@@ -548,12 +548,12 @@ class SinglePromptBuilderV2:
         start_year: int,
         end_year: Optional[int]
     ) -> str:
-        reign = f"{start_year}–{end_year if end_year is not None else 'present'}"
+        tenure = f"{start_year}–{end_year if end_year is not None else 'present'}"
         return (
             f"Annotate the following leader:\n\n"
             f"Polity: {polity}\n"
             f"Leader: {name}\n"
-            f"Reign: {reign}\n\n"
+            f"Tenure: {tenure}\n\n"
             f"Apply the indicator definitions strictly. Return your annotation as a single JSON object."
         )
 
@@ -598,7 +598,7 @@ class SinglePromptBuilderV3:
         prompt = (
             "You are a political historian classifying executive constraints for historical leaders. "
             "Code based on de facto (actual) practice, not de jure arrangements. "
-            "Focus on this specific leader's reign. When uncertain: for institutional-presence indicators "
+            "Focus on this specific leader's tenure. When uncertain: for institutional-presence indicators "
             "(federalism, checks, collegiality, petition, assembly) default to 0; "
             "for sovereignty default to 1; "
             "for assembly prefer the lower ordinal level when ambiguous; "
@@ -626,7 +626,7 @@ class SinglePromptBuilderV3:
         start_year: int,
         end_year: Optional[int]
     ) -> str:
-        reign = f"{start_year}-{end_year if end_year is not None else 'present'}"
+        tenure = f"{start_year}-{end_year if end_year is not None else 'present'}"
 
         fields = []
         for ind in self.indicators:
@@ -645,7 +645,7 @@ class SinglePromptBuilderV3:
         fields_str = ", ".join(fields)
 
         return (
-            f"Classify: **{polity}** | **{name}** | **{reign}**\n\n"
+            f"Classify: **{polity}** | **{name}** | **{tenure}**\n\n"
             f"Return JSON with: {fields_str}"
         )
 
@@ -668,8 +668,8 @@ def build_compact_prompt(
     Args:
         polity: Name of the polity
         name: Name of the leader
-        start_year: Start year of reign
-        end_year: End year of reign
+        start_year: Start year of tenure
+        end_year: End year of tenure
         indicators: List of indicators (default: all)
         include_reasoning: Whether to request reasoning fields
 

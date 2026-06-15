@@ -51,8 +51,8 @@ class MultiplePromptBuilder(BasePromptBuilder):
         Args:
             polity: Name of the polity
             name: Name of the leader
-            start_year: Start year of the leader's reign
-            end_year: End year of the leader's reign (None if unknown/unavailable)
+            start_year: Start year of the leader's tenure
+            end_year: End year of the leader's tenure (None if unknown/unavailable)
 
         Returns:
             List of PromptOutput objects, one per indicator

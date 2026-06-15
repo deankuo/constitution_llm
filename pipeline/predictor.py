@@ -258,8 +258,8 @@ class Predictor:
         Args:
             polity: Name of the polity
             name: Name of the leader
-            start_year: Start year of the leader's reign
-            end_year: End year of the leader's reign (None if unknown/unavailable in data)
+            start_year: Start year of the leader's tenure
+            end_year: End year of the leader's tenure (None if unknown/unavailable in data)
 
         Returns:
             PolityPrediction with all indicator predictions

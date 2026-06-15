@@ -117,8 +117,8 @@ class SequentialPromptBuilder(BasePromptBuilder):
         Args:
             polity: Name of the polity
             name: Name of the leader
-            start_year: Start year of the leader's reign
-            end_year: End year of the leader's reign (None if unknown/unavailable)
+            start_year: Start year of the leader's tenure
+            end_year: End year of the leader's tenure (None if unknown/unavailable)
 
         Returns:
             List containing a single PromptOutput with all indicators in sequence
@@ -152,8 +152,8 @@ class SequentialPromptBuilder(BasePromptBuilder):
             sequence: Ordered list of indicators
             polity: Polity name
             name: Leader name
-            start_year: Start year of the leader's reign
-            end_year: End year of the leader's reign (None if unknown/unavailable)
+            start_year: Start year of the leader's tenure
+            end_year: End year of the leader's tenure (None if unknown/unavailable)
 
         Returns:
             Combined system prompt with all indicators in sequence
@@ -263,17 +263,17 @@ You have analyzed {len(sequence)} indicators above. Now provide a SINGLE JSON ob
             sequence: Ordered list of indicators
             polity: Name of the polity
             name: Name of the leader
-            start_year: Start year of the leader's reign
-            end_year: End year of the leader's reign
+            start_year: Start year of the leader's tenure
+            end_year: End year of the leader's tenure
 
         Returns:
             User prompt text
         """
-        prompt = f"""Please analyze the following leader's reign across {len(sequence)} political indicators:
+        prompt = f"""Please analyze the following leader's tenure across {len(sequence)} political indicators:
 
 **Polity:** {polity}
 **Leader:** {name}
-**Reign Period:** {start_year} to {end_year}
+**Tenure Period:** {start_year} to {end_year}
 
 You will analyze these indicators in sequence:
 """

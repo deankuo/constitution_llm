@@ -18,7 +18,7 @@ from typing import Tuple, Dict, List, Optional
 
 SYSTEM_PROMPT = """You are a professional political scientist, historian, and constitutional expert specializing in constitutional history across different countries.
 
-Your task is to classify the HIGHEST TYPE of written legal document that existed in a given polity during a specific leader's reign.
+Your task is to classify the HIGHEST TYPE of written legal document that existed in a given polity during a specific leader's tenure.
 
 ## Three-Type Classification
 
@@ -56,9 +56,9 @@ All requirements for Type 1 **plus** the document also governs the polity itself
 2. Does it ONLY govern subjects without constraining rulers or specifying governance? → **Type 1**
 3. Does it ALSO specify governance rules AND limit ruler authority? → **Type 2**
 
-## If Multiple Documents Exist During the Reign
+## If Multiple Documents Exist During the Tenure
 
-When multiple documents existed during the reign:
+When multiple documents existed during the tenure:
 - Classify each document separately
 - Report the **highest type** as `constitution`
 - List ALL documents in `document_name` (semicolon-separated)
@@ -68,15 +68,15 @@ When multiple documents existed during the reign:
 ## Analysis Process
 
 **Step 1 — Identify the Historical Context**
-- What type of polity was this during this leader's reign?
+- What type of polity was this during this leader's tenure?
 - Was it independent or subject to external governance authority?
 
 **Step 2 — Determine Governance Authority**
-- Who had the authority to establish legal rules during this reign?
+- Who had the authority to establish legal rules during this tenure?
 - Was governance authority internal or externally imposed?
 
 **Step 3 — Identify Written Legal Documents**
-- What specific written document(s) existed during this leader's reign?
+- What specific written document(s) existed during this leader's tenure?
 - Name each document with its official title and adoption year
 - List ALL documents, not only the highest-type one
 
@@ -88,8 +88,8 @@ For each document:
 - Does it limit the ruler's authority or protect subjects' rights? (required for Type 2 only)
 
 **Step 5 — Consider Temporal Factors**
-- Did documents exist for the entire reign, or only part of it?
-- Were there amendments, new documents, or abrogations during this reign?
+- Did documents exist for the entire tenure, or only part of it?
+- Were there amendments, new documents, or abrogations during this tenure?
 
 **Step 6 — Assess Confidence**
 - How well-documented is the evidence?
@@ -107,7 +107,7 @@ For each document:
 ## Output Requirements
 
 Provide a JSON object with exactly these fields:
-- "constitution": Must be exactly 0, 1, or 2 (integer) — the HIGHEST type during this reign
+- "constitution": Must be exactly 0, 1, or 2 (integer) — the HIGHEST type during this tenure
 - "document_name": Official name(s) of document(s), semicolon-separated, or "N/A" if none
 - "document_types": Type integer for each document, semicolon-separated (e.g., "1; 2"), or "N/A" if none
 - "constitution_year": Adoption year(s) as exact integers only, semicolon-separated, or "N/A". No approximations ("c.", "circa", "~")
@@ -133,10 +133,10 @@ SYSTEM_PROMPT_NO_REASONING = SYSTEM_PROMPT.replace(
 # USER PROMPT TEMPLATE
 # =============================================================================
 
-USER_PROMPT_TEMPLATE = """Classify the written legal documents for the following leader's reign:
+USER_PROMPT_TEMPLATE = """Classify the written legal documents for the following leader's tenure:
 **Polity:** {polity}
 **Leader:** {name}
-**Reign Period:** {start_year}–{end_year}
+**Tenure Period:** {start_year}–{end_year}
 
 Work through the six analysis steps and return the JSON object specified above.
 **When uncertain, default to a lower type (conservative coding).**
@@ -154,18 +154,18 @@ USER_PROMPT_TEMPLATE_NO_REASONING = USER_PROMPT_TEMPLATE.replace(
 )
 
 
-USER_PROMPT_TEMPLATE_V0 = """Please classify the written legal documents for the following leader's reign:
+USER_PROMPT_TEMPLATE_V0 = """Please classify the written legal documents for the following leader's tenure:
 
 **Polity:** {polity}
 **Leader:** {name}
-**Reign Period:** {reign_period}
+**Tenure Period:** {reign_period}
 
 ## Analysis Instructions
 
 Work through each step systematically:
 
-1. Identify the type of political entity and its legal/governance authority during this reign
-2. Identify ALL written legal documents that existed during this leader's reign — list each one
+1. Identify the type of political entity and its legal/governance authority during this tenure
+2. Identify ALL written legal documents that existed during this leader's tenure — list each one
 3. For each document, classify it:
    - Type 1 (code of law): written + legally binding + applies to subjects only
    - Type 2 (constitution): all of Type 1 + specifies governance rules + limits ruler authority
@@ -204,8 +204,8 @@ def get_prompt(
     Args:
         polity: Name of the polity
         name: Name of the leader
-        start_year: Start year of the leader's reign
-        end_year: End year of the leader's reign (None if unknown)
+        start_year: Start year of the leader's tenure
+        end_year: End year of the leader's tenure (None if unknown)
         reasoning: Whether to include a reasoning field in the output format
 
     Returns:
@@ -271,11 +271,11 @@ def get_expected_output_schema() -> Dict[str, str]:
 
 COVE_QUESTION_TEMPLATES: Dict[str, List[str]] = {
     "tier1_written_code": [
-        "What written legal documents existed in {polity} during {name}'s reign ({start_year}-{end_year})?",
+        "What written legal documents existed in {polity} during {name}'s tenure ({start_year}-{end_year})?",
         "Did any written document in {polity} under {name} contain binding legal rules for subjects or citizens?"
     ],
     "tier2_governance_rules": [
-        "Did any written document in {polity} specify how leaders were selected or how laws were enacted during {name}'s reign?",
+        "Did any written document in {polity} specify how leaders were selected or how laws were enacted during {name}'s tenure?",
         "What institution was responsible for legislation in {polity} under {name}?"
     ],
     "tier2_limitations": [

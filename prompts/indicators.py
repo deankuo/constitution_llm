@@ -59,14 +59,14 @@ Provide a JSON object with exactly these fields:
 
 SYSTEM_PROMPT_HEADER = """You are a professional political scientist and historian specializing in {specialization} across different historical periods.
 
-Your task is to determine {task_description} based on the polity name, leader name, and the leader's reign period provided.
+Your task is to determine {task_description} based on the polity name, leader name, and the leader's tenure period provided.
 """
 
-USER_PROMPT_TEMPLATE = """Please analyze the {indicator_display} of the following leader's reign:
+USER_PROMPT_TEMPLATE = """Please analyze the {indicator_display} of the following leader's tenure:
 
 **Polity:** {polity}
 **Leader:** {name}
-**Reign Period:** {start_year}-{end_year}
+**Tenure Period:** {start_year}-{end_year}
 
 {task_instruction}
 
@@ -107,7 +107,7 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
         display_name="sovereign status",
         specialization="comparative politics and international relations",
         labels=["0", "1"],
-        task_description="whether a given polity was sovereign during a specific leader's reign",
+        task_description="whether a given polity was sovereign during a specific leader's tenure",
 
         definition="""
 ## Definition of Sovereign
@@ -133,13 +133,13 @@ To the extent that executive power in a polity is beholden to another polity, we
 
 ## Analysis Process
 
-1. Identify the polity's political status during this leader's reign
+1. Identify the polity's political status during this leader's tenure
 2. Determine if the polity had independent control over domestic affairs
-3. Check for any tribute, vassalage, or colonial relationships during this reign
+3. Check for any tribute, vassalage, or colonial relationships during this tenure
 4. Assess whether executive power was controlled externally
 """,
 
-        task_instruction="""Determine whether this polity was sovereign (1) or semi-sovereign (0) during this leader's reign.
+        task_instruction="""Determine whether this polity was sovereign (1) or semi-sovereign (0) during this leader's tenure.
 
 - Sovereign (1): Independent domestic governance, no subordination to foreign power; includes city-states, nation-states, empires, tributary states with primary domestic responsibility
 - Not Sovereign (0): Colony, protectorate, vassal, distant overseas territory not fully incorporated into the metropole""",
@@ -162,7 +162,7 @@ To the extent that executive power in a polity is beholden to another polity, we
         display_name="federalism status",
         specialization="federal systems and territorial politics",
         labels=["0", "1"],
-        task_description="whether a given polity had a federal or decentralized territorial structure during a specific leader's reign",
+        task_description="whether a given polity had a federal or decentralized territorial structure during a specific leader's tenure",
 
         definition="""
 ## Definition of Federalism
@@ -184,13 +184,13 @@ Federalism refers to a **division of sovereignty between central and local units
 
 ## Analysis Process
 
-1. Identify the territorial structure of the polity during this leader's reign
+1. Identify the territorial structure of the polity during this leader's tenure
 2. Determine if sub-national units have constitutionally or compactly protected powers
 3. Assess whether localities are represented in central governance
 4. Code based on de facto functioning, not formal constitutional texts
 """,
 
-        task_instruction="""Determine whether this polity was federal (1) or non-federal (0) during this leader's reign.
+        task_instruction="""Determine whether this polity was federal (1) or non-federal (0) during this leader's tenure.
 
 - Federal (1): Division of sovereignty between central and local units; local units have protected powers; includes confederations, leagues, composite monarchies
 - Non-Federal (0): Unitary state; local units derive authority from the center with no protected autonomy""",
@@ -215,7 +215,7 @@ Federalism refers to a **division of sovereignty between central and local units
         specialization="comparative politics and executive constraints",
         labels=["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"],
         multi_select=True,
-        task_description="which actors, if any, provide effective checks on executive power during a specific leader's reign",
+        task_description="which actors, if any, provide effective checks on executive power during a specific leader's tenure",
 
         definition="""
 ## Definition of Checks (Actors)
@@ -238,13 +238,13 @@ Effective checks exist when independent groups or bodies have the capacity to re
 
 ## Analysis Process
 
-1. Identify which groups or bodies existed and had independent standing during this leader's reign
+1. Identify which groups or bodies existed and had independent standing during this leader's tenure
 2. For each category, assess whether that actor had the capacity AND proclivity to resist executive actions
 3. Select all categories that apply — more categories indicate more effective checking of executive power
 4. If no actors had this capacity, select only 0 (None)
 """,
 
-        task_instruction="""Determine which actors provided effective checks on the executive during this leader's reign. Select all that apply.
+        task_instruction="""Determine which actors provided effective checks on the executive during this leader's tenure. Select all that apply.
 
 Categories (0–9):
 - 0: None — no actors with capacity to resist the executive
@@ -280,7 +280,7 @@ Categories (0–9):
         display_name="collegiality status",
         specialization="executive power structures and decision-making processes",
         labels=["0", "1"],
-        task_description="whether decision-making within the executive was collegial during a specific leader's reign",
+        task_description="whether decision-making within the executive was collegial during a specific leader's tenure",
 
         definition="""
 ## Definition of Collegiality
@@ -303,14 +303,14 @@ If a body is formally collegial but actually dominated by a single actor → Cod
 
 ## Analysis Process
 
-1. Identify the formal executive structure during this leader's reign
+1. Identify the formal executive structure during this leader's tenure
 2. Determine if there was a formally constituted collegial body
 3. **Critically assess**: Was decision-making actually shared, or did one person dominate?
 4. Focus on de facto (actual) power, not de jure (formal) arrangements
 5. **Default to 0 when evidence of genuine power-sharing is absent**
 """,
 
-        task_instruction="""Determine whether decision-making in the executive was collegial (1) or non-collegial (0) during this leader's reign.
+        task_instruction="""Determine whether decision-making in the executive was collegial (1) or non-collegial (0) during this leader's tenure.
 
 - Collegial (1): Decisions genuinely shared by members of a formally constituted body — cabinets with independent ministers, military juntas, Roman consuls, regent councils, Swiss Federal Council
 - Non-Collegial (0): Single actor dominates, OR formally collegial body controlled by one person in practice
@@ -336,7 +336,7 @@ If a body is formally collegial but actually dominated by a single actor → Cod
         display_name="petition",
         specialization="governance institutions and political access",
         labels=["0", "1"],
-        task_description="whether petitioning was a regular and institutionalized feature of political life during a specific leader's reign",
+        task_description="whether petitioning was a regular and institutionalized feature of political life during a specific leader's tenure",
 
         definition="""
 ## Definition of Petition
@@ -350,12 +350,12 @@ A petition is a formal process by which a citizen or subject may lodge a complai
 
 ## Analysis Process
 
-1. Identify any institutionalized petition mechanisms during this leader's reign
+1. Identify any institutionalized petition mechanisms during this leader's tenure
 2. Assess whether petitioning was regularized and effective, or rare and ineffective
 3. Focus on de facto practice, not merely formal existence of petition mechanisms
 """,
 
-        task_instruction="""Determine whether petitioning was a regular and institutionalized feature of political life (0 or 1) during this leader's reign.
+        task_instruction="""Determine whether petitioning was a regular and institutionalized feature of political life (0 or 1) during this leader's tenure.
 
 - 0 (No): Use of petition is extremely rare and probably ineffective, or there is no record of its existence.
 - 1 (Yes): Petitions are a fairly regular feature of political life — citizens or subjects regularly lodge complaints or requests with high officials.""",
@@ -377,7 +377,7 @@ A petition is a formal process by which a citizen or subject may lodge a complai
         display_name="assembly status",
         specialization="legislative institutions",
         labels=["0", "1", "2", "3"],
-        task_description="the type of assembly or council that existed during a specific leader's reign",
+        task_description="the type of assembly or council that existed during a specific leader's tenure",
 
         definition="""
 ## Definition of Assembly
@@ -414,13 +414,13 @@ An assembly is a body designed to govern (directly), to select leaders, or to as
 
 ## Analysis Process
 
-1. Identify any deliberative or advisory bodies during this leader's reign
+1. Identify any deliberative or advisory bodies during this leader's tenure
 2. Determine if the body is institutionalized (regular meetings, designated name, stable membership)
 3. Assess the body's scope: small appointed council (Type 1), large representative body (Type 2), or most-citizens assembly (Type 3)
 4. Code based on actual (de facto) functioning, not formal arrangements
 """,
 
-        task_instruction="""Determine the assembly type (0, 1, 2, or 3) for this leader's reign.
+        task_instruction="""Determine the assembly type (0, 1, 2, or 3) for this leader's tenure.
 
 Types:
 - 0: None — no assembly or council; purely autocratic rule
@@ -456,7 +456,7 @@ Types:
         display_name="executive entry mode",
         specialization="executive selection and leadership transitions",
         labels=["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "99"],
-        task_description="the precise mode by which the executive came to power during a specific leader's reign",
+        task_description="the precise mode by which the executive came to power during a specific leader's tenure",
 
         definition="""
 ## Definition of Executive Entry
@@ -597,7 +597,7 @@ The circumstances of an executive's departure from office says a lot about a lea
         display_name="symbolism",
         specialization="executive power and political symbolism",
         labels=["0", "1", "2", "3"],
-        task_description="the degree of symbolic power reflected in the trappings of the executive office during a specific leader's reign",
+        task_description="the degree of symbolic power reflected in the trappings of the executive office during a specific leader's tenure",
 
         definition="""
 ## Definition of Symbolic Power
@@ -613,7 +613,7 @@ The power of the executive is to some extent reflected in the trappings of the o
 
 ## Analysis Process
 
-1. Identify the ceremonial and symbolic elements associated with the executive office during this leader's reign
+1. Identify the ceremonial and symbolic elements associated with the executive office during this leader's tenure
 2. Assess whether the officeholder is regarded as mortal (0/1) or divine (2) or ceremonially constrained (3)
 3. Determine if the trappings of office enhance or constrain actual executive power
 """,
@@ -684,12 +684,12 @@ This indicator codes whether members of an existing **Legislature (assembly = 2)
 
 ## Analysis Process
 
-1. Confirm that a Legislature (assembly = 2) exists during this leader's reign
+1. Confirm that a Legislature (assembly = 2) exists during this leader's tenure
 2. Determine how members of the assembly obtain their positions
 3. If elected: are elections contested by organized factions or parties?
 """,
 
-        task_instruction="""Determine the elections category (0, 1, or 2) for this leader's reign.
+        task_instruction="""Determine the elections category (0, 1, or 2) for this leader's tenure.
 
 **This indicator only applies when a Legislature (assembly = 2) exists.**
 
@@ -806,14 +806,14 @@ def build_user_prompt(
 
 COMBINED_SYSTEM_PROMPT = """You are a professional political scientist and historian specializing in comparative politics across different historical periods.
 
-Your task is to classify multiple political indicators for a specific leader's reign based on the polity name, leader name, and reign period provided.
+Your task is to classify multiple political indicators for a specific leader's tenure based on the polity name, leader name, and tenure period provided.
 
 ## General Guidelines
 
 1. **Independence**: Evaluate each indicator independently based on its specific definition
 2. **Evidence-based**: Base judgments on verifiable historical facts
 3. **De facto over de jure**: When actual power differs from formal arrangements, code based on actual practice
-4. **Leader-specific**: Focus on conditions during THIS SPECIFIC LEADER'S reign
+4. **Leader-specific**: Focus on conditions during THIS SPECIFIC LEADER'S tenure
 
 ## Output Format
 
@@ -859,11 +859,11 @@ def build_combined_prompt(
     output_schema = "{\n  " + ",\n  ".join(output_fields)
     output_schema += ',\n  "reasoning": "brief reasoning for each indicator",\n  "confidence_score": 1-100\n}'
 
-    user_prompt = f"""Please analyze the following leader's reign and classify each indicator:
+    user_prompt = f"""Please analyze the following leader's tenure and classify each indicator:
 
 **Polity:** {polity}
 **Leader:** {name}
-**Reign Period:** {start_year}-{end_year}
+**Tenure Period:** {start_year}-{end_year}
 
 {definitions_text}
 
@@ -875,7 +875,7 @@ Provide a JSON object with classifications for all indicators:
 
 **Remember:**
 - Evaluate each indicator independently
-- Focus on THIS LEADER'S reign specifically
+- Focus on THIS LEADER'S tenure specifically
 - Code based on de facto (actual) practice, not de jure (formal) arrangements
 
 Your JSON response:"""
@@ -968,37 +968,37 @@ def check_dependency(indicator: str, previous_results: Dict[str, str]) -> bool:
 
 COVE_QUESTION_TEMPLATES: Dict[str, List[str]] = {
     "sovereign": [
-        "Was {polity} a colony, protectorate, or vassal of another power during {name}'s reign ({start_year}-{end_year})?",
+        "Was {polity} a colony, protectorate, or vassal of another power during {name}'s tenure ({start_year}-{end_year})?",
         "Did {polity} conduct independent domestic governance under {name}?",
         "Did {polity} pay tribute or acknowledge suzerainty to any external power during {name}'s rule?"
     ],
     "federalism": [
-        "Did sub-national units in {polity} have constitutionally or compactly protected powers during {name}'s reign ({start_year}-{end_year})?",
+        "Did sub-national units in {polity} have constitutionally or compactly protected powers during {name}'s tenure ({start_year}-{end_year})?",
         "Were there representative bodies for local or regional units at the central level in {polity} under {name}?",
-        "Could the central government in {polity} freely abolish or override local units during {name}'s reign?"
+        "Could the central government in {polity} freely abolish or override local units during {name}'s tenure?"
     ],
     "checks": [
-        "Which independent groups or bodies had the capacity to resist the executive in {polity} during {name}'s reign ({start_year}-{end_year})?",
+        "Which independent groups or bodies had the capacity to resist the executive in {polity} during {name}'s tenure ({start_year}-{end_year})?",
         "Did local actors (clans, tribes, civil society, media) have the capacity or proclivity to resist {name}'s actions?",
         "Did military actors, clergy, or aristocracy constrain {name}'s executive power in {polity}?",
         "Did bureaucracy, judiciary, assembly, or advisory council have the capacity to resist {name}'s actions?"
     ],
     "collegiality": [
-        "What was the formal executive structure in {polity} during {name}'s reign ({start_year}-{end_year})?",
+        "What was the formal executive structure in {polity} during {name}'s tenure ({start_year}-{end_year})?",
         "Was there a cabinet, council, or collegial body that genuinely shared decision-making with {name}?",
         "Did {name} dominate decision-making, or were decisions genuinely shared among co-equals?",
         "Were there co-rulers, regents, or formally constituted bodies sharing executive power with {name}?"
     ],
     "assembly": [
-        "What deliberative or advisory bodies existed in {polity} during {name}'s reign ({start_year}-{end_year})?",
+        "What deliberative or advisory bodies existed in {polity} during {name}'s tenure ({start_year}-{end_year})?",
         "Was any such body a small advisory council (institutionalized, regular meetings, designated name) appointed by the ruler?",
         "Was there a large representative legislature that played a role in policymaking or leadership selection under {name}?",
         "Was there a popular assembly that included most citizens of {polity} or a sample chosen by lot under {name}?"
     ],
     "petition": [
         "Was there a formal or institutionalized process by which citizens or subjects could lodge complaints or requests with {name} or other high officials in {polity} ({start_year}-{end_year})?",
-        "Was petitioning a regular and effective feature of political life in {polity} during {name}'s reign?",
-        "What forms did petitioning take in {polity} during {name}'s reign — formal hearings, written requests, or other mechanisms?"
+        "Was petitioning a regular and effective feature of political life in {polity} during {name}'s tenure?",
+        "What forms did petitioning take in {polity} during {name}'s tenure — formal hearings, written requests, or other mechanisms?"
     ],
     "entry": [
         "How did {name} come to power in {polity}?",
@@ -1011,12 +1011,12 @@ COVE_QUESTION_TEMPLATES: Dict[str, List[str]] = {
         "Was {name}'s departure the result of institutional processes, personal choice, health, or external force?"
     ],
     "symbolism": [
-        "What ceremonial or symbolic elements were associated with the executive office in {polity} during {name}'s reign ({start_year}-{end_year})?",
+        "What ceremonial or symbolic elements were associated with the executive office in {polity} during {name}'s tenure ({start_year}-{end_year})?",
         "Was {name} regarded as divine or quasi-divine, or as an ordinary mortal?",
         "Did the trappings of {name}'s office enhance or constrain actual executive power?"
     ],
     "elections": [
-        "How were members of the large legislature selected in {polity} during {name}'s reign ({start_year}-{end_year})?",
+        "How were members of the large legislature selected in {polity} during {name}'s tenure ({start_year}-{end_year})?",
         "Were assembly members elected by an electorate considerably larger than the body itself?",
         "If elections existed, were they contested by organized factions or parties in {polity} under {name}?"
     ],

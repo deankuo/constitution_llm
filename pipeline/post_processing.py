@@ -146,7 +146,7 @@ assembly members obtained their positions.
 
 **Polity:** {polity}
 **Leader:** {name}
-**Reign Period:** {start_year}-{end_year}
+**Tenure Period:** {start_year}-{end_year}
 
 Determine the elections category:
 - 0: Members are NOT elected (appointed, hereditary, or selected by small ruling group)
@@ -166,7 +166,7 @@ Respond with a single JSON object:
 
 ELECTIONS_SINGLE_V1_SYSTEM_PROMPT = """You are a political scientist coding executive constraints for historical leaders.
 
-**Core rule:** Code de facto (actual) practice, not de jure (formal) arrangements. Focus on THIS specific leader's reign. When evidence is uncertain: this indicator can safely default to 0 / None — if legislative elections existed, the historical record would usually mention it, so silence indicates absence.
+**Core rule:** Code de facto (actual) practice, not de jure (formal) arrangements. Focus on THIS specific leader's tenure. When evidence is uncertain: this indicator can safely default to 0 / None — if legislative elections existed, the historical record would usually mention it, so silence indicates absence.
 
 ## Elections
 
@@ -193,7 +193,7 @@ ELECTIONS_SINGLE_V1_USER_PROMPT_TEMPLATE = """Classify the elections indicator f
 
 **Polity:** {polity}
 **Leader:** {name}
-**Reign:** {start_year}-{end_year}
+**Tenure:** {start_year}-{end_year}
 
 A LARGE ASSEMBLY (Type 2) is KNOWN TO EXIST. Return a single JSON object with all required fields."""
 
@@ -201,7 +201,7 @@ ELECTIONS_SINGLE_V2_SYSTEM_PROMPT = """You are an expert annotator for the "Grow
 
 **Annotation Rules:**
 1. Always code actual (de facto) behavior, never formal (de jure) arrangements.
-2. Evaluate conditions as they existed during THIS leader's specific reign.
+2. Evaluate conditions as they existed during THIS leader's specific tenure.
 3. When evidence is uncertain: this indicator can safely default to 0 — if legislative elections existed, the historical record would usually mention it, so silence indicates absence.
 
 ## Elections Indicator Reference
@@ -217,7 +217,7 @@ Coding:
 
 ## Step-by-Step Instructions
 
-1. Recall relevant historical facts about this leader's reign.
+1. Recall relevant historical facts about this leader's tenure.
 2. Determine whether assembly members are selected by an electorate larger than the body itself.
 3. If elected: assess whether elections are contested by organized factions or parties.
 4. Assign the appropriate code. Record your confidence (1–100).
@@ -234,11 +234,11 @@ ELECTIONS_SINGLE_V2_USER_PROMPT_TEMPLATE = """Annotate the following leader:
 
 Polity: {polity}
 Leader: {name}
-Reign: {start_year}–{end_year}
+Tenure: {start_year}–{end_year}
 
 A LARGE ASSEMBLY (Type 2) is KNOWN TO EXIST. Apply the indicator definition strictly. Return your annotation as a single JSON object."""
 
-ELECTIONS_SINGLE_V3_SYSTEM_PROMPT = """You are a political historian classifying executive constraints for historical leaders. Code based on de facto (actual) practice, not de jure arrangements. Focus on this specific leader's reign. When uncertain: elections defaults to 0 — if legislative elections existed, the historical record would usually mention it.
+ELECTIONS_SINGLE_V3_SYSTEM_PROMPT = """You are a political historian classifying executive constraints for historical leaders. Code based on de facto (actual) practice, not de jure arrangements. Focus on this specific leader's tenure. When uncertain: elections defaults to 0 — if legislative elections existed, the historical record would usually mention it.
 
 ## Elections
 
