@@ -49,9 +49,10 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
         display_name="Sovereignty",
         labels=["0", "1"],
         summary=(
-            "Sovereignty refers to a polity's ability to conduct domestic affairs without foreign interference. "
-            "Because we are concerned with executive constraints that arise from within a polity, foreign influences are usually corrupting. "
-            "An executive obeisant to foreign diktats must be (ceteris paribus) less sensitive to domestic actors.\n\n"
+            "IMPORTANT: When evidence is uncertain, default to 1 (Sovereign) — silence usually means no foreign overlord — but be cautious for premodern/non-Western polities where tributary or vassal status may go unrecorded.\n\n"
+            "Sovereignty refers to a polity's ability to conduct its own domestic affairs without "
+            "foreign interference. Code the polity's de facto control over domestic affairs during "
+            "this leader's reign; the conduct of foreign affairs is not relevant here.\n\n"
             "Coding:\n"
             "• 0 = Semi-sovereign. Examples: colony, protectorate, distant or overseas territory (not fully incorporated into the metropole).\n"
             "• 1 = Sovereign. Examples: city-states, nation-states, empires, republics, monarchies, tributary states "
@@ -69,11 +70,10 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
         display_name="Federalism",
         labels=["0", "1"],
         summary=(
-            "Federalism refers generally to a division of sovereignty between central and local units, "
-            "reserving some important powers to the latter and promising a relatively decentralized mode of governance. "
-            "Typically, rights enjoyed by local governance units are enshrined in a constitution. "
-            "Commonly, localities are represented in a legislative chamber at the polity level. "
-            "However constituted, a federal polity may be expected to impose constraints on the executive.\n\n"
+            "Federalism refers to a division of sovereignty between central and local units, reserving "
+            "some important powers to the latter and providing a relatively decentralized mode of "
+            "governance. Such powers are typically enshrined in a constitution, and localities are "
+            "often represented in a chamber at the polity level.\n\n"
             "Coding:\n"
             "• 0 = Non-federal.\n"
             "• 1 = Federal. Includes confederations, leagues, and composite monarchies. "
@@ -121,11 +121,11 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
         display_name="Collegiality",
         labels=["0", "1"],
         summary=(
-            "Where power at the apex of a polity is exercised in a collegial manner, decisionmaking power is shared among a number of actors. "
-            "There may be a titular head (e.g., director or chair) but the other members of the group are regarded as co-equals, partners, collaborators. "
-            "Collegial decisionmaking is consultative – lateral rather than vertical. "
-            "Wherever de facto practices differs from de jure rules, it is the former that governs coding decisions. "
-            "That is, if a body is formally collegial but actually dominated by a single actor it should not be coded as collegial.\n\n"
+            "Collegiality refers to power at the apex of a polity being exercised in a shared manner: "
+            "decisionmaking power is divided among co-equal actors. There may be a titular head "
+            "(e.g., a director or chair), but the other members are regarded as partners and "
+            "collaborators; decisionmaking is lateral rather than vertical. Code de facto practice — "
+            "if a body is formally collegial but actually dominated by a single actor, it is NOT collegial.\n\n"
             "Coding:\n"
             "• 0 = Non-collegial. Examples: most presidencies, monarchies, and dictatorships.\n"
             "• 1 = Collegial. Examples: most cabinets, some military juntas, many regencies, Roman consuls, Switzerland's modern presidency."
@@ -140,13 +140,11 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
         display_name="Petition",
         labels=["0", "1"],
         summary=(
-            "A petition is a formal process by which a citizen or subject may lodge a complaint or "
-            "request for redress with a high official, e.g., a head of state, legislature, court, or "
-            "ombudsman. The petition may take the form of a face-to-face meeting (the \"bell of justice\" "
-            "tradition in Asia), a letter, or an electronic communication. It may have individual or "
-            "multiple signatories. Whatever the particulars, the process is regularized and to some "
-            "extent institutionalized — it is part of the governance structure, and as such may "
-            "influence decisionmaking at the top.\n\n"
+            "A petition is a regularized, institutionalized process by which a subject or citizen may "
+            "lodge a complaint or request for redress with a high official (e.g., a head of state, "
+            "legislature, court, or ombudsman). It may take the form of a face-to-face meeting "
+            "(the \"bell of justice\" tradition), a letter, or an electronic communication, with one "
+            "or many signatories.\n\n"
             "Coding:\n"
             "• 0 = No. Use of petition is extremely rare and probably ineffective, or there is no record "
             "of its existence.\n"
@@ -162,8 +160,9 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
         display_name="Assembly",
         labels=["0", "1", "2", "3"],
         summary=(
-            "An assembly is a body designed to govern (directly), to select leaders, or to assist in governing. "
-            "It may be advisory (a council of selected elites), representative (a legislature), or inclusive of all citizens (a popular assembly).\n\n"
+            "An assembly is a body designed to govern directly, to select leaders, or to assist in "
+            "governing. It may be advisory (a council of selected elites), representative (a "
+            "legislature), or inclusive of all citizens (a popular assembly).\n\n"
             "Coding:\n"
             "• 0 = None.\n"
             "• 1 = Council. A small advisory council appointed by the ruler, which may not enjoy much autonomy but is nonetheless institutionalized "
@@ -184,8 +183,9 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
         display_name="Entry",
         labels=["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "99"],
         summary=(
-            "The manner in which executives enter office is widely regarded as a key to their power while in office. "
-            "Leader selection indicates the sorts of constraints executives are likely to face.\n\n"
+            "IMPORTANT: Code the manner of entry at the START of this reign, not later events. If it cannot be determined, use 99 (do NOT guess to avoid it).\n\n"
+            "The manner in which the executive entered office. Code the manner of entry at the START "
+            "of this leader's reign (the accession in {start_year}).\n\n"
             "Coding:\n"
             "• 0 = Through the threat or application of force, such as a coup or rebellion\n"
             "• 1 = Appointed by a foreign power\n"
@@ -210,7 +210,9 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
         display_name="Exit",
         labels=["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "99"],
         summary=(
-            "The circumstances of an executive's departure from office says a lot about a leader's prerogative while in office.\n\n"
+            "IMPORTANT: Code the manner of entry at the START of this reign, not later events. If it cannot be determined, use 99 (do NOT guess to avoid it).\n\n"
+            "The circumstances of the executive's departure from office. Code the manner of exit at "
+            "the END of this leader's reign (the departure in {end_year}).\n\n"
             "Coding:\n"
             "• 0 = Abdicated or retired voluntarily but NOT due to ill health\n"
             "• 1 = Other regular exit (e.g., term limits or defeat in election)\n"
@@ -239,9 +241,11 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
         display_name="Symbolism",
         labels=["0", "1", "2", "3"],
         summary=(
-            "The power of the executive is to some extent reflected in the trappings of the office. "
-            "Note: This scale is non-monotonic with respect to leader power — higher codes do not always mean "
-            "more actual power. Purely ceremonial leaders are excluded.\n\n"
+            "IMPORTANT: This scale is NON-MONOTONIC with respect to leader power — a higher code does "
+            "NOT mean more actual power. Codes 0-2 rise with the grandeur of the office, but code 3 "
+            "marks largely ceremonial figureheads with little real power. Code the trappings and "
+            "self-presentation of the office, NOT the leader's actual power. (Purely ceremonial heads "
+            "who are not paramount leaders are excluded from the sample.)\n\n"
             "Coding:\n"
             "• 0 = Plain. The trappings of the office are plain and simple. Little distinguishes the personage "
             "of the ruler from others in the realm. Example: British prime minister (10 Downing Street).\n"

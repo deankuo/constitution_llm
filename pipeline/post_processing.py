@@ -72,6 +72,14 @@ from config import SearchMode
 load_dotenv()
 
 
+def _strip_reasoning(system_prompt: str, user_prompt: str) -> tuple:
+    """Return (system_prompt, user_prompt) with elections reasoning fields removed."""
+    import re
+    sys_out = re.sub(r'\n- "(?:elections_)?reasoning":[^\n]*', '', system_prompt)
+    usr_out = re.sub(r'"(?:elections_)?reasoning"(?:: "[^"]*")?,\s*', '', user_prompt)
+    return sys_out, usr_out
+
+
 # =============================================================================
 # ELECTIONS PROMPT
 # =============================================================================
@@ -167,7 +175,7 @@ A legislative election refers to a regularized selection procedure in which memb
 **A LARGE ASSEMBLY (Type 2) is KNOWN TO EXIST** in the polity below. Your task is to determine whether members of that assembly were elected to their positions, and—if so—whether those elections were contested by organized factions or parties.
 
 Coding:
-• 0 = None. Examples: appointive legislatures, polities without a legislature (Assembly=0, 1, or 3).
+• 0 = No elections. Members of the assembly obtain their seats by appointment, heredity, or other non-electoral means (e.g., an appointive legislature or polities without a legislature).
 • 1 = Non-competitive. Elections without identifiable parties or factions, or where one party/faction monopolizes the field. May consist of a vote by acclamation.
 • 2 = Competitive. Elections are organized by multiple factions or parties. Although the contest may not be free and fair, contestants have a reasonable expectation of winning power at some point in the future. Turnover is conceivable.
 
@@ -203,7 +211,7 @@ A legislative election refers to a regularized selection procedure in which memb
 **A LARGE ASSEMBLY (Type 2) is KNOWN TO EXIST. Determine whether its members are elected.**
 
 Coding:
-• 0 = None — appointive legislatures or polities without a legislature (Assembly=0, 1, or 3).
+• 0 = No elections. Members of the assembly obtain their seats by appointment, heredity, or other non-electoral means (e.g., an appointive legislature or polities without a legislature).
 • 1 = Non-competitive — elections without identifiable parties or factions, or where one party/faction monopolizes the field; may be a vote by acclamation.
 • 2 = Competitive — elections organized by multiple factions or parties; although contests may not be free and fair, contestants have a reasonable expectation of winning power at some point.
 
@@ -237,7 +245,7 @@ ELECTIONS_SINGLE_V3_SYSTEM_PROMPT = """You are a political historian classifying
 A LARGE ASSEMBLY (Type 2) EXISTS. A legislative election is a regularized selection procedure where members are chosen by an electorate considerably larger than the body itself.
 
 Elections (0/1/2):
-• 0 = None — not elected (appointive, hereditary, or no legislature).
+• 0 = No elections. Members of the assembly obtain their seats by appointment, heredity, or other non-electoral means.
 • 1 = Non-competitive — elected but no organized factions/parties; may be by acclamation.
 • 2 = Competitive — organized factions/parties compete; turnover conceivable.
 
@@ -298,9 +306,11 @@ class ElectionsClassifier:
         sc_temperatures: Optional[List[float]] = None,
         mode: str = "single",
         prompt_version: str = "v1",
+        reasoning: bool = True,
     ):
         self.model = model
         self.use_logprobs = use_logprobs
+        self.reasoning = reasoning
         self.llm = create_llm(model, api_keys, use_logprobs=use_logprobs)
         self.n_samples = n_samples
         # Default SC temperatures: n_samples draws at 0.7
@@ -333,7 +343,8 @@ class ElectionsClassifier:
 
         df[self.PRED_COL] = None
         df[self.CONF_COL] = None
-        df[self.REASON_COL] = None
+        if self.reasoning:
+            df[self.REASON_COL] = None
         if self.use_logprobs:
             df[self.LOGPROB_COL] = None
         if self.search_mode != SearchMode.NONE:
@@ -361,7 +372,8 @@ class ElectionsClassifier:
         for orig_idx, pred, conf, reason, logprob, queries_str, urls_str in results:
             df.at[orig_idx, self.PRED_COL] = pred
             df.at[orig_idx, self.CONF_COL] = conf
-            df.at[orig_idx, self.REASON_COL] = reason
+            if self.reasoning:
+                df.at[orig_idx, self.REASON_COL] = reason
             if self.use_logprobs:
                 df.at[orig_idx, self.LOGPROB_COL] = logprob
             if self.search_mode != SearchMode.NONE:
@@ -442,6 +454,9 @@ class ElectionsClassifier:
             system_prompt_tmpl, user_prompt_tmpl = _SINGLE_PROMPTS[self.prompt_version or "v1"]
         else:
             system_prompt_tmpl, user_prompt_tmpl = ELECTIONS_SYSTEM_PROMPT, ELECTIONS_USER_PROMPT_TEMPLATE
+
+        if not self.reasoning:
+            system_prompt_tmpl, user_prompt_tmpl = _strip_reasoning(system_prompt_tmpl, user_prompt_tmpl)
 
         user_prompt = user_prompt_tmpl.format(
             polity=polity,
@@ -701,6 +716,12 @@ Examples:
             "  v3 — compact/minimal token-efficient framing."
         )
     )
+    parser.add_argument(
+        "--reasoning",
+        type=lambda x: x.lower() == "true",
+        default=True,
+        help="Include reasoning in elections output (default: True). Set to False for prediction-only output.",
+    )
 
     args = parser.parse_args()
 
@@ -749,6 +770,7 @@ Examples:
         n_samples=args.n_samples,
         mode=args.mode,
         prompt_version=args.prompt_version,
+        reasoning=args.reasoning,
     )
 
     result_df = classifier.classify(df)

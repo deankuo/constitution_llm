@@ -108,9 +108,7 @@ class PolityPrediction:
         for ind_name, ind_pred in self.predictions.items():
             result[f'{ind_name}_prediction'] = ind_pred.prediction
 
-            # Include reasoning column for constitution always;
-            # for other indicators only when reasoning is enabled
-            if ind_name == 'constitution' or self.reasoning:
+            if self.reasoning:
                 result[f'{ind_name}_reasoning'] = ind_pred.reasoning
 
             result[f'{ind_name}_confidence'] = ind_pred.confidence_score

@@ -1047,7 +1047,7 @@ Examples:
         '--reasoning',
         type=lambda x: x.lower() == 'true',
         default=True,
-        help='Include reasoning in predictions for 6 indicators (default: True). Set to False for prediction-only output. Constitution always includes reasoning.'
+        help='Include reasoning in predictions (default: True). Set to False for prediction-only output.'
     )
     parser.add_argument(
         '--logprobs',

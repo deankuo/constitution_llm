@@ -65,8 +65,6 @@ When multiple documents existed during the reign:
 - List their corresponding types in `document_types` (semicolon-separated, **same order**)
 - List their adoption years in `constitution_year` (semicolon-separated, **same order**)
 
-**CRITICAL**: `document_name`, `document_types`, and `constitution_year` must each have the same number of semicolon-separated entries.
-
 ## Analysis Process
 
 **Step 1 — Identify the Historical Context**
@@ -125,12 +123,38 @@ Provide a JSON object with exactly these fields:
 
 Maintain professional objectivity and base all judgments on verifiable historical facts."""
 
+SYSTEM_PROMPT_NO_REASONING = SYSTEM_PROMPT.replace(
+    '- "reasoning": Step-by-step reasoning following the analysis process\n',
+    ''
+)
+
 
 # =============================================================================
 # USER PROMPT TEMPLATE
 # =============================================================================
 
-USER_PROMPT_TEMPLATE = """Please classify the written legal documents for the following leader's reign:
+USER_PROMPT_TEMPLATE = """Classify the written legal documents for the following leader's reign:
+**Polity:** {polity}
+**Leader:** {name}
+**Reign Period:** {start_year}–{end_year}
+
+Work through the six analysis steps and return the JSON object specified above.
+**When uncertain, default to a lower type (conservative coding).**
+
+Respond with a single JSON object (no markdown, no extra text):
+
+{{"constitution": 0/1/2, "document_name": "name(s) or N/A (semicolon-separated)", "document_types": "type integers or N/A (semicolon-separated, same order as document_name)", "constitution_year": "exact integer year(s) or N/A (semicolon-separated, same order, no 'c.' or 'circa')", "reasoning": "step-by-step reasoning", "confidence_score": 1-100}}
+
+## Now provide your analysis:
+"""
+
+USER_PROMPT_TEMPLATE_NO_REASONING = USER_PROMPT_TEMPLATE.replace(
+    '"reasoning": "step-by-step reasoning", ',
+    ''
+)
+
+
+USER_PROMPT_TEMPLATE_V0 = """Please classify the written legal documents for the following leader's reign:
 
 **Polity:** {polity}
 **Leader:** {name}
@@ -171,7 +195,8 @@ def get_prompt(
     polity: str,
     name: str,
     start_year: int,
-    end_year: Optional[int]
+    end_year: Optional[int],
+    reasoning: bool = True,
 ) -> Tuple[str, str]:
     """
     Get system and user prompts for constitution analysis (leader-level).
@@ -181,27 +206,31 @@ def get_prompt(
         name: Name of the leader
         start_year: Start year of the leader's reign
         end_year: End year of the leader's reign (None if unknown)
+        reasoning: Whether to include a reasoning field in the output format
 
     Returns:
         Tuple of (system_prompt, user_prompt)
     """
-    reign_period = f"{start_year}-{end_year if end_year is not None else 'unknown'}"
-    user_prompt = USER_PROMPT_TEMPLATE.format(
+    sys_tmpl = SYSTEM_PROMPT if reasoning else SYSTEM_PROMPT_NO_REASONING
+    usr_tmpl = USER_PROMPT_TEMPLATE if reasoning else USER_PROMPT_TEMPLATE_NO_REASONING
+    user_prompt = usr_tmpl.format(
         polity=polity,
         name=name,
-        reign_period=reign_period
+        start_year=start_year,
+        end_year=end_year if end_year is not None else 'unknown',
     )
-    return SYSTEM_PROMPT, user_prompt
+    return sys_tmpl, user_prompt
 
 
 def get_constitution_prompt(
     polity: str,
     name: str,
     start_year: int,
-    end_year: int
+    end_year: int,
+    reasoning: bool = True,
 ) -> Tuple[str, str]:
     """Alias for get_prompt for backwards compatibility."""
-    return get_prompt(polity, name, start_year, end_year)
+    return get_prompt(polity, name, start_year, end_year, reasoning=reasoning)
 
 
 def get_labels() -> List[str]:

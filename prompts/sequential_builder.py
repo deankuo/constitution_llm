@@ -176,8 +176,7 @@ You MUST provide predictions for ALL {len(sequence)} indicators in a SINGLE JSON
             prompt += f"## INDICATOR {i}/{len(sequence)}: {indicator.upper()}\n\n"
 
             if indicator == 'constitution':
-                # Use constitution's system prompt (always includes reasoning)
-                system_prompt, _ = get_constitution_prompt(polity, name, start_year, end_year)
+                system_prompt, _ = get_constitution_prompt(polity, name, start_year, end_year, reasoning=self.reasoning)
                 prompt += system_prompt
             else:
                 # Use indicator's system prompt from indicators.py
@@ -218,7 +217,8 @@ You have analyzed {len(sequence)} indicators above. Now provide a SINGLE JSON ob
                 prompt += f'"document_name": "name(s) or N/A (semicolon-separated)",\n  '
                 prompt += f'"document_types": "type integers or N/A (semicolon-separated, same order as document_name)",\n  '
                 prompt += f'"constitution_year": "exact integer year(s) or N/A (semicolon-separated, same order, no circa/c.)",\n  '
-                prompt += f'"constitution_reasoning": "your constitutional analysis",\n  '
+                if self.reasoning:
+                    prompt += f'"constitution_reasoning": "your constitutional analysis",\n  '
                 prompt += f'"constitution_confidence_score": 1-100'
             else:
                 labels = INDICATOR_CONFIGS[indicator].labels
@@ -234,7 +234,7 @@ You have analyzed {len(sequence)} indicators above. Now provide a SINGLE JSON ob
         prompt += "\n}"
 
         if not self.reasoning:
-            prompt += "\n**DO NOT include any reasoning or analysis fields for the 6 non-constitution indicators. Only include prediction and confidence_score fields.**\n"
+            prompt += "\n**DO NOT include any reasoning or analysis fields for any indicator. Only include prediction and confidence_score fields.**\n"
 
         prompt += """
 **CRITICAL REQUIREMENTS:**
@@ -288,8 +288,7 @@ You will analyze these indicators in sequence:
             prompt += f"### INDICATOR {i}/{len(sequence)}: {indicator.upper()}\n\n"
 
             if indicator == 'constitution':
-                # Use constitution's user prompt (always includes reasoning)
-                _, user_prompt = get_constitution_prompt(polity, name, start_year, end_year)
+                _, user_prompt = get_constitution_prompt(polity, name, start_year, end_year, reasoning=self.reasoning)
                 prompt += user_prompt
             else:
                 # Use indicator's user prompt from indicators.py

@@ -66,7 +66,8 @@ class MultiplePromptBuilder(BasePromptBuilder):
                     polity=polity,
                     name=name,
                     start_year=start_year,
-                    end_year=end_year
+                    end_year=end_year,
+                    reasoning=self.reasoning,
                 )
                 prompts.append(PromptOutput(
                     system_prompt=system_prompt,
