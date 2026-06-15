@@ -49,10 +49,16 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
         display_name="Sovereignty",
         labels=["0", "1"],
         summary=(
-            "IMPORTANT: When evidence is uncertain, default to 1 (Sovereign) — silence usually means no foreign overlord — but be cautious for premodern/non-Western polities where tributary or vassal status may go unrecorded.\n\n"
-            "Sovereignty refers to a polity's ability to conduct its own domestic affairs without "
-            "foreign interference. Code the polity's de facto control over domestic affairs during "
-            "this leader's reign; the conduct of foreign affairs is not relevant here.\n\n"
+            "IMPORTANT: This scale is NON-MONOTONIC with respect to leader power — a higher code does "
+            "NOT mean more actual power. Codes 0-2 rise with the grandeur of the office, but code 3 "
+            "marks largely ceremonial figureheads with little real power. Code the trappings and "
+            "self-presentation of the office, NOT the leader's actual power. (Purely ceremonial heads "
+            "who are not paramount leaders are excluded from the sample.)\n\n"
+            "Symbolic power is reflected in the trappings of office and the presentation of self — "
+            "e.g., a grandly appointed palace; regalia such as scepters, seals, thrones, and special "
+            "garments; an aristocratic court and retinue; performance of spiritual rituals central to "
+            "the polity; powers normally reserved for deities; special forms of address marking the "
+            "ruler's apartness; and protections of the ruler's status such as lèse-majesté.\n\n"
             "Coding:\n"
             "• 0 = Semi-sovereign. Examples: colony, protectorate, distant or overseas territory (not fully incorporated into the metropole).\n"
             "• 1 = Sovereign. Examples: city-states, nation-states, empires, republics, monarchies, tributary states "
