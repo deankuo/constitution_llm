@@ -24,7 +24,10 @@ Self-consistency convention — matches main.py / SelfConsistencyConfig
   n_samples=0 → no SC (single call), no _verified/_agreement/_uncertainty columns
   n_samples=2 → 3 votes, write _verified/_agreement/_uncertainty
 
-Custom ID format: "{row_idx}|{indicator}|{sc_idx}"
+Custom ID format:
+  constitution/elections:  "{row_idx}|{indicator}|{sc_idx}"
+  single-mode indicators:  "{row_idx}|single|{sc_idx}"  (one request covers ALL indicators)
+    indicators list is embedded in metadata["indicators"] for _aggregate_and_merge
 
 Usage (standalone)
 ------------------
@@ -63,6 +66,7 @@ from utils.json_parser import (
 )
 
 BATCH_DISCOUNT = 0.5
+MAX_BATCH_BYTES = 1_900 * 1024 * 1024  # 1.9 GB — safely under Gemini's 2 GB per-job limit
 
 
 # ---------------------------------------------------------------------------
@@ -75,6 +79,34 @@ def _parse_custom_id(cid: str) -> tuple[int, str, int]:
     if len(parts) != 3:
         raise ValueError(f"Unexpected custom_id format: {cid!r}")
     return int(parts[0]), parts[1], int(parts[2])
+
+
+# ---------------------------------------------------------------------------
+# Request chunking (for Gemini's 2 GB per-job limit)
+# ---------------------------------------------------------------------------
+
+def _chunk_requests(
+    requests: list[dict],
+    max_bytes: int = MAX_BATCH_BYTES,
+) -> list[list[dict]]:
+    """Split requests into chunks whose serialized size stays under max_bytes.
+
+    Returns a list of sub-lists. If all requests fit in one chunk, returns [[...all...]].
+    """
+    chunks: list[list[dict]] = []
+    current: list[dict] = []
+    current_size = 0
+    for req in requests:
+        lb = len(json.dumps(req, ensure_ascii=False).encode("utf-8")) + 1  # +1 for newline
+        if current and current_size + lb > max_bytes:
+            chunks.append(current)
+            current = []
+            current_size = 0
+        current.append(req)
+        current_size += lb
+    if current:
+        chunks.append(current)
+    return chunks or [[]]
 
 
 # ---------------------------------------------------------------------------
@@ -187,30 +219,44 @@ def _build_requests_in_memory(
 ) -> list[dict]:
     """Build all batch requests in memory.
 
-    If prompt_builder is provided (e.g. monkey-patched for forced search),
-    it is used for all indicators including constitution.
-    Otherwise uses get_constitution_prompt + MultiplePromptBuilder.
+    If prompt_builder is provided (e.g. forced search path), it is used as-is.
+      - Single-mode prompts (len(indicators) > 1): custom_id "{row_idx}|single|{sc_idx}",
+        indicators list embedded in metadata["indicators"].
+      - Multiple-mode prompts (len(indicators) == 1): custom_id "{row_idx}|{indicator}|{sc_idx}".
+
+    Standard path (no prompt_builder):
+      - constitution → get_constitution_prompt, custom_id "{row_idx}|constitution|{sc_idx}"
+      - other indicators → SinglePromptBuilder (all indicators in one prompt per row),
+        custom_id "{row_idx}|single|{sc_idx}", metadata["indicators"] set.
     """
     all_temps = _all_temperatures(n_samples, sc_temperatures)
     requests = []
 
     if prompt_builder is not None:
-        # Custom builder (e.g. forced search path with monkey-patched build())
+        # Custom builder (e.g. forced search path)
         for row_idx in tqdm(range(len(df)), desc="building requests"):
             polity, name, start_year, end_year = _row_fields(df.iloc[row_idx])
             prompts = prompt_builder.build(polity, name, start_year, end_year)
             for prompt in prompts:
-                if len(prompt.indicators) != 1:
-                    continue  # batch only supports multiple mode (one indicator per prompt)
-                indicator = prompt.indicators[0]
-                for sc_idx, temp in enumerate(all_temps):
-                    cid = f"{row_idx}|{indicator}|{sc_idx}"
-                    requests.append(_make_req(cid, prompt.system_prompt, prompt.user_prompt, temp, max_tokens, n_samples))
+                if len(prompt.indicators) == 1:
+                    # Multiple mode: one indicator per prompt
+                    indicator = prompt.indicators[0]
+                    for sc_idx, temp in enumerate(all_temps):
+                        cid = f"{row_idx}|{indicator}|{sc_idx}"
+                        requests.append(_make_req(cid, prompt.system_prompt, prompt.user_prompt, temp, max_tokens, n_samples))
+                else:
+                    # Single mode: all indicators in one prompt
+                    indicators_json = json.dumps(prompt.indicators)
+                    for sc_idx, temp in enumerate(all_temps):
+                        cid = f"{row_idx}|single|{sc_idx}"
+                        req = _make_req(cid, prompt.system_prompt, prompt.user_prompt, temp, max_tokens, n_samples)
+                        req["metadata"]["indicators"] = indicators_json
+                        requests.append(req)
         return requests
 
-    # Standard path: use default builders
+    # Standard path: constitution → own prompt; others → SinglePromptBuilder
     from prompts.constitution import get_prompt as get_constitution_prompt
-    from prompts.multiple_builder import MultiplePromptBuilder
+    from prompts.single_builder import SinglePromptBuilder
 
     constitution_in = "constitution" in indicators
     other_indicators = [i for i in indicators if i != "constitution"]
@@ -224,15 +270,16 @@ def _build_requests_in_memory(
                 requests.append(_make_req(cid, sys_p, usr_p, temp, max_tokens, n_samples))
 
     if other_indicators:
-        builder = MultiplePromptBuilder(indicators=other_indicators, reasoning=True)
+        builder = SinglePromptBuilder(indicators=other_indicators, reasoning=True)
+        indicators_json = json.dumps(other_indicators)
         for row_idx in tqdm(range(len(df)), desc="indicators"):
             polity, name, start_year, end_year = _row_fields(df.iloc[row_idx])
-            prompts = builder.build(polity, name, start_year, end_year)
-            for prompt in prompts:
-                indicator = prompt.indicators[0]
-                for sc_idx, temp in enumerate(all_temps):
-                    cid = f"{row_idx}|{indicator}|{sc_idx}"
-                    requests.append(_make_req(cid, prompt.system_prompt, prompt.user_prompt, temp, max_tokens, n_samples))
+            prompt = builder.build(polity, name, start_year, end_year)[0]
+            for sc_idx, temp in enumerate(all_temps):
+                cid = f"{row_idx}|single|{sc_idx}"
+                req = _make_req(cid, prompt.system_prompt, prompt.user_prompt, temp, max_tokens, n_samples)
+                req["metadata"]["indicators"] = indicators_json
+                requests.append(req)
 
     return requests
 
@@ -376,13 +423,37 @@ def _aggregate_and_merge(
     raw_results: dict[str, str],
     df: pd.DataFrame,
     n_samples: int,
+    request_metadata: Optional[dict[str, dict]] = None,
 ) -> pd.DataFrame:
-    """Parse all responses, aggregate SC votes, merge into df."""
+    """Parse all responses, aggregate SC votes, merge into df.
+
+    For single-mode responses (indicator == "single"), the same full response
+    text is re-used for each indicator extracted from metadata["indicators"].
+    validate_indicator_response already handles {indicator}_reasoning /
+    {indicator}_confidence keys emitted by SinglePromptBuilder.
+    """
     n_rows = len(df)
+
+    # Expand single-mode responses: one combined response → N per-indicator entries.
+    # Each indicator gets the same full JSON text; _parse_indicator extracts only its keys.
+    expanded: dict[str, str] = {}
+    for cid, resp_text in raw_results.items():
+        try:
+            row_idx, indicator, sc_idx = _parse_custom_id(cid)
+        except Exception as e:
+            print(f"  WARNING: cannot parse custom_id {cid!r}: {e}")
+            continue
+        if indicator == "single":
+            meta = (request_metadata or {}).get(cid, {})
+            inds = json.loads(meta.get("indicators", "[]"))
+            for ind in inds:
+                expanded[f"{row_idx}|{ind}|{sc_idx}"] = resp_text
+        else:
+            expanded[cid] = resp_text
 
     # Group by (row_idx, indicator) → {sc_idx: response_text}
     grouped: dict[tuple[int, str], dict[int, str]] = defaultdict(dict)
-    for cid, resp_text in raw_results.items():
+    for cid, resp_text in expanded.items():
         try:
             row_idx, indicator, sc_idx = _parse_custom_id(cid)
             grouped[(row_idx, indicator)][sc_idx] = resp_text
@@ -496,9 +567,8 @@ def run_inline_batch(
     total_per_group = n_samples + 1
     all_temps = _all_temperatures(n_samples, sc_temperatures)
     print(
-        f"\n[Batch] Building requests: {len(indicators)} indicators × {len(df)} rows × "
-        f"{total_per_group} SC calls (temps={all_temps}) = "
-        f"~{len(indicators) * len(df) * total_per_group} total"
+        f"\n[Batch] Building requests: {len(indicators)} indicators over {len(df)} rows "
+        f"({total_per_group} SC calls each, temps={all_temps}) ..."
     )
     requests = _build_requests_in_memory(
         df=df,
@@ -510,9 +580,20 @@ def run_inline_batch(
     )
     print(f"[Batch] Built {len(requests)} requests")
 
-    # Submit and wait
-    display_name = f"const-llm-{Path(output_path).stem}-{int(time.time())}"
-    raw_results = _submit_and_wait(client, model, requests, display_name, poll_interval)
+    # Build metadata lookup for _aggregate_and_merge (needed for single-mode expansion)
+    request_metadata = {r["metadata"]["custom_id"]: r["metadata"] for r in requests}
+
+    # Chunk requests to stay under Gemini's 2 GB per-job limit, then submit sequentially
+    chunks = _chunk_requests(requests)
+    display_base = f"const-llm-{Path(output_path).stem}-{int(time.time())}"
+    raw_results: dict[str, str] = {}
+    for i, chunk in enumerate(chunks):
+        chunk_label = f"chunk {i + 1}/{len(chunks)}" if len(chunks) > 1 else "single job"
+        display_name = f"{display_base}-c{i + 1:03d}" if len(chunks) > 1 else display_base
+        size_mb = sum(len(json.dumps(r, ensure_ascii=False).encode()) + 1 for r in chunk) / 1024 / 1024
+        print(f"\n[Batch] Submitting {chunk_label}: {len(chunk)} requests ({size_mb:.1f} MB) ...")
+        chunk_results = _submit_and_wait(client, model, chunk, display_name, poll_interval)
+        raw_results.update(chunk_results)
 
     # Report missing rows
     expected_cids = {r["metadata"]["custom_id"] for r in requests}
@@ -525,7 +606,7 @@ def run_inline_batch(
         print("  Re-run these rows by filtering the input and rebuilding the JSONL.")
 
     # Aggregate SC and merge
-    result_df = _aggregate_and_merge(raw_results, df, n_samples)
+    result_df = _aggregate_and_merge(raw_results, df, n_samples, request_metadata)
 
     # Write outputs
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
@@ -544,7 +625,7 @@ def run_inline_batch(
 # ---------------------------------------------------------------------------
 
 def run_from_jsonl(
-    jsonl_path: str,
+    jsonl_path,  # str or list[str] — one file or multiple chunk files
     input_path: str,
     output_path: str,
     model: str,
@@ -553,39 +634,58 @@ def run_from_jsonl(
     poll_interval: int = 30,
     max_tokens: int = DEFAULT_MAX_TOKENS,
 ) -> pd.DataFrame:
-    """Read a pre-built JSONL, submit as one job, aggregate SC, write output."""
+    """Read one or more pre-built JSONL chunk files, submit each as its own batch job,
+    aggregate SC across all results, and write output.
+
+    jsonl_path can be a single file path or a list of paths (for chunked builds).
+    """
     print(f"Loading input: {input_path}")
     df = load_dataframe(input_path).reset_index(drop=True)
 
-    print(f"Loading requests: {jsonl_path}")
-    requests: list[dict] = []
-    with open(jsonl_path, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                requests.append(json.loads(line))
+    jsonl_paths = [jsonl_path] if isinstance(jsonl_path, str) else list(jsonl_path)
 
-    if not requests:
-        raise ValueError(f"JSONL file is empty: {jsonl_path}")
+    all_requests: list[dict] = []
+    for jpath in jsonl_paths:
+        print(f"Loading requests: {jpath}")
+        with open(jpath, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    all_requests.append(json.loads(line))
+
+    if not all_requests:
+        raise ValueError(f"No requests found in: {jsonl_paths}")
 
     # Verify n_samples matches what was embedded at build time
-    first_meta = requests[0].get("metadata", {})
+    first_meta = all_requests[0].get("metadata", {})
     embedded_n = first_meta.get("n_samples")
     if embedded_n is not None and int(embedded_n) != n_samples:
         raise ValueError(
             f"--n-samples {n_samples} does not match n_samples={embedded_n} "
-            f"embedded in {jsonl_path}. Rebuild or pass the correct --n-samples."
+            f"embedded in JSONL. Rebuild or pass the correct --n-samples."
         )
 
     total_per_group = n_samples + 1
-    print(f"  {len(requests)} requests ({len(requests) // total_per_group} groups × {total_per_group})")
+    print(f"  {len(all_requests)} total requests ({len(all_requests) // total_per_group} groups × {total_per_group})")
 
+    # Build metadata lookup for _aggregate_and_merge (needed for single-mode expansion)
+    request_metadata = {r["metadata"]["custom_id"]: r["metadata"] for r in all_requests}
+
+    # Chunk by size and submit each chunk as a separate batch job
+    chunks = _chunk_requests(all_requests)
     client = _get_client(api_key)
-    display_name = f"const-llm-{Path(output_path).stem}-{int(time.time())}"
-    raw_results = _submit_and_wait(client, model, requests, display_name, poll_interval)
+    display_base = f"const-llm-{Path(output_path).stem}-{int(time.time())}"
+    raw_results: dict[str, str] = {}
+    for i, chunk in enumerate(chunks):
+        chunk_label = f"chunk {i + 1}/{len(chunks)}" if len(chunks) > 1 else "single job"
+        display_name = f"{display_base}-c{i + 1:03d}" if len(chunks) > 1 else display_base
+        size_mb = sum(len(json.dumps(r, ensure_ascii=False).encode()) + 1 for r in chunk) / 1024 / 1024
+        print(f"\nSubmitting {chunk_label}: {len(chunk)} requests ({size_mb:.1f} MB) ...")
+        chunk_results = _submit_and_wait(client, model, chunk, display_name, poll_interval)
+        raw_results.update(chunk_results)
 
     # Report failures
-    expected_cids = {r["metadata"]["custom_id"] for r in requests}
+    expected_cids = {r["metadata"]["custom_id"] for r in all_requests}
     missing = expected_cids - set(raw_results.keys())
     empty = {cid for cid, text in raw_results.items() if not text}
     if missing or empty:
@@ -593,7 +693,7 @@ def run_from_jsonl(
         failed_rows = sorted({_parse_custom_id(cid)[0] for cid in missing | empty})
         print(f"  Failed row indices: {failed_rows[:20]}{'...' if len(failed_rows) > 20 else ''}")
 
-    result_df = _aggregate_and_merge(raw_results, df, n_samples)
+    result_df = _aggregate_and_merge(raw_results, df, n_samples, request_metadata)
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     result_df.to_csv(output_path, index=False)
@@ -616,7 +716,15 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
-    parser.add_argument("--jsonl", required=True, help="Path to JSONL built by src/build_batch_jsonl.py")
+    parser.add_argument(
+        "--jsonl", required=True, nargs="+",
+        help=(
+            "Path(s) to JSONL built by src/build_batch_jsonl.py. "
+            "Pass multiple files when the build was split into chunks "
+            "(e.g. --jsonl data/temp/batch_chunk001.jsonl data/temp/batch_chunk002.jsonl). "
+            "Each chunk is submitted as a separate Gemini batch job."
+        ),
+    )
     parser.add_argument("--input", "-i", required=True, help="Original input CSV/JSONL (for metadata).")
     parser.add_argument("--output", "-o", required=True, help="Output CSV path.")
     parser.add_argument("--model", default="gemini-3.1-pro-preview")
@@ -635,7 +743,7 @@ def main():
         raise SystemExit("ERROR: GEMINI_API_KEY environment variable is not set.")
 
     run_from_jsonl(
-        jsonl_path=args.jsonl,
+        jsonl_path=args.jsonl if len(args.jsonl) > 1 else args.jsonl[0],
         input_path=args.input,
         output_path=args.output,
         model=args.model,

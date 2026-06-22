@@ -4,20 +4,22 @@ Build a JSONL file of Gemini Batch API requests from a dataset.
 
 Self-consistency (SC) convention — matches main.py:
   n_samples = number of ADDITIONAL SC calls (not counting the initial prediction)
-  Total requests per (row, indicator) = n_samples + 1
+  Total requests per group = n_samples + 1
   sc_idx=0 → initial prediction (temperature=1.0)
   sc_idx=1..n_samples → SC samples (all temperature=1.0 by default)
 
-  Example: --n-samples 2 → 3 requests per (row, indicator) → 3 votes in majority vote
+  Example: --n-samples 2 → 3 requests per group → 3 votes in majority vote
 
-Custom ID format: "{row_idx}|{indicator}|{sc_idx}"
-  row_idx:   0-based positional index in the input file
-  indicator: e.g. "constitution", "sovereign", "elections"
-  sc_idx:    0-based index; 0 = initial prediction, 1..n = SC samples
+Custom ID format:
+  constitution/elections:  "{row_idx}|{indicator}|{sc_idx}"
+  indicators task:         "{row_idx}|single|{sc_idx}"  (one request covers ALL indicators)
+    row_idx:   0-based positional index in the input file
+    sc_idx:    0-based index; 0 = initial prediction, 1..n = SC samples
+  The selected indicators list is embedded in metadata["indicators"] for the runner.
 
 Three task types:
   constitution  — uses prompts/constitution.py
-  indicators    — uses MultiplePromptBuilder (one request per indicator per row)
+  indicators    — uses SinglePromptBuilder (one request per row covers all indicators)
   elections     — filters rows where assembly_prediction == "2"; others get
                   elections_prediction = "0" pass-through in the runner
 
@@ -48,9 +50,12 @@ import json
 import os
 import sys
 from pathlib import Path
+from typing import Optional
 
 import pandas as pd
 from tqdm import tqdm
+
+MAX_CHUNK_BYTES = 1_900 * 1024 * 1024  # 1.9 GB — safely under Gemini's 2 GB batch limit
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -123,6 +128,59 @@ def _row_fields(row: pd.Series) -> tuple[str, str, int | None, int | None]:
 
 
 # ---------------------------------------------------------------------------
+# JSONL writer with auto-chunking
+# ---------------------------------------------------------------------------
+
+def _write_chunks(
+    requests: list[dict],
+    output_path: str,
+    max_bytes: int = MAX_CHUNK_BYTES,
+) -> list[Path]:
+    """Write requests to one or more JSONL files, splitting when size exceeds max_bytes.
+
+    If all requests fit in one file, writes to output_path unchanged.
+    Otherwise writes {stem}_chunk001.jsonl, {stem}_chunk002.jsonl, ...
+
+    Returns list of written file paths.
+    """
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Serialize all lines once; measure byte size
+    lines = [json.dumps(r, ensure_ascii=False) + "\n" for r in requests]
+    total_bytes = sum(len(l.encode("utf-8")) for l in lines)
+
+    if total_bytes <= max_bytes:
+        with open(path, "w", encoding="utf-8") as f:
+            f.writelines(lines)
+        return [path]
+
+    # Chunked write
+    chunks: list[list[str]] = []
+    current: list[str] = []
+    current_size = 0
+    for line in lines:
+        lb = len(line.encode("utf-8"))
+        if current and current_size + lb > max_bytes:
+            chunks.append(current)
+            current = []
+            current_size = 0
+        current.append(line)
+        current_size += lb
+    if current:
+        chunks.append(current)
+
+    written = []
+    for i, chunk_lines in enumerate(chunks):
+        chunk_path = path.parent / f"{path.stem}_chunk{i + 1:03d}{path.suffix}"
+        with open(chunk_path, "w", encoding="utf-8") as f:
+            f.writelines(chunk_lines)
+        written.append(chunk_path)
+
+    return written
+
+
+# ---------------------------------------------------------------------------
 # Per-task builders
 # ---------------------------------------------------------------------------
 
@@ -159,33 +217,35 @@ def build_indicator_requests(
     max_tokens: int,
     sc_temperatures: list[float] = None,
 ) -> list[dict]:
-    """Build requests for non-constitution indicators using MultiplePromptBuilder.
+    """Build requests for non-constitution indicators using SinglePromptBuilder.
 
-    Total requests per (row, indicator) = n_samples + 1.
+    One request per row covers ALL selected indicators in a single prompt.
+    Custom_id: "{row_idx}|single|{sc_idx}"; indicators list embedded in metadata.
+    Total requests per row = n_samples + 1.
     """
-    from prompts.multiple_builder import MultiplePromptBuilder
+    from prompts.single_builder import SinglePromptBuilder
 
     if "constitution" in indicators:
         print("  Note: 'constitution' removed from indicators task (use --task constitution).")
         indicators = [i for i in indicators if i != "constitution"]
 
     all_temps = _all_temperatures(n_samples, sc_temperatures)
-    builder = MultiplePromptBuilder(indicators=indicators, reasoning=True)
+    builder = SinglePromptBuilder(indicators=indicators, reasoning=True)
+    indicators_json = json.dumps(indicators)
     requests = []
 
     for row_idx in tqdm(range(len(df)), desc="indicators"):
         polity, name, start_year, end_year = _row_fields(df.iloc[row_idx])
         prompts = builder.build(polity, name, start_year, end_year)
+        prompt = prompts[0]  # SinglePromptBuilder returns exactly one PromptOutput
 
-        for prompt in prompts:
-            indicator = prompt.indicators[0]
-            for sc_idx, temp in enumerate(all_temps):
-                custom_id = f"{row_idx}|{indicator}|{sc_idx}"
-                requests.append(
-                    _make_request_line(
-                        custom_id, prompt.system_prompt, prompt.user_prompt, temp, max_tokens, n_samples
-                    )
-                )
+        for sc_idx, temp in enumerate(all_temps):
+            custom_id = f"{row_idx}|single|{sc_idx}"
+            req = _make_request_line(
+                custom_id, prompt.system_prompt, prompt.user_prompt, temp, max_tokens, n_samples
+            )
+            req["metadata"]["indicators"] = indicators_json
+            requests.append(req)
 
     return requests
 
@@ -195,7 +255,7 @@ def build_elections_requests(
     n_samples: int,
     max_tokens: int,
     sc_temperatures: list[float] = None,
-    prompt_version: str = "multiple",
+    prompt_version: str = "v1",
 ) -> list[dict]:
     """Build requests for the elections downstream task.
 
@@ -287,8 +347,16 @@ def main():
     )
     parser.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS)
     parser.add_argument(
-        "--prompt-version", default="multiple",
-        help="Elections prompt variant: 'multiple' or 'v1'/'v2'/'v3'.",
+        "--prompt-version", default="v1",
+        help="Elections prompt variant: 'v1' (default, matches post_processing.py), 'v2', 'v3', or 'multiple'.",
+    )
+    parser.add_argument(
+        "--max-size-mb", type=int, default=1900,
+        help=(
+            "Maximum JSONL chunk size in MB (default: 1900 = 1.9 GB). "
+            "If the output exceeds this, it is split into {stem}_chunk001.jsonl, etc. "
+            "Gemini Batch API limit is 2 GB per job."
+        ),
     )
     parser.add_argument(
         "--test", type=int, default=None,
@@ -320,21 +388,18 @@ def main():
             df, args.n_samples, args.max_tokens, prompt_version=args.prompt_version
         )
 
-    Path(args.output).parent.mkdir(parents=True, exist_ok=True)
-    with open(args.output, "w", encoding="utf-8") as f:
-        for req in requests:
-            f.write(json.dumps(req, ensure_ascii=False) + "\n")
+    max_bytes = args.max_size_mb * 1024 * 1024
+    written_files = _write_chunks(requests, args.output, max_bytes)
 
-    file_size_mb = Path(args.output).stat().st_size / 1024 / 1024
-    n_groups = len(requests) // total_per_group
-    print(f"\nWrote: {args.output}")
-    print(f"  {n_groups} groups × {total_per_group} requests = {len(requests)} total")
-    print(f"  File size: {file_size_mb:.1f} MB")
-    if file_size_mb > 1800:
-        print(
-            "  WARNING: File exceeds ~1.8 GB. Consider splitting by indicator "
-            "or using --test for smaller runs."
-        )
+    n_groups = len(requests) // total_per_group if total_per_group else len(requests)
+    total_mb = sum(p.stat().st_size for p in written_files) / 1024 / 1024
+    print(f"\n{n_groups} groups × {total_per_group} requests = {len(requests)} total ({total_mb:.1f} MB)")
+    if len(written_files) == 1:
+        print(f"Wrote: {written_files[0]}")
+    else:
+        print(f"Split into {len(written_files)} chunks (limit: {args.max_size_mb} MB each):")
+        for p in written_files:
+            print(f"  {p}  ({p.stat().st_size / 1024 / 1024:.1f} MB)")
 
 
 if __name__ == "__main__":
