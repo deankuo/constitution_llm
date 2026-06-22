@@ -1006,7 +1006,7 @@ Examples:
     parser.add_argument(
         '--n-samples',
         type=int,
-        default=3,
+        default=2,
         help='Number of samples for self-consistency'
     )
     parser.add_argument(
