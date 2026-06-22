@@ -33,15 +33,20 @@ PRICING = {
     'claude-3-haiku-20240307': {'input': 0.25, 'output': 1.25, 'cached': 0.025},
 
     # Google Gemini models (per 1M tokens)
-    # Gemini context caching: cached tokens are ~10% of input price
-    # For thinking models (2.5+, 3.x), thinking tokens (thoughts_token_count) are
-    # billed SEPARATELY — NOT included in candidates_token_count (output).
-    'gemini-3.1-pro-preview': {'input': 1.25, 'output': 10.00, 'cached': 0.125, 'thinking': 3.50},
-    'gemini-2.5-pro': {'input': 1.25, 'output': 10.00, 'cached': 0.125, 'thinking': 3.50},
-    'gemini-2.5-flash': {'input': 0.15, 'output': 0.60, 'cached': 0.015, 'thinking': 3.50},
-    'gemini-2.0-flash': {'input': 0.10, 'output': 0.40, 'cached': 0.01},
-    'gemini-1.5-pro': {'input': 1.25, 'output': 5.00, 'cached': 0.125},
-    'gemini-1.5-flash': {'input': 0.075, 'output': 0.30, 'cached': 0.0075},
+    # Thinking tokens are billed at the SAME rate as output tokens — no separate thinking key.
+    # candidates_token_count already includes thoughts_token_count; GeminiLLM.call() subtracts
+    # thinking from candidates before reporting output_tokens, so cost_tracker bills each once:
+    #   (text_output + thinking) * output_rate = candidates * output_rate ✓
+    # Context caching: we do NOT use explicit caching (client.caches.create is never called).
+    # cached_content_token_count in responses reflects implicit auto-caching by Google only.
+    'gemini-3.1-pro-preview': {'input': 2.00, 'output': 12.00, 'cached': 0.20},
+    'gemini-3.1-pro':         {'input': 2.00, 'output': 12.00, 'cached': 0.20},  # alias
+    'gemini-3.5-flash':       {'input': 1.50, 'output': 9.00,  'cached': 0.15},
+    'gemini-2.5-pro':         {'input': 1.25, 'output': 10.00, 'cached': 0.125},
+    'gemini-2.5-flash':       {'input': 0.15, 'output': 3.50,  'cached': 0.015},
+    'gemini-2.0-flash':       {'input': 0.10, 'output': 0.40,  'cached': 0.01},
+    'gemini-1.5-pro':         {'input': 1.25, 'output': 5.00,  'cached': 0.125},
+    'gemini-1.5-flash':       {'input': 0.075, 'output': 0.30, 'cached': 0.0075},
 
     # AWS Bedrock Claude models (per 1M tokens, cross-region pricing)
     # Bedrock also supports prompt caching

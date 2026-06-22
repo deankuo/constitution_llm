@@ -306,6 +306,13 @@ class GeminiLLM(BaseLLM):
                 ).strip()
 
             # Extract usage metadata
+            # Gemini billing note: candidates_token_count INCLUDES thoughts_token_count.
+            # thoughts_token_count is a breakdown within candidates, not an additive term.
+            # Pricing: thinking tokens are billed at the same rate as output tokens.
+            # To avoid double-billing, we report:
+            #   output_tokens  = candidates - thinking  (text-only output)
+            #   thinking_tokens = thoughts_token_count
+            # cost_tracker bills both at output rate → total = candidates * output_rate ✓
             usage = {}
             if response.usage_metadata:
                 metadata = response.usage_metadata
@@ -314,17 +321,16 @@ class GeminiLLM(BaseLLM):
                 cached_tokens = metadata.cached_content_token_count or 0
                 total_tokens = metadata.total_token_count or 0
 
-                # thoughts_token_count is None for non-thinking models
+                # thoughts_token_count is None (or 0) for non-thinking models
                 thinking_tokens = getattr(metadata, 'thoughts_token_count', None)
-                if thinking_tokens is None:
-                    derived = total_tokens - prompt_tokens - candidate_tokens - cached_tokens
-                    thinking_tokens = max(0, derived)
-                else:
-                    thinking_tokens = int(thinking_tokens) if thinking_tokens else 0
+                thinking_tokens = int(thinking_tokens) if thinking_tokens else 0
+
+                # Separate text-only output so cost_tracker doesn't double-bill thinking
+                pure_output_tokens = max(0, candidate_tokens - thinking_tokens)
 
                 usage = {
                     'input_tokens': prompt_tokens,
-                    'output_tokens': candidate_tokens,  # excludes thinking tokens
+                    'output_tokens': pure_output_tokens,  # text output only (excludes thinking)
                     'cached_tokens': cached_tokens,
                     'total_tokens': total_tokens,
                     'thinking_tokens': thinking_tokens,

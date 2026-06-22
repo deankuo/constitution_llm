@@ -13,9 +13,7 @@ import traceback
 from typing import Dict, List, Optional
 
 import boto3
-import google.generativeai as genai
 from anthropic import Anthropic
-from google.generativeai.types import FunctionDeclaration, HarmBlockThreshold, HarmCategory, Tool
 from openai import OpenAI
 
 from config import DEFAULT_MAX_TOKENS
@@ -210,13 +208,19 @@ def run_openai_search_agent(
 
 
 def _extract_text_from_gemini_response(response) -> Optional[str]:
-    """Extract text content from a Gemini response, skipping function_call parts."""
-    text_parts = []
-    for part in response.parts:
-        if hasattr(part, 'text') and part.text:
-            text_parts.append(part.text)
-    if text_parts:
-        return ' '.join(text_parts).strip()
+    """Extract text content from a google.genai GenerateContentResponse, skipping function_call parts."""
+    try:
+        if response.text:
+            return response.text.strip()
+    except (ValueError, AttributeError):
+        pass
+    # Fall back to iterating parts (handles responses with mixed text + function_call parts)
+    try:
+        text_parts = [p.text for p in response.parts if hasattr(p, 'text') and p.text]
+        if text_parts:
+            return ' '.join(text_parts).strip()
+    except (AttributeError, TypeError):
+        pass
     return None
 
 
@@ -239,104 +243,92 @@ def run_gemini_search_agent(
     Handles multiple rounds of function calling and gracefully recovers from
     MALFORMED_FUNCTION_CALL errors by retrying without tools.
 
-    Args:
-        system_prompt: System prompt for the model
-        user_prompt: User prompt for the model
-        model: Model name (e.g., 'gemini-3.1-pro-preview')
-        api_key: Google Gemini API key
-        serper_api_key: Serper API key for web search
-        llm_params: Dictionary with parameters (unused, kept for API consistency)
-
-    Returns:
-        Model response as string, or None if request fails
+    Uses the google.genai SDK (google-genai package).
     """
     try:
-        genai.configure(api_key=api_key)
+        from google import genai
+        from google.genai import types as genai_types
+    except ImportError:
+        raise ImportError("google-genai SDK not installed. Run: pip install google-genai")
 
-        web_search_tool = Tool(
+    try:
+        client = genai.Client(api_key=api_key)
+
+        web_search_tool = genai_types.Tool(
             function_declarations=[
-                FunctionDeclaration(
+                genai_types.FunctionDeclaration(
                     name="perform_web_search",
                     description="Performs a web search to find up-to-date information on a given topic.",
-                    parameters={
-                        "type": "object",
-                        "properties": {
-                            "query": {
-                                "type": "string",
-                                "description": "The search query to use."
-                            }
+                    parameters=genai_types.Schema(
+                        type='OBJECT',
+                        properties={
+                            "query": genai_types.Schema(
+                                type='STRING',
+                                description="The search query to use."
+                            )
                         },
-                        "required": ["query"]
-                    }
+                        required=["query"]
+                    )
                 )
             ]
         )
 
-        safety_settings = {
-            HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-            HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-            HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-            HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
-        }
+        safety_settings = [
+            genai_types.SafetySetting(category='HARM_CATEGORY_HARASSMENT', threshold='BLOCK_NONE'),
+            genai_types.SafetySetting(category='HARM_CATEGORY_HATE_SPEECH', threshold='BLOCK_NONE'),
+            genai_types.SafetySetting(category='HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold='BLOCK_NONE'),
+            genai_types.SafetySetting(category='HARM_CATEGORY_DANGEROUS_CONTENT', threshold='BLOCK_NONE'),
+        ]
 
-        tool_config_dict = None
+        tool_config = None
         if force_search:
-            tool_config_dict = {"function_calling_config": {"mode": "ANY"}}
+            tool_config = genai_types.ToolConfig(
+                function_calling_config=genai_types.FunctionCallingConfig(mode='ANY')
+            )
 
-        gemini_model = genai.GenerativeModel(
-            model_name=model,
+        config = genai_types.GenerateContentConfig(
             system_instruction=system_prompt,
             tools=[web_search_tool],
-            safety_settings=safety_settings
+            safety_settings=safety_settings,
+            tool_config=tool_config,
         )
 
-        chat = gemini_model.start_chat()
+        chat = client.chats.create(model=model, config=config)
 
         print("INFO: Making initial call to Gemini to plan...")
-        send_kwargs = {}
-        if tool_config_dict:
-            send_kwargs['tool_config'] = tool_config_dict
-
         try:
-            response = chat.send_message(user_prompt, **send_kwargs)
+            response = chat.send_message(user_prompt)
         except Exception as initial_err:
             err_str = str(initial_err)
             if 'MALFORMED_FUNCTION_CALL' in err_str:
                 print("WARN: Gemini returned MALFORMED_FUNCTION_CALL. Retrying without tools...")
-                # Fall back to a plain call without tools
-                fallback_model = genai.GenerativeModel(
-                    model_name=model,
+                fallback_config = genai_types.GenerateContentConfig(
                     system_instruction=system_prompt,
                     safety_settings=safety_settings,
                 )
-                fallback_resp = fallback_model.generate_content(user_prompt)
+                fallback_resp = client.models.generate_content(
+                    model=model, contents=user_prompt, config=fallback_config
+                )
                 return _extract_text_from_gemini_response(fallback_resp)
             raise
 
         # Loop to handle multiple rounds of function calling (max 3 rounds)
         max_rounds = 3
         for round_num in range(max_rounds):
-            # Check if the response contains a function call
-            has_function_call = False
+            # Find the first function call part in the response
+            function_call = None
             try:
                 for part in response.parts:
-                    if hasattr(part, 'function_call') and part.function_call.name:
-                        has_function_call = True
+                    if hasattr(part, 'function_call') and part.function_call and part.function_call.name:
+                        function_call = part.function_call
                         break
             except (AttributeError, IndexError):
                 pass
 
-            if not has_function_call:
+            if function_call is None:
                 break
 
-            # Extract and execute the function call
-            function_call = None
-            for part in response.parts:
-                if hasattr(part, 'function_call') and part.function_call.name:
-                    function_call = part.function_call
-                    break
-
-            if function_call and function_call.name == "perform_web_search":
+            if function_call.name == "perform_web_search":
                 query = function_call.args.get('query', '')
                 print(f"INFO: Gemini requested web search (round {round_num + 1}): '{query}'")
                 search_results_str = perform_web_search(
@@ -349,14 +341,10 @@ def run_gemini_search_agent(
                 print("INFO: Sending search results back to Gemini...")
                 try:
                     response = chat.send_message(
-                        [
-                            {
-                                "function_response": {
-                                    "name": "perform_web_search",
-                                    "response": {"content": search_results_str}
-                                }
-                            }
-                        ]
+                        genai_types.Part.from_function_response(
+                            name="perform_web_search",
+                            response={"content": search_results_str},
+                        )
                     )
                 except Exception as round_err:
                     if 'MALFORMED_FUNCTION_CALL' in str(round_err):
@@ -371,18 +359,15 @@ def run_gemini_search_agent(
         if text:
             return text
 
-        # Last resort: try .text property
-        try:
-            return response.text.strip()
-        except (ValueError, AttributeError):
-            print("WARN: Could not extract text from Gemini response. Attempting fallback without tools.")
-            fallback_model = genai.GenerativeModel(
-                model_name=model,
-                system_instruction=system_prompt,
-                safety_settings=safety_settings,
-            )
-            fallback_resp = fallback_model.generate_content(user_prompt)
-            return _extract_text_from_gemini_response(fallback_resp)
+        print("WARN: Could not extract text from Gemini response. Attempting fallback without tools.")
+        fallback_config = genai_types.GenerateContentConfig(
+            system_instruction=system_prompt,
+            safety_settings=safety_settings,
+        )
+        fallback_resp = client.models.generate_content(
+            model=model, contents=user_prompt, config=fallback_config
+        )
+        return _extract_text_from_gemini_response(fallback_resp)
 
     except Exception as e:
         print(f"ERROR: Exception in run_gemini_search_agent for model '{model}': {e}")

@@ -6,7 +6,7 @@ This package contains:
 - batch_runner: Batch processing with checkpoints
 - search_predictor: Search-augmented predictions (agentic search)
 - pre_search: Deterministic pre-search (Wikipedia/DuckDuckGo/Serper)
-- batch_gemini: Gemini Batch API runner (50% cost savings)
+- jsonl_batch_runner: Gemini Batch API runner via inline requests (50% cost savings, SC support)
 - post_processing: Downstream classifiers (assembly_extended + elections)
 """
 

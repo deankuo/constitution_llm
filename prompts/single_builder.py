@@ -139,6 +139,182 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
     ),
     
     # =========================================================================
+    # CHECKS — NINE INDEPENDENT BINARY QUESTIONS (one per actor type)
+    #
+    # Replaces the former `checks_actors` (0-9 multi-select). Each actor is asked
+    # as a separate yes/no question so self-consistency agreement is well-defined.
+    # "None" is NOT a question — it is the case where all nine answers are 0.
+    # An aggregate count is derived in post_processing.py (sum of the nine), not asked.
+    #
+    # Shared framing across all nine: an effective check is an independent body with
+    # the de facto capacity to resist executive action during THIS leader's reign;
+    # code actual capacity, not de jure standing; a body controlled by the executive
+    # counts as 0; media, civil society, and ordinary citizens are NOT counted.
+    # =========================================================================
+
+    "checks_local": IndicatorConfig(
+        name="checks_local",
+        display_name="Checks: Local / constituent units",
+        labels=["0", "1"],
+        summary=(
+            "Do local or constituent territorial/kin-based units provide an effective check on the "
+            "executive during THIS leader's reign?\n\n"
+            "An effective check means the body is independent of the executive and has the de facto "
+            "capacity to resist or constrain executive action — not merely formal/de jure standing. "
+            "A body that exists on paper but is controlled by the executive does NOT count. "
+            "Media, civil society organizations, and ordinary citizens are NOT counted.\n\n"
+            "Examples: regional and local governments, tribes, clans, ethnic governance units.\n\n"
+            "Coding:\n"
+            "• 0 = No. Such units do not exist during the reign, or exist but cannot effectively resist the executive.\n"
+            "• 1 = Yes. Such units are independent and can, at least on occasion, effectively resist the executive."
+        )
+    ),
+
+    "checks_military": IndicatorConfig(
+        name="checks_military",
+        display_name="Checks: Military",
+        labels=["0", "1"],
+        summary=(
+            "Do the armed forces or a warrior estate provide an effective check on the executive "
+            "during THIS leader's reign?\n\n"
+            "An effective check means the body is independent of the executive and has the de facto "
+            "capacity to resist or constrain executive action — not merely formal/de jure standing. "
+            "A body that exists on paper but is controlled by the executive does NOT count. "
+            "Media, civil society organizations, and ordinary citizens are NOT counted.\n\n"
+            "Examples: officers, specific branches of the military, a warrior caste (e.g., Samurai).\n\n"
+            "Coding:\n"
+            "• 0 = No. The military does not exist as an independent force, or cannot effectively resist the executive.\n"
+            "• 1 = Yes. The military is independent and can, at least on occasion, effectively resist the executive."
+        )
+    ),
+
+    "checks_clergy": IndicatorConfig(
+        name="checks_clergy",
+        display_name="Checks: Clergy",
+        labels=["0", "1"],
+        summary=(
+            "Do religious authorities provide an effective check on the executive during THIS leader's reign?\n\n"
+            "An effective check means the body is independent of the executive and has the de facto "
+            "capacity to resist or constrain executive action — not merely formal/de jure standing. "
+            "A body that exists on paper but is controlled by the executive does NOT count. "
+            "Media, civil society organizations, and ordinary citizens are NOT counted.\n\n"
+            "Clergy power derives from their role as arbiters of a widely espoused religion or belief system. "
+            "Examples: established church, priesthood, religious caste (of any religion or denomination).\n\n"
+            "Coding:\n"
+            "• 0 = No. No independent religious authority exists, or it cannot effectively resist the executive.\n"
+            "• 1 = Yes. Religious authorities are independent and can, at least on occasion, effectively resist the executive."
+        )
+    ),
+
+    "checks_aristocracy": IndicatorConfig(
+        name="checks_aristocracy",
+        display_name="Checks: Aristocracy",
+        labels=["0", "1"],
+        summary=(
+            "Does a hereditary or titled upper stratum provide an effective check on the executive "
+            "during THIS leader's reign?\n\n"
+            "An effective check means the body is independent of the executive and has the de facto "
+            "capacity to resist or constrain executive action — not merely formal/de jure standing. "
+            "A body that exists on paper but is controlled by the executive does NOT count. "
+            "Media, civil society organizations, and ordinary citizens are NOT counted.\n\n"
+            "Examples: landed class, nobility, hereditary elite, titled class, patriciate, upper caste.\n\n"
+            "Coding:\n"
+            "• 0 = No. No independent aristocracy exists, or it cannot effectively resist the executive.\n"
+            "• 1 = Yes. The aristocracy is independent and can, at least on occasion, effectively resist the executive."
+        )
+    ),
+
+    "checks_bourgeoisie": IndicatorConfig(
+        name="checks_bourgeoisie",
+        display_name="Checks: Bourgeoisie",
+        labels=["0", "1"],
+        summary=(
+            "Does an urban commercial or capital-holding class provide an effective check on the "
+            "executive during THIS leader's reign?\n\n"
+            "An effective check means the body is independent of the executive and has the de facto "
+            "capacity to resist or constrain executive action — not merely formal/de jure standing. "
+            "A body that exists on paper but is controlled by the executive does NOT count. "
+            "Media, civil society organizations, and ordinary citizens are NOT counted.\n\n"
+            "Examples: merchants, traders, artisans, financiers, creditors, business/commercial classes.\n\n"
+            "Coding:\n"
+            "• 0 = No. No independent commercial class exists, or it cannot effectively resist the executive.\n"
+            "• 1 = Yes. The commercial class is independent and can, at least on occasion, effectively resist the executive."
+        )
+    ),
+
+    "checks_bureaucracy": IndicatorConfig(
+        name="checks_bureaucracy",
+        display_name="Checks: Bureaucracy",
+        labels=["0", "1"],
+        summary=(
+            "Does a professional administrative apparatus provide an effective check on the executive "
+            "during THIS leader's reign?\n\n"
+            "An effective check means the body is independent of the executive and has the de facto "
+            "capacity to resist or constrain executive action — not merely formal/de jure standing. "
+            "A body that exists on paper but is controlled by the executive does NOT count. "
+            "Media, civil society organizations, and ordinary citizens are NOT counted.\n\n"
+            "Examples: civil servants, Confucian scholar-officials serving as top-level advisors and administrators.\n\n"
+            "Coding:\n"
+            "• 0 = No. No independent bureaucracy exists, or it cannot effectively resist the executive.\n"
+            "• 1 = Yes. The bureaucracy is independent and can, at least on occasion, effectively resist the executive."
+        )
+    ),
+
+    "checks_judiciary": IndicatorConfig(
+        name="checks_judiciary",
+        display_name="Checks: Judiciary",
+        labels=["0", "1"],
+        summary=(
+            "Do independent adjudicative bodies provide an effective check on the executive during "
+            "THIS leader's reign?\n\n"
+            "An effective check means the body is independent of the executive and has the de facto "
+            "capacity to resist or constrain executive action — not merely formal/de jure standing. "
+            "A body that exists on paper but is controlled by the executive does NOT count. "
+            "Media, civil society organizations, and ordinary citizens are NOT counted.\n\n"
+            "Examples: courts of law, tribunals, judicial bodies, legal institutions.\n\n"
+            "Coding:\n"
+            "• 0 = No. No independent judiciary exists, or it cannot effectively resist the executive.\n"
+            "• 1 = Yes. The judiciary is independent and can, at least on occasion, effectively resist the executive."
+        )
+    ),
+
+    "checks_assembly": IndicatorConfig(
+        name="checks_assembly",
+        display_name="Checks: Assembly",
+        labels=["0", "1"],
+        summary=(
+            "Does a deliberative representative or popular body provide an effective check on the "
+            "executive during THIS leader's reign?\n\n"
+            "An effective check means the body is independent of the executive and has the de facto "
+            "capacity to resist or constrain executive action — not merely formal/de jure standing. "
+            "A body that exists on paper but is controlled by the executive does NOT count. "
+            "Media, civil society organizations, and ordinary citizens are NOT counted.\n\n"
+            "Examples: popular assembly, legislature, parliament.\n\n"
+            "Coding:\n"
+            "• 0 = No. No independent assembly exists, or it cannot effectively resist the executive.\n"
+            "• 1 = Yes. An assembly is independent and can, at least on occasion, effectively resist the executive."
+        )
+    ),
+
+    "checks_council": IndicatorConfig(
+        name="checks_council",
+        display_name="Checks: Advisory council",
+        labels=["0", "1"],
+        summary=(
+            "Does an institutionalized elite council adjacent to the executive provide an effective "
+            "check on the executive during THIS leader's reign?\n\n"
+            "An effective check means the body is independent of the executive and has the de facto "
+            "capacity to resist or constrain executive action — not merely formal/de jure standing. "
+            "A body that exists on paper but is controlled by the executive does NOT count. "
+            "Media, civil society organizations, and ordinary citizens are NOT counted.\n\n"
+            "Examples: royal council, council of state, regency council, privy council, council of elders.\n\n"
+            "Coding:\n"
+            "• 0 = No. No independent council exists, or it cannot effectively resist the executive.\n"
+            "• 1 = Yes. A council is independent and can, at least on occasion, effectively resist the executive."
+        )
+    ),
+    
+    # =========================================================================
     # PETITIONS
     # =========================================================================
     "petition": IndicatorConfig(

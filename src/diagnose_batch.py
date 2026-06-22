@@ -122,7 +122,7 @@ def main():
         print("ERROR: Set GEMINI_API_KEY environment variable")
         return
 
-    model = "gemini-2.5-pro"
+    model = "gemini-3.1-pro-preview"
 
     # Test prompt: system instruction tells the model to always prefix with a keyword
     system_prompt = (

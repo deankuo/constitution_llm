@@ -89,6 +89,18 @@ ALL_INDICATORS = [
     'exit',
     'symbolism',
     'elections',  # downstream only (post_processing.py)
+    # TEST: nine binary sub-indicators of checks (single_builder.py only, v1 builder)
+    # These replace the multi-select 'checks' for single-prompt SC experiments.
+    # Do NOT use in multiple_builder or sequential_builder until fully validated.
+    'checks_local',
+    'checks_military',
+    'checks_clergy',
+    'checks_aristocracy',
+    'checks_bourgeoisie',
+    'checks_bureaucracy',
+    'checks_judiciary',
+    'checks_assembly',
+    'checks_council',
 ]
 
 # Indicators with ground truth for evaluation (legacy prefixed names for eval scripts)
@@ -103,7 +115,7 @@ INDICATORS_WITH_GROUND_TRUTH = [
 ]
 
 # Indicator valid labels
-# Bare names are used by predictor.py / batch_gemini.py; leader_* names by evaluation/ground-truth code.
+# Bare names are used by predictor.py / jsonl_batch_runner.py; leader_* names by evaluation/ground-truth code.
 INDICATOR_LABELS = {
     # Polity-level
     'polity_constitution': ['0', '1', '2'],
@@ -127,6 +139,16 @@ INDICATOR_LABELS = {
     'symbolism': ['0', '1', '2', '3'],
     'elections': ['0', '1', '2'],
     'constitution': ['0', '1', '2'],
+    # TEST: nine binary sub-indicators of checks (single_builder.py only, v1 builder)
+    'checks_local':        ['0', '1'],
+    'checks_military':     ['0', '1'],
+    'checks_clergy':       ['0', '1'],
+    'checks_aristocracy':  ['0', '1'],
+    'checks_bourgeoisie':  ['0', '1'],
+    'checks_bureaucracy':  ['0', '1'],
+    'checks_judiciary':    ['0', '1'],
+    'checks_assembly':     ['0', '1'],
+    'checks_council':      ['0', '1'],
 }
 
 # =============================================================================

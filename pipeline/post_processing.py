@@ -42,7 +42,7 @@ Usage
   python pipeline/post_processing.py \\
       --input  data/results/predictions.csv \\
       --output data/results/predictions_extended.csv \\
-      --model  gemini-2.5-pro \\
+      --model  gemini-3.1-pro-preview \\
       --parallel-rows 4 \\
       --mode single --prompt-version v1
 
@@ -291,6 +291,9 @@ class ElectionsClassifier:
     LOGPROB_COL = "elections_logprob"
     SEARCH_QUERIES_COL = "elections_search_queries"
     URLS_USED_COL = "elections_urls_used"
+    VERIFIED_COL = "elections_verified"
+    AGREEMENT_COL = "elections_agreement"
+    UNCERTAINTY_COL = "elections_uncertainty"
 
     def __init__(
         self,
@@ -350,6 +353,10 @@ class ElectionsClassifier:
         if self.search_mode != SearchMode.NONE:
             df[self.SEARCH_QUERIES_COL] = None
             df[self.URLS_USED_COL] = None
+        if self.n_samples > 0:
+            df[self.VERIFIED_COL] = None
+            df[self.AGREEMENT_COL] = None
+            df[self.UNCERTAINTY_COL] = None
 
         # Pass-through rows where assembly != 2 (no large assembly)
         mask_large_assembly = pd.to_numeric(df[self.assembly_col], errors="coerce") == 2
@@ -369,7 +376,7 @@ class ElectionsClassifier:
         else:
             results = self._classify_sequential(rows_to_classify)
 
-        for orig_idx, pred, conf, reason, logprob, queries_str, urls_str in results:
+        for orig_idx, pred, conf, reason, logprob, queries_str, urls_str, verified, agreement, uncertainty in results:
             df.at[orig_idx, self.PRED_COL] = pred
             df.at[orig_idx, self.CONF_COL] = conf
             if self.reasoning:
@@ -379,6 +386,10 @@ class ElectionsClassifier:
             if self.search_mode != SearchMode.NONE:
                 df.at[orig_idx, self.SEARCH_QUERIES_COL] = queries_str or None
                 df.at[orig_idx, self.URLS_USED_COL] = urls_str or None
+            if self.n_samples > 0:
+                df.at[orig_idx, self.VERIFIED_COL] = verified
+                df.at[orig_idx, self.AGREEMENT_COL] = agreement
+                df.at[orig_idx, self.UNCERTAINTY_COL] = uncertainty
 
         return df
 
@@ -386,40 +397,57 @@ class ElectionsClassifier:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _call_llm(self, row: pd.Series) -> Tuple[str, Optional[int], str, Optional[float], str, str]:
+    def _call_llm(self, row: pd.Series) -> Tuple:
         """Call LLM with optional self-consistency majority voting.
 
-        Returns:
-            (prediction, confidence_score, reasoning, logprob, search_queries_str, urls_used_str)
+        Returns 10-tuple:
+            (prediction, confidence_score, reasoning, logprob,
+             search_queries_str, urls_used_str,
+             verified_pred, agreement, uncertainty)
 
-        When n_samples == 0 (default), makes a single call (no SC).
-        When n_samples > 0, makes 1 main call + n_samples additional SC calls, then
-        returns the majority prediction with agreement*100 as the confidence score.
+        prediction:    initial prediction (sc_idx=0)
+        verified_pred: majority-vote prediction (None when n_samples=0)
+        agreement:     fraction of votes on the winner (None when n_samples=0)
+        uncertainty:   'none'|'low'|'high' (None when n_samples=0)
+
+        When n_samples == 0, makes a single call (no SC);
+        verified_pred/agreement/uncertainty are all None.
+        When n_samples > 0, makes 1 initial + n_samples SC calls.
         Total API calls = n_samples + 1.
         """
         pred, conf, reason, logprob, queries_str, urls_str = self._call_llm_once(row)
 
         if self.n_samples == 0:
-            return pred, conf, reason, logprob, queries_str, urls_str
+            return pred, conf, reason, logprob, queries_str, urls_str, None, None, None
 
-        # Collect majority-vote predictions across n_samples additional calls
-        predictions = [pred] if pred in ('0', '1', '2') else []
+        # Collect majority-vote predictions: initial + n_samples SC calls
+        votes = [pred] if pred in ('0', '1', '2') else []
         for i, temp in enumerate(self.sc_temperatures[:self.n_samples]):
             try:
                 sc_pred, _, _, _, _, _ = self._call_llm_once(row, temperature=temp)
                 if sc_pred in ('0', '1', '2'):
-                    predictions.append(sc_pred)
+                    votes.append(sc_pred)
             except Exception as e:
                 from tqdm import tqdm as _tqdm
                 _tqdm.write(f"WARN: elections SC sample {i + 1} failed: {e}")
 
-        if not predictions:
-            return pred, conf, reason, logprob, queries_str, urls_str
+        if not votes:
+            return pred, conf, reason, logprob, queries_str, urls_str, None, None, None
 
-        counter = Counter(predictions)
+        n = len(votes)
+        counter = Counter(votes)
         majority_pred, majority_count = counter.most_common(1)[0]
-        agreement = majority_count / len(predictions)
-        return majority_pred, round(agreement * 100), reason, logprob, queries_str, urls_str
+        agreement = majority_count / n
+
+        if majority_count == n:
+            uncertainty = 'none'
+        elif majority_count >= 2:
+            uncertainty = 'low'
+        else:
+            uncertainty = 'high'
+            majority_pred = votes[0]  # tie → fall back to initial prediction
+
+        return pred, conf, reason, logprob, queries_str, urls_str, majority_pred, round(agreement, 3), uncertainty
 
     def _call_llm_once(self, row: pd.Series, temperature: float = 0.0) -> Tuple[str, Optional[int], str, Optional[float], str, str]:
         """Single LLM call (no SC). Used directly by _call_llm().
@@ -538,31 +566,27 @@ class ElectionsClassifier:
 
         return pred, conf, reason, logprob, queries_str, urls_str
 
-    def _classify_sequential(
-        self, rows: pd.DataFrame
-    ) -> List[Tuple[int, str, Optional[int], str, Optional[float], str, str]]:
+    def _classify_sequential(self, rows: pd.DataFrame) -> list:
         results = []
         for orig_idx, row in tqdm(rows.iterrows(), total=len(rows), desc="Classifying elections"):
             try:
-                pred, conf, reason, logprob, queries_str, urls_str = self._call_llm(row)
+                result = self._call_llm(row)
             except Exception as e:
                 print(f"\nError on row {orig_idx}: {e}")
-                pred, conf, reason, logprob, queries_str, urls_str = "0", None, f"Error: {e}", None, "", ""
-            results.append((orig_idx, pred, conf, reason, logprob, queries_str, urls_str))
+                result = ("0", None, f"Error: {e}", None, "", "", None, None, None)
+            results.append((orig_idx,) + result)
             time.sleep(self.delay)
         return results
 
-    def _classify_parallel(
-        self, rows: pd.DataFrame
-    ) -> List[Tuple[int, str, Optional[int], str, Optional[float], str, str]]:
-        all_results: List[Tuple[int, str, Optional[int], str, Optional[float], str, str]] = []
+    def _classify_parallel(self, rows: pd.DataFrame) -> list:
+        all_results = []
         indices = list(rows.index)
         windows = [indices[i:i + self.max_workers] for i in range(0, len(indices), self.max_workers)]
         lock = Lock()
 
         with tqdm(total=len(indices), desc="Classifying elections") as pbar:
             for window in windows:
-                window_results: List[Tuple[int, str, Optional[int], str, Optional[float], str, str]] = []
+                window_results = []
 
                 with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
                     future_to_idx = {
@@ -572,11 +596,11 @@ class ElectionsClassifier:
                     for future in as_completed(future_to_idx):
                         orig_idx = future_to_idx[future]
                         try:
-                            pred, conf, reason, logprob, queries_str, urls_str = future.result()
+                            result = future.result()
                         except Exception as e:
                             print(f"\nError on row {orig_idx}: {e}")
-                            pred, conf, reason, logprob, queries_str, urls_str = "0", None, f"Error: {e}", None, "", ""
-                        window_results.append((orig_idx, pred, conf, reason, logprob, queries_str, urls_str))
+                            result = ("0", None, f"Error: {e}", None, "", "", None, None, None)
+                        window_results.append((orig_idx,) + result)
 
                 window_results.sort(key=lambda x: x[0])
                 all_results.extend(window_results)

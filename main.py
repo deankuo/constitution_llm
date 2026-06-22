@@ -1212,21 +1212,21 @@ Examples:
         # Two sub-paths: forced + batch  OR  forced + synchronous
         if search_mode == SearchMode.FORCED:
             if args.use_batch:
-                # Pre-search + Gemini Batch API
+                # Pre-search + Gemini Batch API (SC embedded in batch)
                 from pipeline.pre_search import PreSearcher
-                from pipeline.batch_gemini import GeminiBatchRunner
+                from pipeline.jsonl_batch_runner import run_inline_batch
 
                 config = PredictionConfig(
-                    mode=PromptMode(args.mode),
+                    mode=PromptMode.MULTIPLE,  # batch requires multiple mode (one indicator per prompt)
                     indicators=args.indicators,
-                    verify=VerificationType(args.verify),
-                    verify_indicators=_verify_indicators,
+                    verify=VerificationType.NONE,  # SC handled inside batch via n_samples
+                    verify_indicators=[],
                     model=model_identifier,
                     verifier_model=args.verifier_model,
                     temperature=args.temperature,
                     max_tokens=args.max_tokens,
                     top_p=args.top_p,
-                    sc_n_samples=args.n_samples,
+                    sc_n_samples=0,
                     sc_temperatures=args.sc_temperatures,
                     sequence=args.sequence,
                     random_sequence=args.random_sequence,
@@ -1234,30 +1234,19 @@ Examples:
                     use_logprobs=args.logprobs,
                 )
                 predictor = Predictor(config, api_keys)
-                batch_config = BatchConfig(
-                    checkpoint_interval=args.checkpoint_interval,
-                    delay_between_calls=args.delay,
-                    max_retries=args.max_retries,
-                    retry_delay=args.retry_delay,
-                    max_workers=args.parallel_rows,
-                )
 
                 df = load_polity_data(args.input)
                 if args.test:
                     df = _parse_test_argument(args.test, df)
 
-                # Phase 1: Pre-search and enrich prompts
+                # Phase 1: Pre-search and enrich prompts via monkey-patch
                 print("\n[Pre-Search] Running deterministic search for all rows...")
                 pre_searcher = PreSearcher(serper_api_key=api_keys.get('serper', ''))
-
-                # We need to monkey-patch the prompt builder to inject search context.
-                # Store original build method and wrap it.
                 original_build = predictor.prompt_builder.build
 
                 def _build_with_search(polity, name, start_year, end_year):
                     search_result = pre_searcher.search(polity, name, start_year, end_year)
                     prompts = original_build(polity, name, start_year, end_year)
-                    # Enrich each prompt's user_prompt with search context
                     enriched = []
                     for p in prompts:
                         enriched_user = pre_searcher.enrich_prompt(p.user_prompt, search_result)
@@ -1275,21 +1264,25 @@ Examples:
 
                 predictor.prompt_builder.build = _build_with_search
 
-                # Phase 2: Run batch
-                runner = GeminiBatchRunner(
-                    predictor=predictor,
-                    config=batch_config,
+                # Phase 2: Run batch (SC embedded via n_samples)
+                results_df = run_inline_batch(
+                    df=df,
+                    indicators=args.indicators,
+                    model=model_identifier,
+                    api_key=api_keys.get('gemini', ''),
+                    n_samples=args.n_samples,
                     output_path=args.output,
+                    prompt_builder=predictor.prompt_builder,
+                    sc_temperatures=args.sc_temperatures,
+                    max_tokens=args.max_tokens,
                 )
-                results_df = runner.run(df)
                 if not args.test:
                     log_experiment(
                         output_path=args.output, pipeline='leader',
                         prompt_style=args.mode, model=model_identifier,
                         indicators=args.indicators, verify=args.verify,
                         search_mode=args.search_mode, total_entries=len(df),
-                        cost_summary=predictor.cost_tracker.get_summary(),
-                        n_samples=args.n_samples,
+                        cost_summary={}, n_samples=args.n_samples,
                     )
                 print("\nLeader-level pipeline (forced search + batch) completed successfully!")
                 return
@@ -1452,12 +1445,17 @@ Examples:
             df = _parse_test_argument(args.test, df)
 
         if args.use_batch:
-            # Gemini Batch API path (no search)
-            from pipeline.batch_gemini import GeminiBatchRunner
-            runner = GeminiBatchRunner(
-                predictor=predictor,
-                config=batch_config,
+            # Gemini Batch API path (no search); SC embedded in batch via n_samples
+            from pipeline.jsonl_batch_runner import run_inline_batch
+            results_df = run_inline_batch(
+                df=df,
+                indicators=args.indicators,
+                model=model_identifier,
+                api_key=api_keys.get('gemini', ''),
+                n_samples=args.n_samples,
                 output_path=args.output,
+                sc_temperatures=args.sc_temperatures,
+                max_tokens=args.max_tokens,
             )
         else:
             # Standard synchronous BatchRunner
@@ -1466,8 +1464,7 @@ Examples:
                 config=batch_config,
                 output_path=args.output
             )
-
-        results_df = runner.run(df)
+            results_df = runner.run(df)
 
         # Print cost summary
         predictor.cost_tracker.print_summary()

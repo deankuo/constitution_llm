@@ -142,7 +142,7 @@ class SearchPredictor:
     Example::
 
         predictor = SearchPredictor(
-            model='gemini-2.5-pro',
+            model='gemini-3.1-pro-preview',
             api_keys={'gemini': '...', 'serper': '...'},
             mode='multiple',
             indicators=['sovereign', 'assembly'],
@@ -165,7 +165,7 @@ class SearchPredictor:
     ):
         """
         Args:
-            model:           LLM model identifier (e.g. 'gemini-2.5-pro')
+            model:           LLM model identifier (e.g. 'gemini-3.1-pro-preview')
             api_keys:        Dict with keys: 'openai', 'gemini', 'anthropic',
                              'aws_access_key_id', 'aws_secret_access_key',
                              'aws_session_token', and 'serper'
