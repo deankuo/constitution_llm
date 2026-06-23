@@ -1275,6 +1275,7 @@ Examples:
                     prompt_builder=predictor.prompt_builder,
                     sc_temperatures=args.sc_temperatures,
                     max_tokens=args.max_tokens,
+                    reasoning=args.reasoning,
                 )
                 if not args.test:
                     log_experiment(
@@ -1456,6 +1457,7 @@ Examples:
                 output_path=args.output,
                 sc_temperatures=args.sc_temperatures,
                 max_tokens=args.max_tokens,
+                reasoning=args.reasoning,
             )
         else:
             # Standard synchronous BatchRunner

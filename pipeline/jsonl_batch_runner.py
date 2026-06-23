@@ -15,28 +15,28 @@ run_from_jsonl(jsonl_path, ...)
 
 Self-consistency convention — matches main.py / SelfConsistencyConfig
 ----------------------------------------------------------------------
-  n_samples = number of ADDITIONAL SC calls (not counting the initial)
-  Total requests per (row, indicator) = n_samples + 1
+    n_samples = number of ADDITIONAL SC calls (not counting the initial)
+    Total requests per (row, indicator) = n_samples + 1
     sc_idx=0  → initial prediction (temp=1.0)
     sc_idx=1..n_samples → SC samples (temp=1.0 each, default)
-  Total votes in majority = n_samples + 1
+    Total votes in majority = n_samples + 1
 
-  n_samples=0 → no SC (single call), no _verified/_agreement/_uncertainty columns
-  n_samples=2 → 3 votes, write _verified/_agreement/_uncertainty
+    n_samples=0 → no SC (single call), no _verified/_agreement/_uncertainty columns
+    n_samples=2 → 3 votes, write _verified/_agreement/_uncertainty
 
 Custom ID format:
-  constitution/elections:  "{row_idx}|{indicator}|{sc_idx}"
-  single-mode indicators:  "{row_idx}|single|{sc_idx}"  (one request covers ALL indicators)
+    constitution/elections:  "{row_idx}|{indicator}|{sc_idx}"
+    single-mode indicators:  "{row_idx}|single|{sc_idx}"  (one request covers ALL indicators)
     indicators list is embedded in metadata["indicators"] for _aggregate_and_merge
 
 Usage (standalone)
 ------------------
-  python pipeline/jsonl_batch_runner.py \\
-      --jsonl data/temp/batch_constitution.jsonl \\
-      --input data/plt_leaders_data.csv \\
-      --output data/results/exp001.csv \\
-      --model gemini-3.1-pro-preview \\
-      --n-samples 2
+python pipeline/jsonl_batch_runner.py \\
+    --input data/temp/batch_constitution.jsonl \\
+    --dataset data/plt_leaders_data.csv \\
+    --output data/results/exp001.csv \\
+    --model gemini-3.1-pro-preview \\
+    --n-samples 2
 """
 
 import argparse
@@ -65,7 +65,7 @@ from utils.json_parser import (
     validate_indicator_response,
 )
 
-BATCH_DISCOUNT = 0.5
+BATCH_DISCOUNT = 0.6
 MAX_BATCH_BYTES = 1_900 * 1024 * 1024  # 1.9 GB — safely under Gemini's 2 GB per-job limit
 
 
@@ -216,6 +216,8 @@ def _build_requests_in_memory(
     max_tokens: int,
     sc_temperatures: list[float] = None,
     prompt_builder=None,
+    reasoning: bool = True,
+    prompt_version: str = "v1",
 ) -> list[dict]:
     """Build all batch requests in memory.
 
@@ -254,9 +256,8 @@ def _build_requests_in_memory(
                         requests.append(req)
         return requests
 
-    # Standard path: constitution → own prompt; others → SinglePromptBuilder
+    # Standard path: constitution → own prompt; others → SinglePromptBuilder (version selectable)
     from prompts.constitution import get_prompt as get_constitution_prompt
-    from prompts.single_builder import SinglePromptBuilder
 
     constitution_in = "constitution" in indicators
     other_indicators = [i for i in indicators if i != "constitution"]
@@ -270,7 +271,10 @@ def _build_requests_in_memory(
                 requests.append(_make_req(cid, sys_p, usr_p, temp, max_tokens, n_samples))
 
     if other_indicators:
-        builder = SinglePromptBuilder(indicators=other_indicators, reasoning=True)
+        from prompts.single_builder import SinglePromptBuilder, SinglePromptBuilderV2, SinglePromptBuilderV3
+        _BUILDER_CLS = {"v1": SinglePromptBuilder, "v2": SinglePromptBuilderV2, "v3": SinglePromptBuilderV3}
+        BuilderCls = _BUILDER_CLS.get(prompt_version, SinglePromptBuilder)
+        builder = BuilderCls(indicators=other_indicators, reasoning=reasoning)
         indicators_json = json.dumps(other_indicators)
         for row_idx in tqdm(range(len(df)), desc="indicators"):
             polity, name, start_year, end_year = _row_fields(df.iloc[row_idx])
@@ -537,6 +541,8 @@ def run_inline_batch(
     sc_temperatures: list[float] = None,
     max_tokens: int = DEFAULT_MAX_TOKENS,
     poll_interval: int = 30,
+    reasoning: bool = True,
+    prompt_version: str = "v1",
 ) -> pd.DataFrame:
     """Build prompts in memory, submit as one Gemini batch job, aggregate SC.
 
@@ -577,6 +583,8 @@ def run_inline_batch(
         max_tokens=max_tokens,
         sc_temperatures=sc_temperatures,
         prompt_builder=prompt_builder,
+        reasoning=reasoning,
+        prompt_version=prompt_version,
     )
     print(f"[Batch] Built {len(requests)} requests")
 
@@ -626,11 +634,11 @@ def run_inline_batch(
 
 def run_from_jsonl(
     jsonl_path,  # str or list[str] — one file or multiple chunk files
-    input_path: str,
     output_path: str,
     model: str,
     api_key: str,
     n_samples: int,
+    input_path: Optional[str] = None,
     poll_interval: int = 30,
     max_tokens: int = DEFAULT_MAX_TOKENS,
 ) -> pd.DataFrame:
@@ -638,9 +646,17 @@ def run_from_jsonl(
     aggregate SC across all results, and write output.
 
     jsonl_path can be a single file path or a list of paths (for chunked builds).
+
+    input_path is optional. When provided, predictions are merged into the full
+    original DataFrame (all original columns preserved). When omitted, a minimal
+    DataFrame is constructed from the JSONL row indices — the output will contain
+    only prediction/confidence/reasoning columns keyed by positional row index.
     """
-    print(f"Loading input: {input_path}")
-    df = load_dataframe(input_path).reset_index(drop=True)
+    if input_path is not None:
+        print(f"Loading input: {input_path}")
+        df = load_dataframe(input_path).reset_index(drop=True)
+    else:
+        df = None  # will be built after loading requests
 
     jsonl_paths = [jsonl_path] if isinstance(jsonl_path, str) else list(jsonl_path)
 
@@ -668,6 +684,36 @@ def run_from_jsonl(
     total_per_group = n_samples + 1
     print(f"  {len(all_requests)} total requests ({len(all_requests) // total_per_group} groups × {total_per_group})")
 
+    # Build DataFrame from JSONL when --dataset is not provided.
+    # sc_idx=0 requests carry row_data embedded by build_batch_jsonl.py; use those to
+    # reconstruct the full original dataset (all columns, correct dtypes from str conversion).
+    # Falls back to a minimal row_idx-only DataFrame for older JSONL files without row_data.
+    if df is None:
+        row_data_by_idx: dict[int, dict] = {}
+        for r in all_requests:
+            meta = r.get("metadata", {})
+            cid = meta.get("custom_id", "")
+            try:
+                ri, _, si = _parse_custom_id(cid)
+                if si == 0 and "row_data" in meta:
+                    row_data_by_idx[ri] = json.loads(meta["row_data"])
+            except Exception:
+                pass
+
+        if row_data_by_idx:
+            max_idx = max(row_data_by_idx.keys())
+            rows = [row_data_by_idx.get(i, {}) for i in range(max_idx + 1)]
+            df = pd.DataFrame(rows)
+            print(f"  Reconstructed {len(df)} rows from JSONL row_data ({len(df.columns)} columns)")
+        else:
+            max_row_idx = max(
+                int(r["metadata"]["custom_id"].split("|")[0])
+                for r in all_requests
+                if "metadata" in r and "custom_id" in r["metadata"]
+            )
+            df = pd.DataFrame({"row_idx": range(max_row_idx + 1)})
+            print(f"  No row_data in JSONL; output will contain predictions only ({max_row_idx + 1} rows)")
+
     # Build metadata lookup for _aggregate_and_merge (needed for single-mode expansion)
     request_metadata = {r["metadata"]["custom_id"]: r["metadata"] for r in all_requests}
 
@@ -684,16 +730,68 @@ def run_from_jsonl(
         chunk_results = _submit_and_wait(client, model, chunk, display_name, poll_interval)
         raw_results.update(chunk_results)
 
-    # Report failures
+    result_df = _aggregate_and_merge(raw_results, df, n_samples, request_metadata)
+
+    # Response-level failures (CID missing from results or response text empty)
     expected_cids = {r["metadata"]["custom_id"] for r in all_requests}
     missing = expected_cids - set(raw_results.keys())
     empty = {cid for cid, text in raw_results.items() if not text}
-    if missing or empty:
-        print(f"\nMissing/failed: {len(missing | empty)} responses")
-        failed_rows = sorted({_parse_custom_id(cid)[0] for cid in missing | empty})
-        print(f"  Failed row indices: {failed_rows[:20]}{'...' if len(failed_rows) > 20 else ''}")
+    response_failed_rows = sorted({_parse_custom_id(cid)[0] for cid in missing | empty})
 
-    result_df = _aggregate_and_merge(raw_results, df, n_samples, request_metadata)
+    # Prediction-level nulls: response received but truncated/unparseable for some indicators.
+    # Only check indicators actually requested in this batch — not columns inherited from a prior
+    # merged run or indicators from a different task (e.g. constitution columns when running
+    # indicators task). Requested indicators are in metadata["indicators"] (single mode) or
+    # directly in the custom_id indicator slot (constitution/elections).
+    requested_indicators: set[str] = set()
+    for meta in request_metadata.values():
+        if "indicators" in meta:
+            try:
+                requested_indicators.update(json.loads(meta["indicators"]))
+            except (json.JSONDecodeError, TypeError):
+                pass
+        cid = meta.get("custom_id", "")
+        try:
+            _, ind, _ = _parse_custom_id(cid)
+            if ind not in ("single",):
+                requested_indicators.add(ind)
+        except Exception:
+            pass
+
+    pred_cols = [
+        f"{ind}_prediction" for ind in requested_indicators
+        if f"{ind}_prediction" in result_df.columns
+    ]
+    null_row_idxs: set[int] = set()
+    if pred_cols:
+        null_row_idxs = set(result_df.index[result_df[pred_cols].isnull().any(axis=1)].tolist())
+
+    all_failed_rows = sorted(null_row_idxs | set(response_failed_rows))
+    retry_path = None
+
+    if all_failed_rows:
+        print(f"\nFailed rows: {len(all_failed_rows)} total")
+        if response_failed_rows:
+            print(f"  Response-level (missing/empty): {response_failed_rows[:10]}"
+                  f"{'...' if len(response_failed_rows) > 10 else ''}")
+        extra_null = sorted(null_row_idxs - set(response_failed_rows))
+        if extra_null:
+            print(f"  Prediction nulls (truncated/parse failure): {extra_null[:10]}"
+                  f"{'...' if len(extra_null) > 10 else ''}")
+        # Write all SC calls for failed rows so they can be resubmitted as a new batch job.
+        # Resubmitting from the same JSONL is reproducibility-safe (same prompts, same sampling
+        # distribution). Do NOT fall back to sync calls — they use a different serving path.
+        failed_row_set = set(all_failed_rows)
+        failed_requests = [
+            r for r in all_requests
+            if _parse_custom_id(r["metadata"]["custom_id"])[0] in failed_row_set
+        ]
+        retry_path = Path(output_path).parent / (Path(output_path).stem + "_failed_requests.jsonl")
+        with open(retry_path, "w", encoding="utf-8") as f:
+            for r in failed_requests:
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+        print(f"  Retry JSONL: {retry_path} ({len(all_failed_rows)} rows, {len(failed_requests)} requests)")
+        print(f"  Re-run: python pipeline/jsonl_batch_runner.py --input {retry_path} --output ...")
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     result_df.to_csv(output_path, index=False)
@@ -702,6 +800,25 @@ def run_from_jsonl(
         json.dump(result_df.to_dict(orient="records"), f, ensure_ascii=False, indent=2, default=str)
     print(f"\nSaved: {output_path}")
     print(f"Saved: {json_path}")
+
+    # Provenance record: captures what the JSONL cannot (model, job names, run time, failures)
+    import datetime as _dt
+    prov = {
+        "model": model,
+        "run_timestamp": _dt.datetime.utcnow().isoformat() + "Z",
+        "n_samples": n_samples,
+        "input_jsonl": jsonl_paths,
+        "total_requests": len(all_requests),
+        "success_count": sum(1 for v in raw_results.values() if v),
+        "response_failed_cids": sorted(missing | empty),
+        "prediction_null_rows": sorted(null_row_idxs),
+        "all_failed_rows": all_failed_rows,
+        "retry_jsonl": str(retry_path) if retry_path else None,
+    }
+    prov_path = Path(output_path).parent / (Path(output_path).stem + "_provenance.json")
+    with open(prov_path, "w", encoding="utf-8") as f:
+        json.dump(prov, f, indent=2, ensure_ascii=False)
+    print(f"Saved: {prov_path}")
 
     return result_df
 
@@ -717,15 +834,24 @@ def main():
         epilog=__doc__,
     )
     parser.add_argument(
-        "--jsonl", required=True, nargs="+",
+        "--input", required=True, nargs="+",
         help=(
             "Path(s) to JSONL built by src/build_batch_jsonl.py. "
             "Pass multiple files when the build was split into chunks "
-            "(e.g. --jsonl data/temp/batch_chunk001.jsonl data/temp/batch_chunk002.jsonl). "
+            "(e.g. --input data/temp/batch_chunk001.jsonl data/temp/batch_chunk002.jsonl). "
             "Each chunk is submitted as a separate Gemini batch job."
         ),
     )
-    parser.add_argument("--input", "-i", required=True, help="Original input CSV/JSONL (for metadata).")
+    parser.add_argument(
+        "--dataset", default=None,
+        help=(
+            "Original input CSV/JSONL dataset (optional). "
+            "When provided, predictions are merged into the full original DataFrame "
+            "(all original columns are preserved in the output). "
+            "When omitted, a minimal DataFrame is built from the JSONL row indices — "
+            "the output contains only prediction/confidence/reasoning columns."
+        ),
+    )
     parser.add_argument("--output", "-o", required=True, help="Output CSV path.")
     parser.add_argument("--model", default="gemini-3.1-pro-preview")
     parser.add_argument(
@@ -743,12 +869,12 @@ def main():
         raise SystemExit("ERROR: GEMINI_API_KEY environment variable is not set.")
 
     run_from_jsonl(
-        jsonl_path=args.jsonl if len(args.jsonl) > 1 else args.jsonl[0],
-        input_path=args.input,
+        jsonl_path=args.input if len(args.input) > 1 else args.input[0],
         output_path=args.output,
         model=args.model,
         api_key=api_key,
         n_samples=args.n_samples,
+        input_path=args.dataset,
         poll_interval=args.poll_interval,
     )
 

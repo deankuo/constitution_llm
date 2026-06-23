@@ -23,7 +23,7 @@ DEFAULT_MAX_TOKENS = 32768  # Increased from 2048 to handle single prompt mode w
                             # - Gemini 2.5 Pro: 65536 output tokens (1M input context)
                             # - Claude Sonnet 4.5: 64k max_tokens (1M input context)
                             # LLM clients should validate/cap this value before API calls
-DEFAULT_TOP_P = 1.0
+DEFAULT_TOP_P = 0.95
 
 # =============================================================================
 # Processing Configuration
@@ -117,17 +117,6 @@ INDICATORS_WITH_GROUND_TRUTH = [
 # Indicator valid labels
 # Bare names are used by predictor.py / jsonl_batch_runner.py; leader_* names by evaluation/ground-truth code.
 INDICATOR_LABELS = {
-    # Polity-level
-    'polity_constitution': ['0', '1', '2'],
-    'polity_sovereign': ['0', '1'],
-    # Leader-level — prefixed (evaluation / ground-truth column names, old pipeline)
-    'leader_sovereign': ['0', '1'],
-    'leader_assembly': ['0', '1', '2'],
-    'leader_appointment': ['0', '1', '2'],
-    'leader_exit': ['0', '1'],
-    'leader_collegiality': ['0', '1'],
-    'leader_separate_powers': ['0', '1'],
-    # Leader-level — bare names (new pipeline)
     'sovereign': ['0', '1'],
     'federalism': ['0', '1'],
     'checks': ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'],  # multi-select
@@ -180,8 +169,8 @@ class SearchMode(Enum):
 # Default verification configuration
 DEFAULT_VERIFICATION_CONFIG = {
     "self_consistency": {
-        "n_samples": 3,
-        "temperatures": [1.0, 1.0, 1.0],
+        "n_samples": 2,
+        "temperatures": [1.0, 1.0], # Google recommend temperature set as 1.0 for most use cases
         "min_agreement": 0.6
     },
     "cove": {

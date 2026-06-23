@@ -49,6 +49,7 @@ import argparse
 import json
 import os
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -61,7 +62,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import (
     COL_TERRITORY_NAME, COL_LEADER_NAME, COL_START_YEAR, COL_END_YEAR,
-    DEFAULT_MAX_TOKENS, DEFAULT_TOP_P,
+    DEFAULT_MAX_TOKENS, DEFAULT_TOP_P, DEFAULT_VERIFICATION_CONFIG,
 )
 from utils.data_loader import load_dataframe
 
@@ -205,7 +206,12 @@ def build_constitution_requests(
 
         for sc_idx, temp in enumerate(all_temps):
             custom_id = f"{row_idx}|constitution|{sc_idx}"
-            requests.append(_make_request_line(custom_id, sys_p, usr_p, temp, max_tokens, n_samples))
+            req = _make_request_line(custom_id, sys_p, usr_p, temp, max_tokens, n_samples)
+            if sc_idx == 0:
+                req["metadata"]["row_data"] = json.dumps(
+                    df.iloc[row_idx].to_dict(), ensure_ascii=False, default=str
+                )
+            requests.append(req)
 
     return requests
 
@@ -216,21 +222,34 @@ def build_indicator_requests(
     n_samples: int,
     max_tokens: int,
     sc_temperatures: list[float] = None,
+    reasoning: bool = True,
+    prompt_version: str = "v1",
 ) -> list[dict]:
     """Build requests for non-constitution indicators using SinglePromptBuilder.
 
     One request per row covers ALL selected indicators in a single prompt.
     Custom_id: "{row_idx}|single|{sc_idx}"; indicators list embedded in metadata.
     Total requests per row = n_samples + 1.
+
+    Args:
+        reasoning:      Include reasoning fields in output (default True). Set False
+                        to reduce output tokens and cost.
+        prompt_version: Which SinglePromptBuilder variant to use:
+                        'v1' (full definitions), 'v2' (tabular), 'v3' (compact).
     """
-    from prompts.single_builder import SinglePromptBuilder
+    from prompts.single_builder import SinglePromptBuilder, SinglePromptBuilderV2, SinglePromptBuilderV3
+
+    _BUILDER_CLS = {"v1": SinglePromptBuilder, "v2": SinglePromptBuilderV2, "v3": SinglePromptBuilderV3}
+    BuilderCls = _BUILDER_CLS.get(prompt_version, SinglePromptBuilder)
+    if prompt_version not in _BUILDER_CLS:
+        print(f"  Warning: unknown --prompt-version '{prompt_version}', falling back to v1.")
 
     if "constitution" in indicators:
         print("  Note: 'constitution' removed from indicators task (use --task constitution).")
         indicators = [i for i in indicators if i != "constitution"]
 
     all_temps = _all_temperatures(n_samples, sc_temperatures)
-    builder = SinglePromptBuilder(indicators=indicators, reasoning=True)
+    builder = BuilderCls(indicators=indicators, reasoning=reasoning)
     indicators_json = json.dumps(indicators)
     requests = []
 
@@ -245,6 +264,10 @@ def build_indicator_requests(
                 custom_id, prompt.system_prompt, prompt.user_prompt, temp, max_tokens, n_samples
             )
             req["metadata"]["indicators"] = indicators_json
+            if sc_idx == 0:
+                req["metadata"]["row_data"] = json.dumps(
+                    df.iloc[row_idx].to_dict(), ensure_ascii=False, default=str
+                )
             requests.append(req)
 
     return requests
@@ -304,9 +327,12 @@ def build_elections_requests(
 
         for sc_idx, temp in enumerate(all_temps):
             custom_id = f"{row_idx}|elections|{sc_idx}"
-            requests.append(
-                _make_request_line(custom_id, sys_tmpl, usr_p, temp, max_tokens, n_samples)
-            )
+            req = _make_request_line(custom_id, sys_tmpl, usr_p, temp, max_tokens, n_samples)
+            if sc_idx == 0:
+                req["metadata"]["row_data"] = json.dumps(
+                    row.to_dict(), ensure_ascii=False, default=str
+                )
+            requests.append(req)
 
     n_eligible = eligible_mask.sum()
     print(f"  {n_eligible} eligible rows (assembly=2), {skipped} pass-through rows")
@@ -334,10 +360,11 @@ def main():
             "sovereign", "federalism", "checks", "collegiality",
             "petition", "assembly", "entry", "exit", "symbolism",
         ],
-        help="Indicators to include (task=indicators only).",
+        help="""Indicators to include (task=indicators for sovereign, assembly, federalism, 
+        collegiality, entry, exit, symbolism, petition, and checks only).""",
     )
     parser.add_argument(
-        "--n-samples", type=int, default=0,
+        "--n-samples", type=int, default=2,
         help=(
             "Additional SC samples per (row, indicator). "
             "0 = no SC (single call). "
@@ -348,7 +375,20 @@ def main():
     parser.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS)
     parser.add_argument(
         "--prompt-version", default="v1",
-        help="Elections prompt variant: 'v1' (default, matches post_processing.py), 'v2', 'v3', or 'multiple'.",
+        help=(
+            "Prompt variant to use.\n"
+            "  indicators task: 'v1' (full definitions, default), 'v2' (tabular), 'v3' (compact/token-efficient).\n"
+            "  elections task:  'v1' (default, matches post_processing.py), 'v2', 'v3', or 'multiple'."
+        ),
+    )
+    parser.add_argument(
+        "--reasoning",
+        type=lambda x: x.lower() == "true",
+        default=False,
+        help=(
+            "Include reasoning fields in the prompt output (default: False). "
+            "Set to False to reduce output tokens — omits {indicator}_reasoning from the response JSON."
+        ),
     )
     parser.add_argument(
         "--max-size-mb", type=int, default=1900,
@@ -381,8 +421,11 @@ def main():
     if args.task == "constitution":
         requests = build_constitution_requests(df, args.n_samples, args.max_tokens)
     elif args.task == "indicators":
-        print(f"Indicators: {args.indicators}")
-        requests = build_indicator_requests(df, args.indicators, args.n_samples, args.max_tokens)
+        print(f"Indicators: {args.indicators} | prompt_version={args.prompt_version} | reasoning={args.reasoning}")
+        requests = build_indicator_requests(
+            df, args.indicators, args.n_samples, args.max_tokens,
+            reasoning=args.reasoning, prompt_version=args.prompt_version,
+        )
     elif args.task == "elections":
         requests = build_elections_requests(
             df, args.n_samples, args.max_tokens, prompt_version=args.prompt_version
@@ -400,6 +443,29 @@ def main():
         print(f"Split into {len(written_files)} chunks (limit: {args.max_size_mb} MB each):")
         for p in written_files:
             print(f"  {p}  ({p.stat().st_size / 1024 / 1024:.1f} MB)")
+
+    # Build manifest: records the build configuration alongside the JSONL for reproducibility.
+    # The runner adds model and job-level info at submit time (see _provenance.json output).
+    # Note: model is not known at build time — pass it to the runner via --model.
+    manifest: dict = {
+        "build_timestamp": datetime.now(timezone.utc).isoformat(),
+        "task": args.task,
+        "n_samples": args.n_samples,
+        "total_requests": len(requests),
+        "total_groups": n_groups,
+        "source_file": str(Path(args.input).resolve()),
+        "output_files": [str(p) for p in written_files],
+    }
+    if args.task == "indicators":
+        manifest["indicators"] = args.indicators
+        manifest["prompt_version"] = args.prompt_version
+        manifest["reasoning"] = args.reasoning
+    elif args.task == "elections":
+        manifest["prompt_version"] = args.prompt_version
+    manifest_path = Path(written_files[0]).parent / (Path(args.output).stem + "_manifest.json")
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        json.dump(manifest, f, indent=2, ensure_ascii=False)
+    print(f"Manifest: {manifest_path}")
 
 
 if __name__ == "__main__":
