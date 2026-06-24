@@ -81,17 +81,6 @@ ALL_INDICATORS = [
     'constitution',
     'sovereign',
     'federalism',
-    'checks',        # multi-select 0-9 (formerly checks_actors)
-    'collegiality',
-    'petition',
-    'assembly',
-    'entry',
-    'exit',
-    'symbolism',
-    'elections',  # downstream only (post_processing.py)
-    # TEST: nine binary sub-indicators of checks (single_builder.py only, v1 builder)
-    # These replace the multi-select 'checks' for single-prompt SC experiments.
-    # Do NOT use in multiple_builder or sequential_builder until fully validated.
     'checks_local',
     'checks_military',
     'checks_clergy',
@@ -101,6 +90,13 @@ ALL_INDICATORS = [
     'checks_judiciary',
     'checks_assembly',
     'checks_council',
+    'collegiality',
+    'petition',
+    'assembly',
+    'entry',
+    'exit',
+    'symbolism',
+    'elections',  # downstream only (post_processing.py)
 ]
 
 # Indicators with ground truth for evaluation (legacy prefixed names for eval scripts)
@@ -119,16 +115,6 @@ INDICATORS_WITH_GROUND_TRUTH = [
 INDICATOR_LABELS = {
     'sovereign': ['0', '1'],
     'federalism': ['0', '1'],
-    'checks': ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'],  # multi-select
-    'collegiality': ['0', '1'],
-    'petition': ['0', '1'],
-    'assembly': ['0', '1', '2', '3'],
-    'entry': ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '99'],
-    'exit': ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '99'],
-    'symbolism': ['0', '1', '2', '3'],
-    'elections': ['0', '1', '2'],
-    'constitution': ['0', '1', '2'],
-    # TEST: nine binary sub-indicators of checks (single_builder.py only, v1 builder)
     'checks_local':        ['0', '1'],
     'checks_military':     ['0', '1'],
     'checks_clergy':       ['0', '1'],
@@ -138,6 +124,14 @@ INDICATOR_LABELS = {
     'checks_judiciary':    ['0', '1'],
     'checks_assembly':     ['0', '1'],
     'checks_council':      ['0', '1'],
+    'collegiality': ['0', '1'],
+    'petition': ['0', '1'],
+    'assembly': ['0', '1', '2', '3'],
+    'entry': ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '99'],
+    'exit': ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '99'],
+    'symbolism': ['0', '1', '2', '3'],
+    'elections': ['0', '1', '2'],
+    'constitution': ['0', '1', '2'],
 }
 
 # =============================================================================

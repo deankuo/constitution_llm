@@ -185,7 +185,10 @@ class SearchPredictor:
         self.mode = mode
 
         default_indicators = [
-            'constitution', 'sovereign', 'federalism', 'checks',
+            'constitution', 'sovereign', 'federalism',
+            'checks_local', 'checks_military', 'checks_clergy', 'checks_aristocracy',
+            'checks_bourgeoisie', 'checks_bureaucracy', 'checks_judiciary',
+            'checks_assembly', 'checks_council',
             'collegiality', 'petition', 'assembly',
             'entry', 'exit', 'symbolism',
         ]

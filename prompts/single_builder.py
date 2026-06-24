@@ -60,8 +60,8 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
             "the polity; powers normally reserved for deities; special forms of address marking the "
             "ruler's apartness; and protections of the ruler's status such as lèse-majesté.\n\n"
             "Coding:\n"
-            "• 0 = Semi-sovereign. Examples: colony, protectorate, distant or overseas territory (not fully incorporated into the metropole).\n"
-            "• 1 = Sovereign. Examples: city-states, nation-states, empires, republics, monarchies, tributary states "
+            "- 0 = Semi-sovereign. Examples: colony, protectorate, distant or overseas territory (not fully incorporated into the metropole).\n"
+            "- 1 = Sovereign. Examples: city-states, nation-states, empires, republics, monarchies, tributary states "
             "(so long as they held primary responsibility for domestic affairs), states within the Peloponnesian League, "
             "the Hanseatic League, the Holy Roman Empire, and the European Union, any state recognized by European powers "
             "or international law in the modern era, as well as a few that enjoy de facto sovereignty such as Somaliland and Taiwan."
@@ -81,41 +81,11 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
             "governance. Such powers are typically enshrined in a constitution, and localities are "
             "often represented in a chamber at the polity level.\n\n"
             "Coding:\n"
-            "• 0 = Non-federal.\n"
-            "• 1 = Federal. Includes confederations, leagues, and composite monarchies. "
+            "- 0 = Non-federal.\n"
+            "- 1 = Federal. Includes confederations, leagues, and composite monarchies. "
             "Historical examples: Achaean League, Aetolian League, Lycian League, Boeotian League, Old Swiss Confederacy, "
             "Dutch Republic, Holy Roman Empire, Iroquois Confederacy, Hanseatic League, Polish-Lithuanian Commonwealth, Tokugawa Japan. "
             "Contemporary examples: Canada, Germany, India, United States, and the European Union."
-        )
-    ),
-
-    # =========================================================================
-    # CHECKS (Multi-select, 10 categories — formerly checks_actors)
-    # =========================================================================
-    "checks": IndicatorConfig(
-        name="checks",
-        display_name="Checks (Actors)",
-        labels=["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"],
-        multi_select=True,
-        summary=(
-            "Effective checks exist when independent groups or bodies have the capacity to resist actions "
-            "taken by the executive. Select all actors that provide a check on the executive's actions. "
-            "The number of categories transfers into more effective checks.\n\n"
-            "Coding (select all that apply):\n"
-            "• 0 = None. There are no actors with this capacity or proclivity.\n"
-            "• 1 = Local. Examples: clans, tribes, ethnic groups, local governance units, civil society groups, "
-            "newspapers and other media.\n"
-            "• 2 = Military. Examples: officers, specific branches of the military, a warrior caste (e.g., Samurai).\n"
-            "• 3 = Clergy. Power is partly derived from their role as arbiters of a widely espoused religion or "
-            "set of beliefs. Examples: established church, priests, or caste (of any religion or denomination).\n"
-            "• 4 = Aristocracy. Examples: landed class, upper caste, nobility, hereditary elite, titled class, patriciate.\n"
-            "• 5 = Bourgeoisie. Examples: middle class, urbanites, artisans, traders, merchants, commercial classes, "
-            "capitalist class, business class, entrepreneurs, financiers, creditors.\n"
-            "• 6 = Bureaucracy. Examples: civil servants, Confucian scholars who serve as top-level advisors and bureaucrats.\n"
-            "• 7 = Judiciary. Examples: courts of law, tribunals, judicial bodies, adjudicative bodies, legal institutions.\n"
-            "• 8 = Assembly. Examples: popular assembly, legislature, parliament.\n"
-            "• 9 = Advisory council. Examples: royal council, council of state, regency council, privy council, "
-            "council of elders."
         )
     ),
 
@@ -133,8 +103,8 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
             "collaborators; decisionmaking is lateral rather than vertical. Code de facto practice — "
             "if a body is formally collegial but actually dominated by a single actor, it is NOT collegial.\n\n"
             "Coding:\n"
-            "• 0 = Non-collegial. Examples: most presidencies, monarchies, and dictatorships.\n"
-            "• 1 = Collegial. Examples: most cabinets, some military juntas, many regencies, Roman consuls, Switzerland's modern presidency."
+            "- 0 = Non-collegial. Examples: most presidencies, monarchies, and dictatorships.\n"
+            "- 1 = Collegial. Examples: most cabinets, some military juntas, many regencies, Roman consuls, Switzerland's modern presidency."
         )
     ),
     
@@ -165,8 +135,8 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
             "Media, civil society organizations, and ordinary citizens are NOT counted.\n\n"
             "Examples: regional and local governments, tribes, clans, ethnic governance units.\n\n"
             "Coding:\n"
-            "• 0 = No. Such units do not exist during the reign, or exist but cannot effectively resist the executive.\n"
-            "• 1 = Yes. Such units are independent and can, at least on occasion, effectively resist the executive."
+            "- 0 = No. Such units do not exist during the reign, or exist but cannot effectively resist the executive.\n"
+            "- 1 = Yes. Such units are independent and can, at least on occasion, effectively resist the executive."
         )
     ),
 
@@ -183,8 +153,8 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
             "Media, civil society organizations, and ordinary citizens are NOT counted.\n\n"
             "Examples: officers, specific branches of the military, a warrior caste (e.g., Samurai).\n\n"
             "Coding:\n"
-            "• 0 = No. The military does not exist as an independent force, or cannot effectively resist the executive.\n"
-            "• 1 = Yes. The military is independent and can, at least on occasion, effectively resist the executive."
+            "- 0 = No. The military does not exist as an independent force, or cannot effectively resist the executive.\n"
+            "- 1 = Yes. The military is independent and can, at least on occasion, effectively resist the executive."
         )
     ),
 
@@ -201,8 +171,8 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
             "Clergy power derives from their role as arbiters of a widely espoused religion or belief system. "
             "Examples: established church, priesthood, religious caste (of any religion or denomination).\n\n"
             "Coding:\n"
-            "• 0 = No. No independent religious authority exists, or it cannot effectively resist the executive.\n"
-            "• 1 = Yes. Religious authorities are independent and can, at least on occasion, effectively resist the executive."
+            "- 0 = No. No independent religious authority exists, or it cannot effectively resist the executive.\n"
+            "- 1 = Yes. Religious authorities are independent and can, at least on occasion, effectively resist the executive."
         )
     ),
 
@@ -219,8 +189,8 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
             "Media, civil society organizations, and ordinary citizens are NOT counted.\n\n"
             "Examples: landed class, nobility, hereditary elite, titled class, patriciate, upper caste.\n\n"
             "Coding:\n"
-            "• 0 = No. No independent aristocracy exists, or it cannot effectively resist the executive.\n"
-            "• 1 = Yes. The aristocracy is independent and can, at least on occasion, effectively resist the executive."
+            "- 0 = No. No independent aristocracy exists, or it cannot effectively resist the executive.\n"
+            "- 1 = Yes. The aristocracy is independent and can, at least on occasion, effectively resist the executive."
         )
     ),
 
@@ -237,8 +207,8 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
             "Media, civil society organizations, and ordinary citizens are NOT counted.\n\n"
             "Examples: merchants, traders, artisans, financiers, creditors, business/commercial classes.\n\n"
             "Coding:\n"
-            "• 0 = No. No independent commercial class exists, or it cannot effectively resist the executive.\n"
-            "• 1 = Yes. The commercial class is independent and can, at least on occasion, effectively resist the executive."
+            "- 0 = No. No independent commercial class exists, or it cannot effectively resist the executive.\n"
+            "- 1 = Yes. The commercial class is independent and can, at least on occasion, effectively resist the executive."
         )
     ),
 
@@ -255,8 +225,8 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
             "Media, civil society organizations, and ordinary citizens are NOT counted.\n\n"
             "Examples: civil servants, Confucian scholar-officials serving as top-level advisors and administrators.\n\n"
             "Coding:\n"
-            "• 0 = No. No independent bureaucracy exists, or it cannot effectively resist the executive.\n"
-            "• 1 = Yes. The bureaucracy is independent and can, at least on occasion, effectively resist the executive."
+            "- 0 = No. No independent bureaucracy exists, or it cannot effectively resist the executive.\n"
+            "- 1 = Yes. The bureaucracy is independent and can, at least on occasion, effectively resist the executive."
         )
     ),
 
@@ -273,8 +243,8 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
             "Media, civil society organizations, and ordinary citizens are NOT counted.\n\n"
             "Examples: courts of law, tribunals, judicial bodies, legal institutions.\n\n"
             "Coding:\n"
-            "• 0 = No. No independent judiciary exists, or it cannot effectively resist the executive.\n"
-            "• 1 = Yes. The judiciary is independent and can, at least on occasion, effectively resist the executive."
+            "- 0 = No. No independent judiciary exists, or it cannot effectively resist the executive.\n"
+            "- 1 = Yes. The judiciary is independent and can, at least on occasion, effectively resist the executive."
         )
     ),
 
@@ -291,8 +261,8 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
             "Media, civil society organizations, and ordinary citizens are NOT counted.\n\n"
             "Examples: popular assembly, legislature, parliament.\n\n"
             "Coding:\n"
-            "• 0 = No. No independent assembly exists, or it cannot effectively resist the executive.\n"
-            "• 1 = Yes. An assembly is independent and can, at least on occasion, effectively resist the executive."
+            "- 0 = No. No independent assembly exists, or it cannot effectively resist the executive.\n"
+            "- 1 = Yes. An assembly is independent and can, at least on occasion, effectively resist the executive."
         )
     ),
 
@@ -309,8 +279,8 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
             "Media, civil society organizations, and ordinary citizens are NOT counted.\n\n"
             "Examples: royal council, council of state, regency council, privy council, council of elders.\n\n"
             "Coding:\n"
-            "• 0 = No. No independent council exists, or it cannot effectively resist the executive.\n"
-            "• 1 = Yes. A council is independent and can, at least on occasion, effectively resist the executive."
+            "- 0 = No. No independent council exists, or it cannot effectively resist the executive.\n"
+            "- 1 = Yes. A council is independent and can, at least on occasion, effectively resist the executive."
         )
     ),
     
@@ -328,9 +298,9 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
             "(the \"bell of justice\" tradition), a letter, or an electronic communication, with one "
             "or many signatories.\n\n"
             "Coding:\n"
-            "• 0 = No. Use of petition is extremely rare and probably ineffective, or there is no record "
+            "- 0 = No. Use of petition is extremely rare and probably ineffective, or there is no record "
             "of its existence.\n"
-            "• 1 = Yes. Petitions are a fairly regular feature of political life."
+            "- 1 = Yes. Petitions are a fairly regular feature of political life."
         )
     ),
 
@@ -346,13 +316,13 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
             "governing. It may be advisory (a council of selected elites), representative (a "
             "legislature), or inclusive of all citizens (a popular assembly).\n\n"
             "Coding:\n"
-            "• 0 = None.\n"
-            "• 1 = Council. A small advisory council appointed by the ruler, which may not enjoy much autonomy but is nonetheless institutionalized "
+            "- 0 = None.\n"
+            "- 1 = Council. A small advisory council appointed by the ruler, which may not enjoy much autonomy but is nonetheless institutionalized "
             "(has a recognized name, meets regularly, and has a fairly stable membership). "
             "Examples: noble or aristocratic councils, privy councils, dynastic councils, Ottoman divan.\n"
-            "• 2 = Legislature. A large representative body that plays some role in policymaking or leadership selection, de jure or de facto. "
+            "- 2 = Legislature. A large representative body that plays some role in policymaking or leadership selection, de jure or de facto. "
             "Examples: estates assemblies in premodern Europe, the Hwabaek Council in Korea during the Silla Dynasty, legislatures in modern governments.\n"
-            "• 3 = Popular assembly. An assembly that includes most citizens of the polity or a representative sample chosen by lot. "
+            "- 3 = Popular assembly. An assembly that includes most citizens of the polity or a representative sample chosen by lot. "
             "Examples: Ecclesia in ancient Athens, Landsgemeinden in modern Swiss cantons."
         )
     ),
@@ -369,18 +339,18 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
             "The manner in which the executive entered office. Code the manner of entry at the START "
             "of this leader's tenure (the accession in {start_year}).\n\n"
             "Coding:\n"
-            "• 0 = Through the threat or application of force, such as a coup or rebellion\n"
-            "• 1 = Appointed by a foreign power\n"
-            "• 2 = Appointed by the ruling party (in a one-party system)\n"
-            "• 3 = Appointed by a royal council (either members of the royal family or conclave of aristocrats)\n"
-            "• 4 = Through hereditary succession\n"
-            "• 5 = Appointed by the military\n"
-            "• 6 = Appointed by the legislature\n"
-            "• 7 = Appointed by the head of state\n"
-            "• 8 = Appointed by the head of government\n"
-            "• 9 = Directly through a popular election (regardless of the extension of the suffrage)\n"
-            "• 10 = Other (including clerical bodies such as the College of Cardinals)\n"
-            "• 99 = Unknown (circumstances of entry are unknown)"
+            "- 0 = Through the threat or application of force, such as a coup or rebellion\n"
+            "- 1 = Appointed by a foreign power\n"
+            "- 2 = Appointed by the ruling party (in a one-party system)\n"
+            "- 3 = Appointed by a royal council (either members of the royal family or conclave of aristocrats)\n"
+            "- 4 = Through hereditary succession\n"
+            "- 5 = Appointed by the military\n"
+            "- 6 = Appointed by the legislature\n"
+            "- 7 = Appointed by the head of state\n"
+            "- 8 = Appointed by the head of government\n"
+            "- 9 = Directly through a popular election (regardless of the extension of the suffrage)\n"
+            "- 10 = Other (including clerical bodies such as the College of Cardinals)\n"
+            "- 99 = Unknown (circumstances of entry are unknown)"
         )
     ),
 
@@ -396,22 +366,22 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
             "The circumstances of the executive's departure from office. Code the manner of exit at "
             "the END of this leader's tenure (the departure in {end_year}).\n\n"
             "Coding:\n"
-            "• 0 = Abdicated or retired voluntarily but NOT due to ill health\n"
-            "• 1 = Other regular exit (e.g., term limits or defeat in election)\n"
-            "• 2 = Transition to another office type/typology (by regular procedures)\n"
-            "• 3 = Died (of disease or accident) on campaign in civil war\n"
-            "• 4 = Died (of disease or accident) on campaign in foreign war\n"
-            "• 5 = Died of other natural causes\n"
-            "• 6 = Retired due to ill health\n"
-            "• 7 = Suicide\n"
-            "• 8 = Deposed by domestic actors\n"
-            "• 9 = Assassinated or forced suicide\n"
-            "• 10 = Died in battle in civil war\n"
-            "• 11 = Died in battle in foreign war\n"
-            "• 12 = Transition to another office by irregular procedures\n"
-            "• 13 = Through deposition by a foreign state\n"
-            "• 14 = Still in office\n"
-            "• 99 = Unknown"
+            "- 0 = Abdicated or retired voluntarily but NOT due to ill health\n"
+            "- 1 = Other regular exit (e.g., term limits or defeat in election)\n"
+            "- 2 = Transition to another office type/typology (by regular procedures)\n"
+            "- 3 = Died (of disease or accident) on campaign in civil war\n"
+            "- 4 = Died (of disease or accident) on campaign in foreign war\n"
+            "- 5 = Died of other natural causes\n"
+            "- 6 = Retired due to ill health\n"
+            "- 7 = Suicide\n"
+            "- 8 = Deposed by domestic actors\n"
+            "- 9 = Assassinated or forced suicide\n"
+            "- 10 = Died in battle in civil war\n"
+            "- 11 = Died in battle in foreign war\n"
+            "- 12 = Transition to another office by irregular procedures\n"
+            "- 13 = Through deposition by a foreign state\n"
+            "- 14 = Still in office\n"
+            "- 99 = Unknown"
         )
     ),
 
@@ -429,14 +399,14 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
             "self-presentation of the office, NOT the leader's actual power. (Purely ceremonial heads "
             "who are not paramount leaders are excluded from the sample.)\n\n"
             "Coding:\n"
-            "• 0 = Plain. The trappings of the office are plain and simple. Little distinguishes the personage "
+            "- 0 = Plain. The trappings of the office are plain and simple. Little distinguishes the personage "
             "of the ruler from others in the realm. Example: British prime minister (10 Downing Street).\n"
-            "• 1 = Decorated. The trappings of the office are impressive but connected to the office rather "
+            "- 1 = Decorated. The trappings of the office are impressive but connected to the office rather "
             "than the officeholder, who is understood as mortal. Example: American president.\n"
-            "• 2 = Deified. The trappings of the office are impressive and the holder is regarded as having "
+            "- 2 = Deified. The trappings of the office are impressive and the holder is regarded as having "
             "divine or quasi-divine status, separate and apart from mere mortals. "
             "Examples: many kings in the premodern era.\n"
-            "• 3 = Ceremonial. The trappings of office are so extensive, and so demanding, that they serve as "
+            "- 3 = Ceremonial. The trappings of office are so extensive, and so demanding, that they serve as "
             "a constraint on the exercise of power, separating the leader from the springs of policymaking. "
             "The executive's role is as much ceremonial as executive; approval of initiatives is formal. "
             "Example: Japanese emperor during most periods."
@@ -461,19 +431,6 @@ INDICATOR_SUMMARIES: Dict[str, str] = {
         "(0) Non-federal; "
         "(1) Federal — includes confederations, leagues, composite monarchies. "
         "Examples: Achaean League, Dutch Republic, Holy Roman Empire, Iroquois Confederacy, US, EU."
-    ),
-
-    "checks": (
-        "Checks (Actors): which actors provide a check on the executive (select all that apply, output as JSON array). "
-        "(0) None; (1) Local — clans, tribes, civil society, media; "
-        "(2) Military — officers, military branches, warrior caste; "
-        "(3) Clergy — established church, priests, religious caste; "
-        "(4) Aristocracy — nobility, hereditary elite, upper caste; "
-        "(5) Bourgeoisie — merchants, commercial classes, financiers; "
-        "(6) Bureaucracy — civil servants, Confucian scholars; "
-        "(7) Judiciary — courts, tribunals, legal institutions; "
-        "(8) Assembly — popular assembly, legislature, parliament; "
-        "(9) Advisory council — royal council, privy council, council of elders."
     ),
 
     "collegiality": (
@@ -533,7 +490,11 @@ INDICATOR_SUMMARIES: Dict[str, str] = {
 
 def get_all_indicators() -> List[str]:
     """Return the default indicator list."""
-    return ["sovereign", "federalism", "checks", "collegiality", "petition", "assembly",
+    return ["sovereign", "federalism",
+            "checks_local", "checks_military", "checks_clergy", "checks_aristocracy",
+            "checks_bourgeoisie", "checks_bureaucracy", "checks_judiciary",
+            "checks_assembly", "checks_council",
+            "collegiality", "petition", "assembly",
             "entry", "exit", "symbolism"]
 
 
@@ -586,10 +547,10 @@ class SinglePromptBuilder:
             "**Core rule:** Code de facto (actual) practice, not de jure (formal) arrangements. "
             "Focus on THIS specific leader's tenure.\n"
             "When evidence is uncertain, apply the indicator-appropriate default:\n"
-            "• Institutional-presence indicators (federalism, checks, collegiality, petition, assembly): default to 0 / None / No — if such an institution existed, the historical record would usually mention it, so silence indicates absence.\n"
-            "• Sovereignty: default to 1 / Sovereign — overlordship or loss of domestic control would normally be recorded, so silence indicates the polity governed its own domestic affairs. (Be more cautious for premodern and non-Western polities, where semi-sovereign status may go unrecorded.)\n"
-            "• Assembly is ordinal (0<1<2<3): when choosing among present-but-ambiguous levels, prefer the lower level.\n"
-            "• Nominal indicators (entry, exit) and the non-monotonic symbolism scale: do NOT default to a lower label. If the evidence genuinely does not support any category, output \"N/A\" (entry/exit only) or your best estimate, and lower the confidence_score rather than forcing a code.\n\n"
+            "- Institutional-presence indicators (federalism, checks, collegiality, petition, assembly): default to 0 / None / No — if such an institution existed, the historical record would usually mention it, so silence indicates absence.\n"
+            "- Sovereignty: default to 1 / Sovereign — overlordship or loss of domestic control would normally be recorded, so silence indicates the polity governed its own domestic affairs. (Be more cautious for premodern and non-Western polities, where semi-sovereign status may go unrecorded.)\n"
+            "- Assembly is ordinal (0<1<2<3): when choosing among present-but-ambiguous levels, prefer the lower level.\n"
+            "- Nominal indicators (entry, exit) and the non-monotonic symbolism scale: do NOT default to a lower label. If the evidence genuinely does not support any category, output \"N/A\" (entry/exit only) or your best estimate, and lower the confidence_score rather than forcing a code.\n\n"
             "## Indicator Definitions\n\n"
         )
 
@@ -677,10 +638,10 @@ class SinglePromptBuilderV2:
             "1. Always code actual (de facto) behavior, never formal (de jure) arrangements.\n"
             "2. Evaluate conditions as they existed during THIS leader's specific tenure.\n"
             "3. When evidence is uncertain, apply the indicator-appropriate default:\n"
-            "   • Institutional-presence indicators (federalism, checks, collegiality, petition, assembly): default to 0 / None / No — if such an institution existed, the historical record would usually mention it, so silence indicates absence.\n"
-            "   • Sovereignty: default to 1 / Sovereign — silence indicates the polity governed its own domestic affairs. (Be more cautious for premodern and non-Western polities.)\n"
-            "   • Assembly is ordinal (0<1<2<3): when choosing among present-but-ambiguous levels, prefer the lower level.\n"
-            "   • Nominal indicators (entry, exit) and the non-monotonic symbolism scale: do NOT default to a lower label — lower the confidence_score instead.\n"
+            "   - Institutional-presence indicators (federalism, checks, collegiality, petition, assembly): default to 0 / None / No — if such an institution existed, the historical record would usually mention it, so silence indicates absence.\n"
+            "   - Sovereignty: default to 1 / Sovereign — silence indicates the polity governed its own domestic affairs. (Be more cautious for premodern and non-Western polities.)\n"
+            "   - Assembly is ordinal (0<1<2<3): when choosing among present-but-ambiguous levels, prefer the lower level.\n"
+            "   - Nominal indicators (entry, exit) and the non-monotonic symbolism scale: do NOT default to a lower label — lower the confidence_score instead.\n"
             "4. Each indicator is independent — do not let your assessment of one influence another.\n\n"
             "## Indicator Reference\n\n"
         )

@@ -40,7 +40,11 @@ from utils.langsmith_utils import traceable
 class PredictionConfig:
     """Configuration for prediction pipeline."""
     mode: PromptMode = PromptMode.SINGLE
-    indicators: List[str] = field(default_factory=lambda: ['constitution', 'sovereign', 'federalism', 'checks', 'collegiality', 'petition', 'assembly', 'entry', 'exit', 'symbolism'])
+    indicators: List[str] = field(default_factory=lambda: ['constitution', 'sovereign', 'federalism',
+        'checks_local', 'checks_military', 'checks_clergy', 'checks_aristocracy',
+        'checks_bourgeoisie', 'checks_bureaucracy', 'checks_judiciary',
+        'checks_assembly', 'checks_council',
+        'collegiality', 'petition', 'assembly', 'entry', 'exit', 'symbolism'])
     verify: VerificationType = VerificationType.NONE
     verify_indicators: List[str] = field(default_factory=list)
     model: str = DEFAULT_PRIMARY_MODEL
@@ -83,6 +87,9 @@ class IndicatorPrediction:
     agreement_ratio: Optional[float] = None
     # Categorical uncertainty from SC: 'none' | 'low' | 'high'; None when not applied
     sc_uncertainty: Optional[str] = None
+    # Per-slot SC sample predictions (SC1, SC2, ...); None per slot if that call failed.
+    # Populated only for self-consistency; None for CoVe/no-verification.
+    sc_sample_predictions: Optional[List[Optional[str]]] = None
 
 
 @dataclass
@@ -124,8 +131,14 @@ class PolityPrediction:
                 result['constitution_document_types'] = ind_pred.document_types
 
             if ind_pred.was_verified:
+                if ind_pred.sc_sample_predictions is not None:
+                    # Self-consistency: write per-slot SC columns (SC1, SC2, ...)
+                    for _sc_i, _sc_pred in enumerate(ind_pred.sc_sample_predictions, start=1):
+                        result[f'{ind_name}_SC{_sc_i}'] = _sc_pred
+                else:
+                    # CoVe or other: write full verification details
+                    result[f'{ind_name}_verification'] = str(ind_pred.verification_details)
                 result[f'{ind_name}_verified'] = ind_pred.verified_prediction
-                result[f'{ind_name}_verification'] = str(ind_pred.verification_details)
                 if ind_pred.agreement_ratio is not None:
                     result[f'{ind_name}_agreement'] = round(ind_pred.agreement_ratio, 3)
                 if ind_pred.sc_uncertainty is not None:
@@ -359,6 +372,7 @@ class Predictor:
                         except Exception as _sc_e:
                             from tqdm import tqdm as _tqdm
                             _tqdm.write(f"WARN: prompt-level SC sample {_sc_i + 1} failed: {_sc_e}")
+                            prompt_sc_parseds.append(None)  # preserve positional slot
 
                 # Spread prompt-level SC cost evenly across indicators in the prompt
                 num_indicators = len(prompt.indicators)
@@ -460,6 +474,7 @@ class Predictor:
         was_verified = False
         agreement_ratio = None
         sc_uncertainty = None
+        sc_samples = None
         verification_cost = 0.0
         verification_tokens = 0
 
@@ -507,6 +522,7 @@ class Predictor:
                 was_verified = True
                 verification_cost = verify_result.sc_cost_usd
                 verification_tokens = verify_result.sc_tokens
+                sc_samples = verify_result.sc_sample_predictions
 
             except Exception as e:
                 verification_details = {'error': str(e)}
@@ -528,6 +544,7 @@ class Predictor:
             logprob=logprob,
             agreement_ratio=agreement_ratio,
             sc_uncertainty=sc_uncertainty,
+            sc_sample_predictions=sc_samples,
         )
 
     def _calculate_cost(self, response: ModelResponse) -> float:
@@ -570,7 +587,11 @@ def create_predictor(
     """
     config = PredictionConfig(
         mode=PromptMode(mode),
-        indicators=indicators or ['constitution', 'sovereign', 'federalism', 'checks', 'collegiality', 'petition', 'assembly', 'entry', 'exit', 'symbolism'],
+        indicators=indicators or ['constitution', 'sovereign', 'federalism',
+            'checks_local', 'checks_military', 'checks_clergy', 'checks_aristocracy',
+            'checks_bourgeoisie', 'checks_bureaucracy', 'checks_judiciary',
+            'checks_assembly', 'checks_council',
+            'collegiality', 'petition', 'assembly', 'entry', 'exit', 'symbolism'],
         verify=VerificationType(verify),
         verify_indicators=verify_indicators or [],
         model=model,

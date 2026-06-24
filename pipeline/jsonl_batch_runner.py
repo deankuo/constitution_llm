@@ -115,8 +115,6 @@ def _chunk_requests(
 
 def _normalize_pred(pred, indicator: str) -> str:
     """Normalize a raw parsed prediction to a stable comparable string."""
-    if indicator == "checks" and isinstance(pred, list):
-        return json.dumps(sorted(int(x) for x in pred))
     if isinstance(pred, float):
         return str(int(pred))
     return str(pred)
@@ -131,8 +129,7 @@ def _aggregate_sc(
     Returns (final_pred_str, agreement_ratio, uncertainty).
     uncertainty: 'none' (unanimous) | 'low' (majority ≥ 2) | 'high' (all differ)
 
-    checks (multi-select): when all differ, use intersection of all vote sets.
-    Others: when all differ, fall back to votes[0] (the sc_idx=0 initial prediction).
+    When all differ, fall back to votes[0] (the sc_idx=0 initial prediction).
     """
     if not votes:
         return None, 0.0, "high"
@@ -148,15 +145,7 @@ def _aggregate_sc(
         uncertainty = "low"
     else:
         uncertainty = "high"
-        if indicator == "checks":
-            try:
-                sets = [set(json.loads(v)) for v in votes]
-                common = set.intersection(*sets)
-                winner = json.dumps(sorted(common)) if common else None
-            except Exception:
-                winner = votes[0]
-        else:
-            winner = votes[0]  # fall back to sc_idx=0 (initial prediction)
+        winner = votes[0]  # fall back to sc_idx=0 (initial prediction)
 
     return winner, agreement, uncertainty
 
@@ -165,11 +154,6 @@ def _denormalize_pred(pred: Optional[str], indicator: str):
     """Convert a normalized prediction string back to the storage format."""
     if pred is None:
         return None
-    if indicator == "checks":
-        try:
-            return json.loads(pred)
-        except (json.JSONDecodeError, TypeError):
-            return pred
     return pred
 
 
@@ -468,6 +452,7 @@ def _aggregate_and_merge(
 
     for (row_idx, indicator), sc_map in tqdm(grouped.items(), desc="aggregating SC"):
         votes: list[str] = []
+        sc_preds: dict[int, str] = {}  # sc_idx → normalized pred string
         initial_reasoning = ""
         initial_confidence = None
         extra_fields: dict = {}
@@ -496,6 +481,7 @@ def _aggregate_and_merge(
 
             if pred_str:
                 votes.append(pred_str)
+                sc_preds[sc_idx] = pred_str
 
         initial_pred = votes[0] if votes else None
         initial_stored = _denormalize_pred(initial_pred, indicator)
@@ -507,6 +493,9 @@ def _aggregate_and_merge(
         updates.update(extra_fields)
 
         if n_samples > 0:
+            for sc_idx in range(1, n_samples + 1):
+                raw = sc_preds.get(sc_idx)
+                updates[f"{indicator}_SC{sc_idx}"] = _denormalize_pred(raw, indicator) if raw else None
             final_pred_str, agreement, uncertainty = _aggregate_sc(votes, indicator)
             final_pred = _denormalize_pred(final_pred_str, indicator)
             updates[f"{indicator}_verified"] = final_pred
@@ -515,12 +504,28 @@ def _aggregate_and_merge(
 
     # Merge into result DataFrame (df already reset_index'd before this call)
     result_df = df.copy()
+
+    # Pre-allocate all new columns at once to avoid DataFrame fragmentation.
+    # Use insertion order from row_updates (Python 3.7+ dict ordering) so that
+    # {indicator}_prediction appears left of {indicator}_SC1, _SC2, etc.
+    seen_cols = set(result_df.columns)
+    ordered_new_cols = []
+    for row_idx, cols in row_updates.items():
+        if row_idx < n_rows:
+            for col in cols:
+                if col not in seen_cols:
+                    ordered_new_cols.append(col)
+                    seen_cols.add(col)
+    if ordered_new_cols:
+        result_df = pd.concat(
+            [result_df, pd.DataFrame(index=result_df.index, columns=ordered_new_cols)],
+            axis=1,
+        )
+
     for row_idx, cols in row_updates.items():
         if row_idx >= n_rows:
             continue
         for col, val in cols.items():
-            if col not in result_df.columns:
-                result_df[col] = None
             result_df.iloc[row_idx, result_df.columns.get_loc(col)] = val
 
     return result_df
@@ -805,7 +810,7 @@ def run_from_jsonl(
     import datetime as _dt
     prov = {
         "model": model,
-        "run_timestamp": _dt.datetime.utcnow().isoformat() + "Z",
+        "run_timestamp": _dt.datetime.now(_dt.timezone.utc).isoformat(),
         "n_samples": n_samples,
         "input_jsonl": jsonl_paths,
         "total_requests": len(all_requests),
@@ -855,7 +860,7 @@ def main():
     parser.add_argument("--output", "-o", required=True, help="Output CSV path.")
     parser.add_argument("--model", default="gemini-3.1-pro-preview")
     parser.add_argument(
-        "--n-samples", type=int, default=0,
+        "--n-samples", type=int, default=2,
         help=(
             "Additional SC samples. Must match the value used during build. "
             "n_samples=0 → no SC. n_samples=2 → 3 total votes."

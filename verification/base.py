@@ -37,6 +37,9 @@ class VerificationResult:
     was_revised: bool = False
     sc_cost_usd: float = 0.0
     sc_tokens: int = 0
+    # Per-slot SC sample predictions (SC1, SC2, ...); None per slot if that call failed.
+    # Populated only for self-consistency; None for CoVe/no-verification.
+    sc_sample_predictions: Optional[List[Optional[str]]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""

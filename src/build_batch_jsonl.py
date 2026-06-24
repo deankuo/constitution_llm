@@ -33,7 +33,7 @@ Usage
 
   python src/build_batch_jsonl.py \\
       --task indicators \\
-      --indicators sovereign federalism checks collegiality petition assembly entry exit symbolism \\
+      --indicators sovereign federalism checks_local checks_military checks_clergy checks_aristocracy checks_bourgeoisie checks_bureaucracy checks_judiciary checks_assembly checks_council collegiality petition assembly entry exit symbolism \\
       --input data/plt_leaders_data.csv \\
       --output data/temp/batch_indicators.jsonl \\
       --n-samples 2
@@ -357,11 +357,13 @@ def main():
     parser.add_argument(
         "--indicators", nargs="+",
         default=[
-            "sovereign", "federalism", "checks", "collegiality",
-            "petition", "assembly", "entry", "exit", "symbolism",
+            "sovereign", "federalism",
+            "checks_local", "checks_military", "checks_clergy", "checks_aristocracy",
+            "checks_bourgeoisie", "checks_bureaucracy", "checks_judiciary",
+            "checks_assembly", "checks_council",
+            "collegiality", "petition", "assembly", "entry", "exit", "symbolism",
         ],
-        help="""Indicators to include (task=indicators for sovereign, assembly, federalism, 
-        collegiality, entry, exit, symbolism, petition, and checks only).""",
+        help="Indicators to include (task=indicators only).",
     )
     parser.add_argument(
         "--n-samples", type=int, default=2,
@@ -462,7 +464,7 @@ def main():
         manifest["reasoning"] = args.reasoning
     elif args.task == "elections":
         manifest["prompt_version"] = args.prompt_version
-    manifest_path = Path(written_files[0]).parent / (Path(args.output).stem + "_manifest.json")
+    manifest_path = Path(written_files[0]).parent / "logs" / (Path(args.output).stem + "_manifest.json")
     with open(manifest_path, "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2, ensure_ascii=False)
     print(f"Manifest: {manifest_path}")

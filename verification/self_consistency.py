@@ -148,13 +148,14 @@ class SelfConsistencyVerification(BaseVerification):
         user_prompt: str,
         indicator: str,
         valid_labels: List[str]
-    ) -> List[PredictionSample]:
+    ) -> List[Optional[PredictionSample]]:
         """Collect prediction samples at different temperatures.
 
         valid_labels must already be normalized to strings by the caller.
-        Returns samples with .response set so callers can sum up SC costs.
+        Returns a fixed-length list of n_samples items; failed slots hold None
+        so that positional alignment with SC1, SC2, ... columns is preserved.
         """
-        samples = []
+        samples: List[Optional[PredictionSample]] = []
 
         for i in range(self.config.n_samples):
             temperature = self.config.temperatures[i % len(self.config.temperatures)]
@@ -204,22 +205,27 @@ class SelfConsistencyVerification(BaseVerification):
             except Exception as e:
                 from tqdm import tqdm as _tqdm
                 _tqdm.write(f"WARN: SC sample {i+1} failed: {e}")
-                continue
+                samples.append(None)  # preserve positional slot
 
         return samples
 
     def _aggregate_predictions(
         self,
-        samples: List[PredictionSample],
+        samples: List[Optional[PredictionSample]],
         valid_labels: List[str],
         indicator: str = '',
     ) -> VerificationResult:
-        """Aggregate samples using majority voting."""
+        """Aggregate samples using majority voting.
+
+        samples[0] is the initial prediction; samples[1:] are the SC slots.
+        Slots may be None when a call failed; positions are preserved for
+        _SC1/_SC2/... column alignment.
+        """
         # Sum token and cost usage across all SC sample responses
         sc_cost_usd = 0.0
         sc_tokens = 0
         for s in samples:
-            if s.response is not None:
+            if s is not None and s.response is not None:
                 sc_cost_usd += self.cost_tracker.calculate_cost(
                     model=self.llm.model,
                     input_tokens=s.response.input_tokens,
@@ -228,7 +234,16 @@ class SelfConsistencyVerification(BaseVerification):
                 )
                 sc_tokens += s.response.total_tokens
 
-        if not samples:
+        # SC slot predictions (SC1, SC2, ...): positional, None for failed slots
+        sc_sample_predictions: Optional[List[Optional[str]]] = None
+        if len(samples) > 1:
+            sc_sample_predictions = [
+                (s.prediction if (s is not None and s.prediction) else None)
+                for s in samples[1:]
+            ]
+
+        valid_samples = [s for s in samples if s is not None]
+        if not valid_samples:
             # No valid samples
             return VerificationResult(
                 original_prediction='',
@@ -243,28 +258,30 @@ class SelfConsistencyVerification(BaseVerification):
                 was_revised=False,
                 sc_cost_usd=sc_cost_usd,
                 sc_tokens=sc_tokens,
+                sc_sample_predictions=sc_sample_predictions,
             )
 
         # Count predictions. validate_indicator_response is the gatekeeper — a
         # non-empty prediction string is already validated (supports single-label
         # floats and multi-select canonical arrays like '["1","4"]').
-        predictions = [s.prediction for s in samples if s.prediction]
+        predictions = [s.prediction for s in valid_samples if s.prediction]
 
         if not predictions:
             # No valid predictions
             return VerificationResult(
-                original_prediction=samples[0].prediction if samples else '',
+                original_prediction=valid_samples[0].prediction if valid_samples else '',
                 verified_prediction='',
                 confidence=0.0,
                 agreement_ratio=0.0,
                 verification_details={
                     'method': 'self_consistency',
                     'error': 'No valid predictions in samples',
-                    'n_samples': len(samples)
+                    'n_samples': len(valid_samples)
                 },
                 was_revised=False,
                 sc_cost_usd=sc_cost_usd,
                 sc_tokens=sc_tokens,
+                sc_sample_predictions=sc_sample_predictions,
             )
 
         # Majority vote
@@ -274,28 +291,12 @@ class SelfConsistencyVerification(BaseVerification):
         n_total = len(predictions)
 
         # Get original prediction (first sample = initial main-call prediction)
-        original_prediction = samples[0].prediction
+        original_prediction = samples[0].prediction if (samples[0] is not None) else ''
 
         # Tie-breaking when no two samples agree (all predictions differ).
-        # Multi-select (checks): use the intersection of all prediction sets.
-        # If the intersection is empty, verified = None (no shared consensus).
-        # Single-select: fall back to the original prediction.
+        # Fall back to the original prediction (sc_idx=0).
         if majority_count == 1:
-            is_multi_select = indicator == 'checks'
-            if is_multi_select:
-                sets = []
-                for p in predictions:
-                    try:
-                        sets.append(set(ast.literal_eval(p)))
-                    except (ValueError, SyntaxError):
-                        pass
-                if len(sets) == len(predictions):
-                    common = set.intersection(*sets)
-                    majority_prediction = str(sorted(common)) if common else None
-                else:
-                    majority_prediction = None
-            else:
-                majority_prediction = original_prediction
+            majority_prediction = original_prediction
 
         # Uncertainty label — generalises beyond the n=3 case:
         #   none  = unanimous (all agree)
@@ -311,7 +312,7 @@ class SelfConsistencyVerification(BaseVerification):
         confidence = agreement_ratio
 
         # Collect reasoning from agreeing samples
-        agreeing_samples = [s for s in samples if s.prediction == majority_prediction]
+        agreeing_samples = [s for s in valid_samples if s.prediction == majority_prediction]
         reasoning_samples = [s.reasoning for s in agreeing_samples if s.reasoning]
 
         return VerificationResult(
@@ -326,13 +327,14 @@ class SelfConsistencyVerification(BaseVerification):
                 'vote_distribution': dict(counter),
                 'agreement_ratio': round(agreement_ratio, 3),
                 'sc_uncertainty': sc_uncertainty,
-                'temperatures_used': [s.temperature for s in samples],
+                'temperatures_used': [s.temperature for s in valid_samples],
                 'high_confidence': agreement_ratio >= self.config.min_agreement,
                 'sample_reasonings': reasoning_samples[:3]
             },
             was_revised=(original_prediction != majority_prediction),
             sc_cost_usd=sc_cost_usd,
             sc_tokens=sc_tokens,
+            sc_sample_predictions=sc_sample_predictions,
         )
 
 
@@ -352,7 +354,7 @@ class SelfConsistencyVerification(BaseVerification):
         that case the initial prediction is the only vote and uncertainty = 'high'.
         """
         str_valid = [str(v) for v in valid_labels]
-        samples: List[PredictionSample] = []
+        samples: List[Optional[PredictionSample]] = []
 
         # Normalize and add initial prediction as the first sample
         if initial_prediction is not None:
@@ -371,8 +373,13 @@ class SelfConsistencyVerification(BaseVerification):
                     temperature=init_temp
                 ))
 
-        # Add samples from pre-collected parsed responses (no LLM calls here)
+        # Add samples from pre-collected parsed responses (no LLM calls here).
+        # None entries preserve positional alignment when a prompt-level call failed.
         for i, parsed in enumerate(additional_parsed_responses):
+            temp = self.config.temperatures[i % len(self.config.temperatures)]
+            if parsed is None:
+                samples.append(None)
+                continue
             validated = validate_indicator_response(parsed, indicator, str_valid)
             raw_pred = validated.get(indicator)
             if raw_pred is not None and isinstance(raw_pred, (int, float)):
@@ -385,7 +392,6 @@ class SelfConsistencyVerification(BaseVerification):
             else:
                 pred_str = ''
 
-            temp = self.config.temperatures[i % len(self.config.temperatures)]
             samples.append(PredictionSample(
                 prediction=pred_str,
                 reasoning=validated.get('reasoning', ''),

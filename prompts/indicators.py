@@ -207,68 +207,467 @@ Federalism refers to a **division of sovereignty between central and local units
     ),
 
     # =========================================================================
-    # CHECKS (Multi-select, 10 categories — formerly checks_actors)
+    # CHECKS — NINE INDEPENDENT BINARY QUESTIONS (one per actor type)
+    #
+    # Replaces the former multi-select 'checks' (0-9). Each actor type is asked
+    # as a separate yes/no question so self-consistency agreement is well-defined.
+    # "None" is the case where all nine answers are 0.
+    #
+    # Shared framing: an effective check is an independent body with the de facto
+    # capacity to resist executive action during THIS leader's reign; code actual
+    # capacity, not de jure standing; a body controlled by the executive counts as 0;
+    # media, civil society, and ordinary citizens are NOT counted.
     # =========================================================================
-    "checks": IndicatorConfig(
-        name="checks",
-        display_name="checks",
+
+    "checks_local": IndicatorConfig(
+        name="checks_local",
+        display_name="Checks: Local / constituent units",
         specialization="comparative politics and executive constraints",
-        labels=["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"],
-        multi_select=True,
-        task_description="which actors, if any, provide effective checks on executive power during a specific leader's tenure",
+        labels=["0", "1"],
+        task_description="whether local or constituent territorial/kin-based units provide an effective check on the executive during a specific leader's tenure",
 
         definition="""
-## Definition of Checks (Actors)
+## Definition of Checks: Local / Constituent Units
 
-Effective checks exist when independent groups or bodies have the capacity to resist actions taken by the executive. We ask about the identity of these groups or bodies, inferring that the number of categories transfers into more effective checks.
+Do local or constituent territorial/kin-based units provide an effective check on the executive during THIS leader's reign?
 
-**Q: Which of the following actors provide a check on the actions of the executive? (You may choose more than one.)**
+An effective check means the unit is **independent** of the executive and has the **de facto capacity** to resist or constrain executive action — not merely formal/de jure standing. A body that exists on paper but is controlled by the executive does NOT count. Media, civil society organizations, and ordinary citizens are NOT counted.
 
-**Categories:**
-- **0 = None.** There are no actors with this capacity or proclivity.
-- **1 = Local.** Examples: clans, tribes, ethnic groups, local governance units, civil society groups, newspapers and other media.
-- **2 = Military.** Examples: officers, specific branches of the military, a warrior caste (e.g., Samurai).
-- **3 = Clergy.** Power partly derived from their role as arbiters of a widely espoused religion or set of beliefs. Examples: established church, priests, or caste (of any religion or denomination).
-- **4 = Aristocracy.** Examples: landed class, upper caste, nobility, hereditary elite, titled class, patriciate.
-- **5 = Bourgeoisie.** Examples: middle class, urbanites, artisans, traders, merchants, commercial classes, capitalist class, business class, entrepreneurs, financiers, creditors.
-- **6 = Bureaucracy.** Examples: civil servants, Confucian scholars who serve as top-level advisors and bureaucrats.
-- **7 = Judiciary.** Examples: courts of law, tribunals, judicial bodies, adjudicative bodies, legal institutions.
-- **8 = Assembly.** Examples: popular assembly, legislature, parliament.
-- **9 = Advisory council.** Examples: royal council, council of state, regency council, privy council, council of elders.
+**Examples:** Regional and local governments, tribes, clans, ethnic governance units.
+
+## Categories
+
+- **0 = No.** Such units do not exist during the reign, or exist but cannot effectively resist the executive.
+- **1 = Yes.** Such units are independent and can, at least on occasion, effectively resist the executive.
 
 ## Analysis Process
 
-1. Identify which groups or bodies existed and had independent standing during this leader's tenure
-2. For each category, assess whether that actor had the capacity AND proclivity to resist executive actions
-3. Select all categories that apply — more categories indicate more effective checking of executive power
-4. If no actors had this capacity, select only 0 (None)
+1. Identify any local or constituent territorial/kin-based units that existed during this leader's tenure
+2. Assess whether they were independent of the executive (not controlled by or subordinate to it)
+3. Determine if they had the de facto capacity to resist or constrain executive action
+4. Code based on actual capacity, not formal/de jure standing
 """,
 
-        task_instruction="""Determine which actors provided effective checks on the executive during this leader's tenure. Select all that apply.
+        task_instruction="""Determine whether local or constituent units provided an effective check on the executive (0 or 1) during this leader's tenure.
 
-Categories (0–9):
-- 0: None — no actors with capacity to resist the executive
-- 1: Local — clans, tribes, civil society, media
-- 2: Military — officers, military branches, warrior caste
-- 3: Clergy — established church, priests, religious caste
-- 4: Aristocracy — nobility, hereditary elite, upper caste
-- 5: Bourgeoisie — merchants, commercial classes, financiers
-- 6: Bureaucracy — civil servants, Confucian scholars
-- 7: Judiciary — courts, tribunals, legal institutions
-- 8: Assembly — popular assembly, legislature, parliament
-- 9: Advisory council — royal council, privy council, council of elders
+- 0: Such units do not exist, or cannot effectively resist the executive
+- 1: Local/constituent units are independent and can effectively resist the executive
 
-**Output as a JSON array of selected values, e.g. ["1", "4", "7"]. If none apply, output ["0"].**""",
+Examples: regional governments, tribes, clans, ethnic governance units.""",
 
-        coding_rule_reminder="⚠️ **IMPORTANT:** Select all actors that actually had the capacity and proclivity to resist the executive during THIS LEADER'S REIGN. Output as a JSON array.",
+        coding_rule_reminder=(
+            "⚠️ **IMPORTANT:** Code based on de facto capacity to resist the executive during THIS LEADER'S REIGN. "
+            "A body that exists only on paper or is controlled by the executive counts as 0. "
+            "Media, civil society, and ordinary citizens are NOT counted."
+        ),
 
         compact_definition=(
-            "Which actors provide a check on the executive (select all that apply, output as JSON array): "
-            "(0) None; (1) Local — clans, tribes, civil society, media; "
-            "(2) Military — officers, branches, warrior caste; (3) Clergy — church, priests, religious caste; "
-            "(4) Aristocracy — nobility, hereditary elite; (5) Bourgeoisie — merchants, commercial classes; "
-            "(6) Bureaucracy — civil servants, Confucian scholars; (7) Judiciary — courts, tribunals; "
-            "(8) Assembly — popular assembly, legislature; (9) Advisory council — royal council, privy council."
+            "Whether local/constituent territorial or kin-based units provide an effective check on the executive: "
+            "(0) No — no such units exist, or they cannot effectively resist the executive; "
+            "(1) Yes — such units are independent and can at least occasionally resist the executive. "
+            "Examples: regional/local governments, tribes, clans, ethnic governance units."
+        )
+    ),
+
+    "checks_military": IndicatorConfig(
+        name="checks_military",
+        display_name="Checks: Military",
+        specialization="comparative politics and executive constraints",
+        labels=["0", "1"],
+        task_description="whether the armed forces or a warrior estate provide an effective check on the executive during a specific leader's tenure",
+
+        definition="""
+## Definition of Checks: Military
+
+Do the armed forces or a warrior estate provide an effective check on the executive during THIS leader's reign?
+
+An effective check means the body is **independent** of the executive and has the **de facto capacity** to resist or constrain executive action — not merely formal/de jure standing. A body that exists on paper but is controlled by the executive does NOT count. Media, civil society organizations, and ordinary citizens are NOT counted.
+
+**Examples:** Officers, specific branches of the military, a warrior caste (e.g., Samurai).
+
+## Categories
+
+- **0 = No.** The military does not exist as an independent force, or cannot effectively resist the executive.
+- **1 = Yes.** The military is independent and can, at least on occasion, effectively resist the executive.
+
+## Analysis Process
+
+1. Identify any military or warrior bodies that existed during this leader's tenure
+2. Assess whether they were independent of the executive's direct control
+3. Determine if they had the de facto capacity to resist or constrain executive action
+4. Code based on actual independence and capacity, not formal status
+""",
+
+        task_instruction="""Determine whether the military or a warrior estate provided an effective check on the executive (0 or 1) during this leader's tenure.
+
+- 0: No independent military exists, or it cannot effectively resist the executive
+- 1: The military is independent and can effectively resist the executive
+
+Examples: officers, military branches, warrior castes (e.g., Samurai).""",
+
+        coding_rule_reminder=(
+            "⚠️ **IMPORTANT:** Code based on de facto capacity to resist the executive during THIS LEADER'S REIGN. "
+            "A body that exists only on paper or is controlled by the executive counts as 0. "
+            "Media, civil society, and ordinary citizens are NOT counted."
+        ),
+
+        compact_definition=(
+            "Whether the armed forces or a warrior estate provide an effective check on the executive: "
+            "(0) No — no independent military exists, or it cannot effectively resist the executive; "
+            "(1) Yes — the military is independent and can at least occasionally resist the executive. "
+            "Examples: officers, military branches, warrior castes (e.g., Samurai)."
+        )
+    ),
+
+    "checks_clergy": IndicatorConfig(
+        name="checks_clergy",
+        display_name="Checks: Clergy",
+        specialization="comparative politics and executive constraints",
+        labels=["0", "1"],
+        task_description="whether religious authorities provide an effective check on the executive during a specific leader's tenure",
+
+        definition="""
+## Definition of Checks: Clergy
+
+Do religious authorities provide an effective check on the executive during THIS leader's reign?
+
+An effective check means the body is **independent** of the executive and has the **de facto capacity** to resist or constrain executive action — not merely formal/de jure standing. A body that exists on paper but is controlled by the executive does NOT count. Media, civil society organizations, and ordinary citizens are NOT counted.
+
+Clergy power derives from their role as arbiters of a widely espoused religion or belief system.
+
+**Examples:** Established church, priesthood, religious caste (of any religion or denomination).
+
+## Categories
+
+- **0 = No.** No independent religious authority exists, or it cannot effectively resist the executive.
+- **1 = Yes.** Religious authorities are independent and can, at least on occasion, effectively resist the executive.
+
+## Analysis Process
+
+1. Identify any religious institutions or authorities that existed during this leader's tenure
+2. Assess whether they were independent of the executive's control
+3. Determine if they derived power from a widely espoused religion or belief system
+4. Assess their de facto capacity to resist or constrain executive action
+""",
+
+        task_instruction="""Determine whether religious authorities provided an effective check on the executive (0 or 1) during this leader's tenure.
+
+- 0: No independent religious authority exists, or it cannot effectively resist the executive
+- 1: Religious authorities are independent and can effectively resist the executive
+
+Examples: established church, priesthood, religious caste (any religion or denomination).""",
+
+        coding_rule_reminder=(
+            "⚠️ **IMPORTANT:** Code based on de facto capacity to resist the executive during THIS LEADER'S REIGN. "
+            "A body that exists only on paper or is controlled by the executive counts as 0. "
+            "Media, civil society, and ordinary citizens are NOT counted."
+        ),
+
+        compact_definition=(
+            "Whether religious authorities provide an effective check on the executive: "
+            "(0) No — no independent religious authority exists, or it cannot effectively resist the executive; "
+            "(1) Yes — religious authorities are independent and can at least occasionally resist the executive. "
+            "Examples: established church, priesthood, religious caste (any religion or denomination)."
+        )
+    ),
+
+    "checks_aristocracy": IndicatorConfig(
+        name="checks_aristocracy",
+        display_name="Checks: Aristocracy",
+        specialization="comparative politics and executive constraints",
+        labels=["0", "1"],
+        task_description="whether a hereditary or titled upper stratum provides an effective check on the executive during a specific leader's tenure",
+
+        definition="""
+## Definition of Checks: Aristocracy
+
+Does a hereditary or titled upper stratum provide an effective check on the executive during THIS leader's reign?
+
+An effective check means the body is **independent** of the executive and has the **de facto capacity** to resist or constrain executive action — not merely formal/de jure standing. A body that exists on paper but is controlled by the executive does NOT count. Media, civil society organizations, and ordinary citizens are NOT counted.
+
+**Examples:** Landed class, nobility, hereditary elite, titled class, patriciate, upper caste.
+
+## Categories
+
+- **0 = No.** No independent aristocracy exists, or it cannot effectively resist the executive.
+- **1 = Yes.** The aristocracy is independent and can, at least on occasion, effectively resist the executive.
+
+## Analysis Process
+
+1. Identify any hereditary or titled elite groups that existed during this leader's tenure
+2. Assess whether they were independent of the executive's control
+3. Determine if they had the de facto capacity to resist or constrain executive action
+4. Code based on actual independence and capacity, not formal status
+""",
+
+        task_instruction="""Determine whether the aristocracy provided an effective check on the executive (0 or 1) during this leader's tenure.
+
+- 0: No independent aristocracy exists, or it cannot effectively resist the executive
+- 1: The aristocracy is independent and can effectively resist the executive
+
+Examples: landed nobility, hereditary elite, titled class, patriciate, upper caste.""",
+
+        coding_rule_reminder=(
+            "⚠️ **IMPORTANT:** Code based on de facto capacity to resist the executive during THIS LEADER'S REIGN. "
+            "A body that exists only on paper or is controlled by the executive counts as 0. "
+            "Media, civil society, and ordinary citizens are NOT counted."
+        ),
+
+        compact_definition=(
+            "Whether a hereditary or titled upper stratum provides an effective check on the executive: "
+            "(0) No — no independent aristocracy exists, or it cannot effectively resist the executive; "
+            "(1) Yes — the aristocracy is independent and can at least occasionally resist the executive. "
+            "Examples: landed nobility, hereditary elite, titled class, patriciate, upper caste."
+        )
+    ),
+
+    "checks_bourgeoisie": IndicatorConfig(
+        name="checks_bourgeoisie",
+        display_name="Checks: Bourgeoisie",
+        specialization="comparative politics and executive constraints",
+        labels=["0", "1"],
+        task_description="whether an urban commercial or capital-holding class provides an effective check on the executive during a specific leader's tenure",
+
+        definition="""
+## Definition of Checks: Bourgeoisie
+
+Does an urban commercial or capital-holding class provide an effective check on the executive during THIS leader's reign?
+
+An effective check means the body is **independent** of the executive and has the **de facto capacity** to resist or constrain executive action — not merely formal/de jure standing. A body that exists on paper but is controlled by the executive does NOT count. Media, civil society organizations, and ordinary citizens are NOT counted.
+
+**Examples:** Merchants, traders, artisans, financiers, creditors, business/commercial classes.
+
+## Categories
+
+- **0 = No.** No independent commercial class exists, or it cannot effectively resist the executive.
+- **1 = Yes.** The commercial class is independent and can, at least on occasion, effectively resist the executive.
+
+## Analysis Process
+
+1. Identify any commercial or capital-holding class that existed during this leader's tenure
+2. Assess whether they were organized and independent of the executive's control
+3. Determine if they had the de facto capacity to resist or constrain executive action
+4. Code based on actual independence and capacity, not formal status
+""",
+
+        task_instruction="""Determine whether a commercial or capital-holding class provided an effective check on the executive (0 or 1) during this leader's tenure.
+
+- 0: No independent commercial class exists, or it cannot effectively resist the executive
+- 1: The commercial class is independent and can effectively resist the executive
+
+Examples: merchants, traders, artisans, financiers, creditors, business/commercial classes.""",
+
+        coding_rule_reminder=(
+            "⚠️ **IMPORTANT:** Code based on de facto capacity to resist the executive during THIS LEADER'S REIGN. "
+            "A body that exists only on paper or is controlled by the executive counts as 0. "
+            "Media, civil society, and ordinary citizens are NOT counted."
+        ),
+
+        compact_definition=(
+            "Whether an urban commercial or capital-holding class provides an effective check on the executive: "
+            "(0) No — no independent commercial class exists, or it cannot effectively resist the executive; "
+            "(1) Yes — the commercial class is independent and can at least occasionally resist the executive. "
+            "Examples: merchants, traders, artisans, financiers, creditors, business/commercial classes."
+        )
+    ),
+
+    "checks_bureaucracy": IndicatorConfig(
+        name="checks_bureaucracy",
+        display_name="Checks: Bureaucracy",
+        specialization="comparative politics and executive constraints",
+        labels=["0", "1"],
+        task_description="whether a professional administrative apparatus provides an effective check on the executive during a specific leader's tenure",
+
+        definition="""
+## Definition of Checks: Bureaucracy
+
+Does a professional administrative apparatus provide an effective check on the executive during THIS leader's reign?
+
+An effective check means the body is **independent** of the executive and has the **de facto capacity** to resist or constrain executive action — not merely formal/de jure standing. A body that exists on paper but is controlled by the executive does NOT count. Media, civil society organizations, and ordinary citizens are NOT counted.
+
+**Examples:** Civil servants, Confucian scholar-officials serving as top-level advisors and administrators.
+
+## Categories
+
+- **0 = No.** No independent bureaucracy exists, or it cannot effectively resist the executive.
+- **1 = Yes.** The bureaucracy is independent and can, at least on occasion, effectively resist the executive.
+
+## Analysis Process
+
+1. Identify any professional administrative bodies that existed during this leader's tenure
+2. Assess whether they were independent of the executive's direct control
+3. Determine if they had the de facto capacity to resist or constrain executive action
+4. Code based on actual independence and capacity, not formal status
+""",
+
+        task_instruction="""Determine whether a professional bureaucracy provided an effective check on the executive (0 or 1) during this leader's tenure.
+
+- 0: No independent bureaucracy exists, or it cannot effectively resist the executive
+- 1: The bureaucracy is independent and can effectively resist the executive
+
+Examples: civil servants, Confucian scholar-officials as top-level advisors and administrators.""",
+
+        coding_rule_reminder=(
+            "⚠️ **IMPORTANT:** Code based on de facto capacity to resist the executive during THIS LEADER'S REIGN. "
+            "A body that exists only on paper or is controlled by the executive counts as 0. "
+            "Media, civil society, and ordinary citizens are NOT counted."
+        ),
+
+        compact_definition=(
+            "Whether a professional administrative apparatus provides an effective check on the executive: "
+            "(0) No — no independent bureaucracy exists, or it cannot effectively resist the executive; "
+            "(1) Yes — the bureaucracy is independent and can at least occasionally resist the executive. "
+            "Examples: civil servants, Confucian scholar-officials as top-level advisors and administrators."
+        )
+    ),
+
+    "checks_judiciary": IndicatorConfig(
+        name="checks_judiciary",
+        display_name="Checks: Judiciary",
+        specialization="comparative politics and executive constraints",
+        labels=["0", "1"],
+        task_description="whether independent adjudicative bodies provide an effective check on the executive during a specific leader's tenure",
+
+        definition="""
+## Definition of Checks: Judiciary
+
+Do independent adjudicative bodies provide an effective check on the executive during THIS leader's reign?
+
+An effective check means the body is **independent** of the executive and has the **de facto capacity** to resist or constrain executive action — not merely formal/de jure standing. A body that exists on paper but is controlled by the executive does NOT count. Media, civil society organizations, and ordinary citizens are NOT counted.
+
+**Examples:** Courts of law, tribunals, judicial bodies, legal institutions.
+
+## Categories
+
+- **0 = No.** No independent judiciary exists, or it cannot effectively resist the executive.
+- **1 = Yes.** The judiciary is independent and can, at least on occasion, effectively resist the executive.
+
+## Analysis Process
+
+1. Identify any judicial or adjudicative bodies that existed during this leader's tenure
+2. Assess whether they were independent of the executive's control
+3. Determine if they had the de facto capacity to resist or constrain executive action
+4. Code based on actual independence and capacity, not formal status
+""",
+
+        task_instruction="""Determine whether an independent judiciary provided an effective check on the executive (0 or 1) during this leader's tenure.
+
+- 0: No independent judiciary exists, or it cannot effectively resist the executive
+- 1: The judiciary is independent and can effectively resist the executive
+
+Examples: courts of law, tribunals, judicial bodies, legal institutions.""",
+
+        coding_rule_reminder=(
+            "⚠️ **IMPORTANT:** Code based on de facto capacity to resist the executive during THIS LEADER'S REIGN. "
+            "A body that exists only on paper or is controlled by the executive counts as 0. "
+            "Media, civil society, and ordinary citizens are NOT counted."
+        ),
+
+        compact_definition=(
+            "Whether independent adjudicative bodies provide an effective check on the executive: "
+            "(0) No — no independent judiciary exists, or it cannot effectively resist the executive; "
+            "(1) Yes — the judiciary is independent and can at least occasionally resist the executive. "
+            "Examples: courts of law, tribunals, judicial bodies, legal institutions."
+        )
+    ),
+
+    "checks_assembly": IndicatorConfig(
+        name="checks_assembly",
+        display_name="Checks: Assembly",
+        specialization="comparative politics and executive constraints",
+        labels=["0", "1"],
+        task_description="whether a deliberative representative or popular body provides an effective check on the executive during a specific leader's tenure",
+
+        definition="""
+## Definition of Checks: Assembly
+
+Does a deliberative representative or popular body provide an effective check on the executive during THIS leader's reign?
+
+An effective check means the body is **independent** of the executive and has the **de facto capacity** to resist or constrain executive action — not merely formal/de jure standing. A body that exists on paper but is controlled by the executive does NOT count. Media, civil society organizations, and ordinary citizens are NOT counted.
+
+**Examples:** Popular assembly, legislature, parliament.
+
+## Categories
+
+- **0 = No.** No independent assembly exists, or it cannot effectively resist the executive.
+- **1 = Yes.** An assembly is independent and can, at least on occasion, effectively resist the executive.
+
+## Analysis Process
+
+1. Identify any deliberative or representative assemblies that existed during this leader's tenure
+2. Assess whether they were independent of the executive's control
+3. Determine if they had the de facto capacity to resist or constrain executive action
+4. Code based on actual independence and capacity, not formal status
+""",
+
+        task_instruction="""Determine whether a deliberative assembly provided an effective check on the executive (0 or 1) during this leader's tenure.
+
+- 0: No independent assembly exists, or it cannot effectively resist the executive
+- 1: An assembly is independent and can effectively resist the executive
+
+Examples: popular assembly, legislature, parliament.""",
+
+        coding_rule_reminder=(
+            "⚠️ **IMPORTANT:** Code based on de facto capacity to resist the executive during THIS LEADER'S REIGN. "
+            "A body that exists only on paper or is controlled by the executive counts as 0. "
+            "Media, civil society, and ordinary citizens are NOT counted."
+        ),
+
+        compact_definition=(
+            "Whether a deliberative representative or popular body provides an effective check on the executive: "
+            "(0) No — no independent assembly exists, or it cannot effectively resist the executive; "
+            "(1) Yes — an assembly is independent and can at least occasionally resist the executive. "
+            "Examples: popular assembly, legislature, parliament."
+        )
+    ),
+
+    "checks_council": IndicatorConfig(
+        name="checks_council",
+        display_name="Checks: Advisory council",
+        specialization="comparative politics and executive constraints",
+        labels=["0", "1"],
+        task_description="whether an institutionalized elite council provides an effective check on the executive during a specific leader's tenure",
+
+        definition="""
+## Definition of Checks: Advisory Council
+
+Does an institutionalized elite council adjacent to the executive provide an effective check on the executive during THIS leader's reign?
+
+An effective check means the body is **independent** of the executive and has the **de facto capacity** to resist or constrain executive action — not merely formal/de jure standing. A body that exists on paper but is controlled by the executive does NOT count. Media, civil society organizations, and ordinary citizens are NOT counted.
+
+**Examples:** Royal council, council of state, regency council, privy council, council of elders.
+
+## Categories
+
+- **0 = No.** No independent council exists, or it cannot effectively resist the executive.
+- **1 = Yes.** A council is independent and can, at least on occasion, effectively resist the executive.
+
+## Analysis Process
+
+1. Identify any institutionalized elite councils adjacent to the executive during this leader's tenure
+2. Assess whether they were independent of the executive's control (not merely advisory rubber stamps)
+3. Determine if they had the de facto capacity to resist or constrain executive action
+4. Code based on actual independence and capacity, not formal advisory role
+""",
+
+        task_instruction="""Determine whether an institutionalized elite council provided an effective check on the executive (0 or 1) during this leader's tenure.
+
+- 0: No independent council exists, or it cannot effectively resist the executive
+- 1: A council is independent and can effectively resist the executive
+
+Examples: royal council, council of state, regency council, privy council, council of elders.""",
+
+        coding_rule_reminder=(
+            "⚠️ **IMPORTANT:** Code based on de facto capacity to resist the executive during THIS LEADER'S REIGN. "
+            "A body that exists only on paper or is controlled by the executive counts as 0. "
+            "Media, civil society, and ordinary citizens are NOT counted."
+        ),
+
+        compact_definition=(
+            "Whether an institutionalized elite council provides an effective check on the executive: "
+            "(0) No — no independent council exists, or it cannot effectively resist the executive; "
+            "(1) Yes — a council is independent and can at least occasionally resist the executive. "
+            "Examples: royal council, council of state, regency council, privy council, council of elders."
         )
     ),
 
@@ -977,11 +1376,41 @@ COVE_QUESTION_TEMPLATES: Dict[str, List[str]] = {
         "Were there representative bodies for local or regional units at the central level in {polity} under {name}?",
         "Could the central government in {polity} freely abolish or override local units during {name}'s tenure?"
     ],
-    "checks": [
-        "Which independent groups or bodies had the capacity to resist the executive in {polity} during {name}'s tenure ({start_year}-{end_year})?",
-        "Did local actors (clans, tribes, civil society, media) have the capacity or proclivity to resist {name}'s actions?",
-        "Did military actors, clergy, or aristocracy constrain {name}'s executive power in {polity}?",
-        "Did bureaucracy, judiciary, assembly, or advisory council have the capacity to resist {name}'s actions?"
+    "checks_local": [
+        "Did regional or local governments, tribes, clans, or ethnic governance units exist independently in {polity} during {name}'s tenure ({start_year}-{end_year})?",
+        "Did local or constituent units have the de facto capacity to resist or constrain {name}'s executive actions?"
+    ],
+    "checks_military": [
+        "Did the armed forces or a warrior estate exist as an independent body in {polity} during {name}'s tenure ({start_year}-{end_year})?",
+        "Did the military or warrior caste have the de facto capacity to resist or constrain {name}'s executive actions?"
+    ],
+    "checks_clergy": [
+        "Did religious authorities (church, priesthood, religious caste) exist as an independent body in {polity} during {name}'s tenure ({start_year}-{end_year})?",
+        "Did religious authorities have the de facto capacity to resist or constrain {name}'s executive actions?"
+    ],
+    "checks_aristocracy": [
+        "Did a hereditary or titled elite (nobility, patriciate, upper caste) exist as an independent body in {polity} during {name}'s tenure ({start_year}-{end_year})?",
+        "Did the aristocracy have the de facto capacity to resist or constrain {name}'s executive actions?"
+    ],
+    "checks_bourgeoisie": [
+        "Did a commercial or capital-holding class (merchants, traders, financiers) exist as an independent body in {polity} during {name}'s tenure ({start_year}-{end_year})?",
+        "Did the commercial class have the de facto capacity to resist or constrain {name}'s executive actions?"
+    ],
+    "checks_bureaucracy": [
+        "Did a professional administrative apparatus (civil servants, Confucian scholar-officials) exist as an independent body in {polity} during {name}'s tenure ({start_year}-{end_year})?",
+        "Did the bureaucracy have the de facto capacity to resist or constrain {name}'s executive actions?"
+    ],
+    "checks_judiciary": [
+        "Did independent adjudicative bodies (courts, tribunals) exist in {polity} during {name}'s tenure ({start_year}-{end_year})?",
+        "Did the judiciary have the de facto capacity to resist or constrain {name}'s executive actions?"
+    ],
+    "checks_assembly": [
+        "Did a deliberative assembly (popular assembly, legislature, parliament) exist as an independent body in {polity} during {name}'s tenure ({start_year}-{end_year})?",
+        "Did the assembly have the de facto capacity to resist or constrain {name}'s executive actions?"
+    ],
+    "checks_council": [
+        "Did an institutionalized elite council (royal council, privy council, council of elders) exist as an independent body in {polity} during {name}'s tenure ({start_year}-{end_year})?",
+        "Did the council have the de facto capacity to resist or constrain {name}'s executive actions?"
     ],
     "collegiality": [
         "What was the formal executive structure in {polity} during {name}'s tenure ({start_year}-{end_year})?",
