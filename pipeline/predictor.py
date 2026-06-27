@@ -87,9 +87,13 @@ class IndicatorPrediction:
     agreement_ratio: Optional[float] = None
     # Categorical uncertainty from SC: 'none' | 'low' | 'high'; None when not applied
     sc_uncertainty: Optional[str] = None
-    # Per-slot SC sample predictions (SC1, SC2, ...); None per slot if that call failed.
-    # Populated only for self-consistency; None for CoVe/no-verification.
+    # Legacy per-slot SC sample predictions (SC2, SC3, ...); excludes SC1 (initial).
     sc_sample_predictions: Optional[List[Optional[str]]] = None
+    # All SC slots [SC1, SC2, ...] where SC1 = initial call.
+    sc_all_predictions: Optional[List[Optional[str]]] = None
+    sc_all_reasonings: Optional[List[Optional[str]]] = None
+    sc_all_confidences: Optional[List[Optional[Any]]] = None
+    sc_all_extra_fields: Optional[List[Optional[Dict]]] = None
 
 
 @dataclass
@@ -106,43 +110,70 @@ class PolityPrediction:
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for DataFrame row."""
-        # Don't include 'polity' since it's already in the input data as 'territorynamehistorical'
         result = {
             'total_cost_usd': self.total_cost_usd,
             'total_tokens': self.total_tokens
         }
 
         for ind_name, ind_pred in self.predictions.items():
-            result[f'{ind_name}_prediction'] = ind_pred.prediction
-
-            if self.reasoning:
-                result[f'{ind_name}_reasoning'] = ind_pred.reasoning
-
-            result[f'{ind_name}_confidence'] = ind_pred.confidence_score
-
-            # Log probability of the chosen value token (Gemini only; None for other providers)
+            # Log probability (Gemini only; None for other providers)
             if ind_pred.logprob is not None:
                 result[f'{ind_name}_logprob'] = ind_pred.logprob
 
-            # Constitution-specific fields
-            if ind_name == 'constitution':
-                result['constitution_document_name'] = ind_pred.document_name
-                result['constitution_year'] = ind_pred.constitution_year
-                result['constitution_document_types'] = ind_pred.document_types
+            if ind_pred.was_verified and ind_pred.sc_all_predictions is not None:
+                # Self-consistency: prediction = majority vote; _SCN = per-slot predictions.
+                result[f'{ind_name}_prediction'] = ind_pred.verified_prediction
 
-            if ind_pred.was_verified:
-                if ind_pred.sc_sample_predictions is not None:
-                    # Self-consistency: write per-slot SC columns (SC1, SC2, ...)
-                    for _sc_i, _sc_pred in enumerate(ind_pred.sc_sample_predictions, start=1):
-                        result[f'{ind_name}_SC{_sc_i}'] = _sc_pred
+                for sc_i, sc_pred in enumerate(ind_pred.sc_all_predictions, start=1):
+                    result[f'{ind_name}_SC{sc_i}'] = sc_pred
+
+                if ind_name != 'constitution':
+                    if self.reasoning and ind_pred.sc_all_reasonings:
+                        for sc_i, sc_reason in enumerate(ind_pred.sc_all_reasonings, start=1):
+                            result[f'{ind_name}_reasoning_SC{sc_i}'] = sc_reason
+                    if ind_pred.sc_all_confidences:
+                        for sc_i, sc_conf in enumerate(ind_pred.sc_all_confidences, start=1):
+                            result[f'{ind_name}_confidence_SC{sc_i}'] = sc_conf
                 else:
-                    # CoVe or other: write full verification details
-                    result[f'{ind_name}_verification'] = str(ind_pred.verification_details)
-                result[f'{ind_name}_verified'] = ind_pred.verified_prediction
+                    # Constitution: per-slot extra fields instead of reasoning/confidence slots.
+                    extra_list = ind_pred.sc_all_extra_fields or []
+                    for sc_i, extra in enumerate(extra_list, start=1):
+                        extra = extra or {}
+                        result[f'constitution_document_name_SC{sc_i}'] = extra.get('document_name')
+                        result[f'constitution_year_SC{sc_i}'] = extra.get('constitution_year')
+                        result[f'constitution_document_types_SC{sc_i}'] = extra.get('document_types')
+
                 if ind_pred.agreement_ratio is not None:
                     result[f'{ind_name}_agreement'] = round(ind_pred.agreement_ratio, 3)
                 if ind_pred.sc_uncertainty is not None:
                     result[f'{ind_name}_uncertainty'] = ind_pred.sc_uncertainty
+
+            elif ind_pred.was_verified:
+                # CoVe: prediction = CoVe-revised result; no SC slots.
+                result[f'{ind_name}_prediction'] = ind_pred.verified_prediction
+                result[f'{ind_name}_verification'] = str(ind_pred.verification_details)
+
+                if self.reasoning:
+                    result[f'{ind_name}_reasoning'] = ind_pred.reasoning
+                result[f'{ind_name}_confidence'] = ind_pred.confidence_score
+
+                if ind_name == 'constitution':
+                    result['constitution_document_name'] = ind_pred.document_name
+                    result['constitution_year'] = ind_pred.constitution_year
+                    result['constitution_document_types'] = ind_pred.document_types
+
+            else:
+                # No verification: plain columns.
+                result[f'{ind_name}_prediction'] = ind_pred.prediction
+
+                if self.reasoning:
+                    result[f'{ind_name}_reasoning'] = ind_pred.reasoning
+                result[f'{ind_name}_confidence'] = ind_pred.confidence_score
+
+                if ind_name == 'constitution':
+                    result['constitution_document_name'] = ind_pred.document_name
+                    result['constitution_year'] = ind_pred.constitution_year
+                    result['constitution_document_types'] = ind_pred.document_types
 
         return result
 
@@ -475,22 +506,29 @@ class Predictor:
         agreement_ratio = None
         sc_uncertainty = None
         sc_samples = None
+        sc_all_preds = None
+        sc_all_reasons = None
+        sc_all_confs = None
+        sc_all_extra = None
         verification_cost = 0.0
         verification_tokens = 0
+
+        # For constitution, pass extra_validate_fn so SC slots capture document fields.
+        extra_validate_fn = validate_constitution_response if indicator == 'constitution' else None
 
         if indicator in self.verifiers:
             verifier = self.verifiers[indicator]
             try:
                 if prompt_sc_parseds is not None and hasattr(verifier, 'aggregate_from_predictions'):
                     # Single/sequential mode: samples collected once at prompt level.
-                    # prompt_sc_parseds may be [] if all prompt-level calls failed —
-                    # aggregate_from_predictions handles that gracefully (1-vote result).
                     verify_result = verifier.aggregate_from_predictions(
                         indicator=indicator,
                         valid_labels=valid_labels,
                         initial_prediction=prediction,
                         additional_parsed_responses=prompt_sc_parseds,
                         prediction_temperature=self.config.temperature,
+                        initial_parsed=parsed,
+                        extra_validate_fn=extra_validate_fn,
                     )
                 else:
                     # Multiple mode: one prompt per indicator — make n_samples LLM calls now.
@@ -506,6 +544,7 @@ class Predictor:
                         start_year=start_year,
                         end_year=end_year,
                         prediction_temperature=self.config.temperature,
+                        extra_validate_fn=extra_validate_fn,
                     )
 
                 verified_prediction = verify_result.verified_prediction
@@ -523,6 +562,10 @@ class Predictor:
                 verification_cost = verify_result.sc_cost_usd
                 verification_tokens = verify_result.sc_tokens
                 sc_samples = verify_result.sc_sample_predictions
+                sc_all_preds = verify_result.sc_all_predictions
+                sc_all_reasons = verify_result.sc_all_reasonings
+                sc_all_confs = verify_result.sc_all_confidences
+                sc_all_extra = verify_result.sc_all_extra_fields
 
             except Exception as e:
                 verification_details = {'error': str(e)}
@@ -545,6 +588,10 @@ class Predictor:
             agreement_ratio=agreement_ratio,
             sc_uncertainty=sc_uncertainty,
             sc_sample_predictions=sc_samples,
+            sc_all_predictions=sc_all_preds,
+            sc_all_reasonings=sc_all_reasons,
+            sc_all_confidences=sc_all_confs,
+            sc_all_extra_fields=sc_all_extra,
         )
 
     def _calculate_cost(self, response: ModelResponse) -> float:

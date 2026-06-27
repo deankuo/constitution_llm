@@ -1,0 +1,24 @@
+# Fdb version 4
+["pdflatex"] 1782535588.80645 "/Users/deankuo/Desktop/python/constitution_llm/docs/codebook/codebook.tex" "codebook.pdf" "codebook" 1782535588.86771 2
+  "/Users/deankuo/Desktop/python/constitution_llm/docs/codebook/codebook.tex" 1782535588.47353 12810 e5348fbdcf7a6740aa370b824bf53070 ""
+  "/Users/deankuo/Library/TinyTeX/texmf-dist/fonts/tfm/public/cm/cmr10.tfm" 1136768653 1296 45809c5a464d5f32c8f98ba97c1bb47f ""
+  "/Users/deankuo/Library/TinyTeX/texmf-dist/tex/generic/iftex/iftex.sty" 1734129479 7984 7dbb9280f03c0a315425f1b4f35d43ee ""
+  "/Users/deankuo/Library/TinyTeX/texmf-dist/tex/generic/iftex/ifvtex.sty" 1572645307 1057 525c2192b5febbd8c1f662c9468335bb ""
+  "/Users/deankuo/Library/TinyTeX/texmf-dist/tex/latex/base/article.cls" 1748806692 20144 b966087dda3b194755eb460d32e2ef75 ""
+  "/Users/deankuo/Library/TinyTeX/texmf-dist/tex/latex/base/size11.clo" 1748806692 8464 f339f4d5391fbe0425b2d94c90e6819e ""
+  "/Users/deankuo/Library/TinyTeX/texmf-dist/tex/latex/fontspec/fontspec.sty" 1759176595 3804 debc05110ffb506cef68ea4e72c7bcee ""
+  "/Users/deankuo/Library/TinyTeX/texmf-dist/tex/latex/geometry/geometry.sty" 1578002852 41601 9cf6c5257b1bc7af01a58859749dd37a ""
+  "/Users/deankuo/Library/TinyTeX/texmf-dist/tex/latex/graphics/keyval.sty" 1748806692 2671 d9941f4bf4750e9b0603c9a2ec54693b ""
+  "/Users/deankuo/Library/TinyTeX/texmf-dist/tex/latex/l3backend/l3backend-pdftex.def" 1761248321 30662 bfd6e864f4ffc5018b0e2b6260c3181c ""
+  "/Users/deankuo/Library/TinyTeX/texmf-dist/tex/latex/l3kernel/expl3.sty" 1769028462 6558 45786cbbf5684a09ee65aa45a7b367e0 ""
+  "/Users/deankuo/Library/TinyTeX/texmf-dist/tex/latex/l3packages/xparse/xparse.sty" 1761248321 10176 c2fc1c663b3f3899ddac6e6ed3fb1d7e ""
+  "/Users/deankuo/Library/TinyTeX/texmf-dist/web2c/texmf.cnf" 1749313668 42213 4e2ca030e8e2640502016e9e45868dcb ""
+  "/Users/deankuo/Library/TinyTeX/texmf-var/web2c/pdftex/pdflatex.fmt" 1771294200 2236360 754864e7578d36f5c016b47fd9e7c784 ""
+  "/Users/deankuo/Library/TinyTeX/texmf.cnf" 1756496493.71899 708 85fd07691b6294ba94c59dbc62380410 ""
+  "codebook.aux" 0 -1 0 "pdflatex"
+  "codebook.tex" 1782535588.47353 12810 e5348fbdcf7a6740aa370b824bf53070 ""
+  (generated)
+  "codebook.aux"
+  "codebook.log"
+  "codebook.pdf"
+  (rewritten before read)

@@ -10,8 +10,8 @@
 #   ./run.sh --help                          # Show full help
 #   ./run.sh --check-env                     # Verify environment setup
 #   ./run.sh --quick-test                    # Quick test (5 rows, leader pipeline)
-#   ./run.sh --pipeline leader [OPTIONS]     # Leader pipeline
-#   ./run.sh --pipeline polity [OPTIONS]     # Polity pipeline
+#   ./run.sh --pipeline indicators [OPTIONS]     # Leader pipeline
+#   ./run.sh --pipeline constitution [OPTIONS]     # Polity pipeline
 #
 # To run in background (survives sleep/logout):
 #   ./run.sh --background [OPTIONS]
@@ -61,11 +61,11 @@ GETTING STARTED
 
 USAGE
     echo -e "${BOLD}SYNOPSIS${NC}"
-    echo "  ./run.sh [--pipeline leader|polity] [OPTIONS]"
+    echo "  ./run.sh [--pipeline indicators|constitution] [OPTIONS]"
     echo ""
     echo -e "${BOLD}PIPELINE SELECTION${NC}"
-    echo "  --pipeline leader     Leader-level pipeline (all 8 indicators, default)"
-    echo "  --pipeline polity     Polity-level pipeline (constitution only, multi-model)"
+    echo "  --pipeline indicators    Main pipeline (all indicators, leader level, default)"
+    echo "  --pipeline constitution  Legacy pipeline (constitution only, polity level)"
     echo ""
     echo -e "${BOLD}COMMON OPTIONS${NC}"
     echo "  -i, --input <path>              Input CSV file"
@@ -77,7 +77,7 @@ USAGE
     echo "  --max-tokens <val>              Max response tokens (default: 32768)"
     echo ""
     echo -e "${BOLD}LEADER PIPELINE OPTIONS${NC}"
-    echo "  --mode <single|multiple|seq>    Prompt mode (default: multiple)"
+    echo "  --mode <single|multiple|seq>    Prompt mode (default: single)"
     echo "  --indicators <ind ...>          Indicators to predict (space-separated)"
     echo "                                  Options: constitution sovereign assembly"
     echo "                                           appointment tenure exit"
@@ -100,7 +100,7 @@ USAGE
     echo "  --verify <none|self_consistency|cove|both>"
     echo "  --verify-indicators <ind ...>   Which indicators to verify"
     echo "  --verifier-model <model>        Model for CoVe verification"
-    echo "  --n-samples <N>                 Self-consistency samples (default: 3)"
+    echo "  --n-samples <N>                 Self-consistency samples (default: 2)"
     echo ""
     echo -e "${BOLD}SEQUENTIAL MODE OPTIONS${NC}"
     echo "  --sequence <ind ...>            Custom indicator order"
@@ -123,37 +123,37 @@ USAGE
     echo "  ./run.sh --quick-test"
     echo ""
     echo -e "  ${DIM}# Leader pipeline: predict 3 indicators for 20 rows${NC}"
-    echo "  ./run.sh --pipeline leader \\"
+    echo "  ./run.sh --pipeline indicators \\"
     echo "      --indicators sovereign assembly exit \\"
     echo "      --models gemini-2.5-pro --test 20"
     echo ""
     echo -e "  ${DIM}# Leader pipeline: single mode, 4 parallel rows${NC}"
-    echo "  ./run.sh --pipeline leader \\"
+    echo "  ./run.sh --pipeline indicators \\"
     echo "      --mode single \\"
     echo "      --indicators sovereign assembly appointment tenure exit \\"
     echo "      --parallel-rows 4 \\"
     echo "      -i data/plt_leaders_data.csv -o data/results/exp001.csv"
     echo ""
     echo -e "  ${DIM}# Leader pipeline: with forced search + batch API${NC}"
-    echo "  ./run.sh --pipeline leader \\"
+    echo "  ./run.sh --pipeline indicators \\"
     echo "      --indicators sovereign assembly \\"
     echo "      --search-mode forced --use-batch \\"
     echo "      -i data/plt_leaders_data.csv -o data/results/search_exp.csv"
     echo ""
     echo -e "  ${DIM}# Leader pipeline: with self-consistency verification${NC}"
-    echo "  ./run.sh --pipeline leader \\"
+    echo "  ./run.sh --pipeline indicators \\"
     echo "      --indicators assembly \\"
     echo "      --verify self_consistency --verify-indicators assembly \\"
     echo "      --n-samples 5 --test 10"
     echo ""
     echo -e "  ${DIM}# Polity pipeline: two models, with search${NC}"
-    echo "  ./run.sh --pipeline polity \\"
+    echo "  ./run.sh --pipeline constitution \\"
     echo "      --models Gemini=gemini-2.5-pro GPT=gpt-4o \\"
     echo "      --search-mode agentic \\"
     echo "      -i data/plt_polity_data_v2.csv -o data/results/polity.csv"
     echo ""
     echo -e "  ${DIM}# Full production run in background (survives sleep)${NC}"
-    echo "  ./run.sh --background --pipeline leader \\"
+    echo "  ./run.sh --background --pipeline indicators \\"
     echo "      --indicators sovereign assembly appointment tenure exit \\"
     echo "                   collegiality separate_powers \\"
     echo "      --parallel-rows 4 \\"
@@ -392,7 +392,7 @@ done
 # ── Quick Test shortcut ──────────────────────────────────────────────────────
 
 if [ "$QUICK_TEST" = true ]; then
-    PIPELINE="${PIPELINE:-leader}"
+    PIPELINE="${PIPELINE:-indicators}"
     TEST_SIZE="${TEST_SIZE:-5}"
     INDICATORS="${INDICATORS:- sovereign assembly}"
     print_info "Quick test mode: $TEST_SIZE rows, pipeline=$PIPELINE"
@@ -400,7 +400,7 @@ fi
 
 # ── Defaults ─────────────────────────────────────────────────────────────────
 
-PIPELINE="${PIPELINE:-leader}"
+PIPELINE="${PIPELINE:-indicators}"
 
 # ── Validation ───────────────────────────────────────────────────────────────
 
@@ -465,7 +465,7 @@ echo -e "  ${BOLD}Input:${NC}        ${INPUT_PATH:-<default>}"
 echo -e "  ${BOLD}Output:${NC}       ${OUTPUT_PATH:-<default>}"
 echo -e "  ${BOLD}Model(s):${NC}     ${MODELS:- <default: gemini-2.5-pro>}"
 
-if [ "$PIPELINE" = "leader" ]; then
+if [ "$PIPELINE" = "indicators" ]; then
     echo -e "  ${BOLD}Mode:${NC}         ${MODE:-multiple}"
     echo -e "  ${BOLD}Indicators:${NC}   ${INDICATORS:- <default: constitution>}"
     [ -n "$PARALLEL_ROWS" ] && \

@@ -12,7 +12,7 @@ are more likely to be correct.
 import ast
 from collections import Counter
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from models.base import BaseLLM, ModelResponse
 from verification.base import BaseVerification, VerificationResult, PredictionSample
@@ -88,6 +88,7 @@ class SelfConsistencyVerification(BaseVerification):
         name: str = None,
         start_year: int = None,
         end_year: int = None,
+        extra_validate_fn: Optional[Any] = None,
         **kwargs
     ) -> VerificationResult:
         """
@@ -138,7 +139,9 @@ class SelfConsistencyVerification(BaseVerification):
                 ))
 
         # Aggregate predictions
-        aggregated = self._aggregate_predictions(samples, str_valid, indicator=indicator)
+        aggregated = self._aggregate_predictions(
+            samples, str_valid, indicator=indicator, extra_validate_fn=extra_validate_fn
+        )
 
         return aggregated
 
@@ -199,6 +202,7 @@ class SelfConsistencyVerification(BaseVerification):
                     confidence=validated.get('confidence_score'),
                     temperature=temperature,
                     response=response,
+                    parsed_response=parsed,
                 )
                 samples.append(sample)
 
@@ -214,6 +218,7 @@ class SelfConsistencyVerification(BaseVerification):
         samples: List[Optional[PredictionSample]],
         valid_labels: List[str],
         indicator: str = '',
+        extra_validate_fn: Optional[Callable] = None,
     ) -> VerificationResult:
         """Aggregate samples using majority voting.
 
@@ -234,13 +239,35 @@ class SelfConsistencyVerification(BaseVerification):
                 )
                 sc_tokens += s.response.total_tokens
 
-        # SC slot predictions (SC1, SC2, ...): positional, None for failed slots
+        # Legacy: SC slot predictions (SC2, SC3, ...); excludes SC1 (initial).
         sc_sample_predictions: Optional[List[Optional[str]]] = None
         if len(samples) > 1:
             sc_sample_predictions = [
                 (s.prediction if (s is not None and s.prediction) else None)
                 for s in samples[1:]
             ]
+
+        # All SC slots [SC1, SC2, ...] including initial call.
+        sc_all_predictions = [
+            (s.prediction if s is not None else None) for s in samples
+        ] if samples else None
+        sc_all_reasonings = [
+            (s.reasoning if s is not None else None) for s in samples
+        ] if samples else None
+        sc_all_confidences = [
+            (s.confidence if s is not None else None) for s in samples
+        ] if samples else None
+        sc_all_extra_fields: Optional[List[Optional[Dict]]] = None
+        if extra_validate_fn is not None and samples:
+            sc_all_extra_fields = []
+            for s in samples:
+                if s is not None and s.parsed_response is not None:
+                    try:
+                        sc_all_extra_fields.append(extra_validate_fn(s.parsed_response))
+                    except Exception:
+                        sc_all_extra_fields.append(None)
+                else:
+                    sc_all_extra_fields.append(None)
 
         valid_samples = [s for s in samples if s is not None]
         if not valid_samples:
@@ -259,6 +286,10 @@ class SelfConsistencyVerification(BaseVerification):
                 sc_cost_usd=sc_cost_usd,
                 sc_tokens=sc_tokens,
                 sc_sample_predictions=sc_sample_predictions,
+                sc_all_predictions=sc_all_predictions,
+                sc_all_reasonings=sc_all_reasonings,
+                sc_all_confidences=sc_all_confidences,
+                sc_all_extra_fields=sc_all_extra_fields,
             )
 
         # Count predictions. validate_indicator_response is the gatekeeper — a
@@ -282,6 +313,10 @@ class SelfConsistencyVerification(BaseVerification):
                 sc_cost_usd=sc_cost_usd,
                 sc_tokens=sc_tokens,
                 sc_sample_predictions=sc_sample_predictions,
+                sc_all_predictions=sc_all_predictions,
+                sc_all_reasonings=sc_all_reasonings,
+                sc_all_confidences=sc_all_confidences,
+                sc_all_extra_fields=sc_all_extra_fields,
             )
 
         # Majority vote
@@ -335,6 +370,10 @@ class SelfConsistencyVerification(BaseVerification):
             sc_cost_usd=sc_cost_usd,
             sc_tokens=sc_tokens,
             sc_sample_predictions=sc_sample_predictions,
+            sc_all_predictions=sc_all_predictions,
+            sc_all_reasonings=sc_all_reasonings,
+            sc_all_confidences=sc_all_confidences,
+            sc_all_extra_fields=sc_all_extra_fields,
         )
 
 
@@ -345,6 +384,8 @@ class SelfConsistencyVerification(BaseVerification):
         initial_prediction,
         additional_parsed_responses: List[Dict],
         prediction_temperature: Optional[float] = None,
+        initial_parsed: Optional[Dict] = None,
+        extra_validate_fn: Optional[Callable] = None,
     ) -> VerificationResult:
         """Aggregate pre-collected parsed responses without making new LLM calls.
 
@@ -370,7 +411,8 @@ class SelfConsistencyVerification(BaseVerification):
                 samples.append(PredictionSample(
                     prediction=init_str,
                     reasoning="Initial prediction",
-                    temperature=init_temp
+                    temperature=init_temp,
+                    parsed_response=initial_parsed,
                 ))
 
         # Add samples from pre-collected parsed responses (no LLM calls here).
@@ -397,9 +439,12 @@ class SelfConsistencyVerification(BaseVerification):
                 reasoning=validated.get('reasoning', ''),
                 confidence=validated.get('confidence_score'),
                 temperature=temp,
+                parsed_response=parsed,
             ))
 
-        return self._aggregate_predictions(samples, str_valid, indicator=indicator)
+        return self._aggregate_predictions(
+            samples, str_valid, indicator=indicator, extra_validate_fn=extra_validate_fn
+        )
 
 
 def create_self_consistency_verifier(

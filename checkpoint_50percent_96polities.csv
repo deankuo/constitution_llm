@@ -1,0 +1,49 @@
+polity_name,polity_region,leader_name,leader_first_year,leader_last_year,tenure,constitution_SC1,constitution_year_SC1,constitution_document_name_SC1,constitution_document_types_SC1,constitution_SC2,constitution_year_SC2,constitution_document_name_SC2,constitution_document_types_SC2,constitution_SC3,constitution_year_SC3,constitution_document_name_SC3,constitution_document_types_SC3,constitution_prediction,constitution_agreement,constitution_uncertainty
+Cyrenaica,MENA and Africa,Al-Abbas ibn Ahmad ibn Tulun,879,881,2,0,,N/A,,0,,N/A,,0.0,,N/A,,0,1.0,none
+Tenasserim,Asia and Oceania,Sir Henry Marion Durand,1844,1846,2,2,1833,Government of India Act 1833,2,2,1833,Government of India Act 1833,2,2.0,1833,Government of India Act 1833,2,2,1.0,none
+Paphos,MENA and Africa,Nicocles of Paphos,-321,-309,12,0,,N/A,,0,,N/A,,0.0,,N/A,,0,1.0,none
+Dutch Coromandel,Asia and Oceania,Arent Gardenijs,1638,1643,5,1,1642,Bataviasche Statuten,1,1,1642,Statutes of Batavia,1,2.0,1602; 1642,Charter of the Dutch East India Company; Statutes of Batavia,2; 2,1,0.667,low
+Brecqhou,Europe,John Thomson Donaldson,1949,1966,17,2,1951,Reform (Sark) Law,2,2,1951,Reform (Sark) Law,2,0.0,,N/A,,2,0.667,low
+Jema'a Emirate,MENA and Africa,Muhammadu Adda dan Usman,1869,1881,12,0,,N/A,,0,,N/A,,0.0,,N/A,,0,1.0,none
+Bailiwick of Blenio,Europe,Melchior Josef Alois von Matt,1774,1776,2,2,,Statuti della Valle di Blenio,2,2,,Statutes of Blenio,2,1.0,1490,Statuti di Blenio,1,2,0.667,low
+Sultanate of Lakhnauti,Asia and Oceania,Nasiruddin Bughra Khan,1281,1291,10,0,,N/A,,0,,N/A,,,,,,0,1.0,none
+//Khau-|goan,MENA and Africa,David Swartbooi,1895,1898,3,0,,N/A,,0,,N/A,,0.0,,N/A,,0,1.0,none
+Sasanian Empire,MENA and Africa,Bahram I,273,276,3,0,,N/A,,0,,N/A,,0.0,,N/A,,0,1.0,none
+Principality of Pinsk,Europe,Svyatopolk Yuryevich,1184,1190,6,1,1016,Russkaya Pravda,1,1,1016,Russkaya Pravda,1,1.0,1016,Russkaya Pravda,1,1,1.0,none
+Sultanate of Agadez,MENA and Africa,Muhammad Guma,1816,1821,5,0,,N/A,,0,,N/A,,0.0,,N/A,,0,1.0,none
+Kingdom of Tilantongo,Americas,Lord 5 Water,1160,1170,10,0,,N/A,,0,,N/A,,0.0,,N/A,,0,1.0,none
+Palitana State,Asia and Oceania,Noghanji IV,1840,1860,20,0,,N/A,,0,,N/A,,0.0,,N/A,,0,1.0,none
+Nasarawa Emirate,MENA and Africa,Umaru dan Muhammadu,1930,1941,11,0,,N/A,,0,,N/A,,0.0,,N/A,,0,1.0,none
+Aztec Empire,Americas,Ahuitzotl,1486,1502,16,1,1431; 1440,Code of Nezahualcoyotl; Laws of Moctezuma I,1; 1,0,,N/A,,0.0,,N/A,,0,0.667,low
+Sakya Tibet,Asia and Oceania,bDag-nyid bZang-po-dpal,1306,1324,18,0,,N/A,,0,,N/A,,0.0,,N/A,,0,1.0,none
+Copán,Americas,K'ak' Nab K'awiil,628,695,67,0,,N/A,,0,,N/A,,0.0,,N/A,,0,1.0,none
+Kalba,MENA and Africa,Sheikh Majid bin Sultan Al Qasimi,1871,1900,29,0,,N/A,,0,,N/A,,0.0,,N/A,,0,1.0,none
+Tlacopan,Americas,Totoquihuaztli I,1430,1469,39,0,,N/A,,0,,N/A,,0.0,,N/A,,0,1.0,none
+Jammu and Kashmir,Asia and Oceania,Sir Courtenay Latimer,1931,1932,1,1,1932,Ranbir Penal Code,1,1,1932; 1920,Ranbir Penal Code; Sri Pratap Jammu and Kashmir Laws Consolidation Act,1; 1,1.0,1920; 1932,Sri Pratap Jammu and Kashmir Laws Consolidation Act; Ranbir Penal Code,1; 1,1,1.0,none
+Majene,Asia and Oceania,Sangkilang,1874,1889,15,0,,N/A,,0,,N/A,,0.0,,N/A,,0,1.0,none
+Gloucester,Europe,Gilbert de Clare,1217,1230,13,0,,N/A,,2,1215,Magna Carta,2,0.0,,N/A,,0,0.667,low
+Untere Freie Ämter,Europe,Franz Ludwig Müller,1723,1725,2,0,,N/A,,0,,N/A,,0.0,,N/A,,0,1.0,none
+Uruk,MENA and Africa,Lugal-zage-si,-2340,-2316,24,0,,N/A,,0,,N/A,,0.0,,N/A,,0,1.0,none
+Astaean Kingdom,Europe,Rhescuporis II,-18,-11,7,0,,N/A,,0,,N/A,,0.0,,N/A,,0,1.0,none
+Sultanate of Rum,MENA and Africa,Kaykhusraw I,1192,1196,4,0,,N/A,,0,,N/A,,0.0,,N/A,,0,1.0,none
+Hsipaw,Asia and Oceania,Sao Hkun Hkwi,1809,1843,34,0,,N/A,,0,,N/A,,0.0,,N/A,,0,1.0,none
+Autonomous Republic of Northern Epirus,Europe,Georgios Christakis-Zografos,1914,1914,0,2,1914,Protocol of Corfu,2,2,1914,Protocol of Corfu,2,2.0,1914,Protocol of Corfu,2,2,1.0,none
+Catuvellauni,Europe,Togodumnus,41,43,2,0,,N/A,,0,,N/A,,,,,,0,1.0,none
+Xianbei Confederation,Asia and Oceania,Tanshihuai,156,181,25,0,,N/A,,0,,N/A,,0.0,,N/A,,0,1.0,none
+Kaanul Kingdom,Americas,Yuknoom Ti' Chan,579,611,32,0,,N/A,,0,,N/A,,0.0,,N/A,,0,1.0,none
+Lordship of Waterland,Europe,Jan II van Bergen,1312,1353,41,0,,N/A,,0,,N/A,,0.0,,N/A,,0,1.0,none
+Dughlat Amirate,Asia and Oceania,Sayyid Ali Dughlat,1429,1458,29,0,,N/A,,0,,N/A,,0.0,,N/A,,0,1.0,none
+Canton of Solothurn,Europe,Hermann Obrecht,1917,1917,0,2,1887,Constitution of the Canton of Solothurn,2,2,1887,Constitution of the Canton of Solothurn,2,2.0,1887,Verfassung des Kantons Solothurn,2,2,1.0,none
+Tír Eoghain,Europe,Domhnall Óg Ó Néill,1230,1234,4,0,,N/A,,0,,N/A,,2.0,,Senchas Már,2,0,0.667,low
+British Guiana,Americas,Sir Geoffrey Alexander Stafford Northcote,1935,1937,2,2,1928,British Guiana (Constitution) Order in Council,2,2,1928,"British Guiana (Constitution) Order in Council, 1928",2,2.0,1928,British Guiana (Constitution) Order in Council,2,2,1.0,none
+County of Blankenburg,Europe,Siegfried III,1225,1283,58,0,,N/A,,0,,N/A,,0.0,,N/A,,0,1.0,none
+Presidio of La Goleta,MENA and Africa,Alonso Pimentel,1565,1572,7,0,,N/A,,0,,N/A,,0.0,,N/A,,0,1.0,none
+Northern Yan,Asia and Oceania,Feng Hong,430,436,6,0,,N/A,,0,,N/A,,0.0,,N/A,,0,1.0,none
+Dumraon Raj,Asia and Oceania,Maheshwar Bakhsh Singh,1844,1881,37,0,,N/A,,0,,N/A,,0.0,,N/A,,0,1.0,none
+Coatlinchan,Americas,Cuauhpocatzin,1450,1485,35,0,,N/A,,0,,N/A,,0.0,,N/A,,0,1.0,none
+Kingdom of Magadha,Asia and Oceania,Satyajit,-577,-547,30,0,,N/A,,0,,N/A,,0.0,,N/A,,0,1.0,none
+Jesuit Province of Paraguay,Americas,Simón de Ojeda,1659,1662,3,2,1611,Ordenanzas de Alfaro,2,2,1611; 1542,Ordenanzas de Alfaro; Leyes Nuevas,2; 2,2.0,1611,Ordenanzas de Alfaro,2,2,1.0,none
+Wallis and Futuna,Asia and Oceania,Emeni Simete,2005,2007,2,2,1958; 1961,Constitution of the French Republic; Law No. 61-814 (Statute of Wallis and Futuna),2; 2,2,1958; 1961,Constitution of France; Statute of Wallis and Futuna,2; 2,2.0,1958; 1961,Constitution of France; Statute of Wallis and Futuna,2; 2,2,1.0,none
+Sirmur,Asia and Oceania,Surendra Bikram Prakash,1898,1911,13,0,,N/A,,1,,"Adopted British Indian Codes (Indian Penal Code, Civil Procedure Code)",1,1.0,,British Indian Codes (adopted),1,1,0.667,low
+Peru,Americas,Aurelio Sousa y Matute,1913,1914,1,2,1860,Constitución Política de la República Peruana,2,2,1860,Constitución Política de la República Peruana de 1860,2,2.0,1860,Constitución Política del Perú de 1860,2,2,1.0,none
+Gupta Empire,Asia and Oceania,Kumaragupta II,473,476,3,2,,Manusmriti,2,2,-200,Manusmriti,2,2.0,,Manusmriti,2,2,1.0,none

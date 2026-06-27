@@ -291,7 +291,6 @@ class ElectionsClassifier:
     LOGPROB_COL = "elections_logprob"
     SEARCH_QUERIES_COL = "elections_search_queries"
     URLS_USED_COL = "elections_urls_used"
-    VERIFIED_COL = "elections_verified"
     AGREEMENT_COL = "elections_agreement"
     UNCERTAINTY_COL = "elections_uncertainty"
 
@@ -345,18 +344,24 @@ class ElectionsClassifier:
         df = df.copy()
 
         df[self.PRED_COL] = None
-        df[self.CONF_COL] = None
-        if self.reasoning:
-            df[self.REASON_COL] = None
+        if self.n_samples == 0:
+            df[self.CONF_COL] = None
+            if self.reasoning:
+                df[self.REASON_COL] = None
+        else:
+            # Pre-initialise SC slot columns: SC1 = initial call, SC2..SCN+1 = additional.
+            for i in range(1, self.n_samples + 2):
+                df[f"elections_SC{i}"] = None
+                df[f"elections_confidence_SC{i}"] = None
+                if self.reasoning:
+                    df[f"elections_reasoning_SC{i}"] = None
+            df[self.AGREEMENT_COL] = None
+            df[self.UNCERTAINTY_COL] = None
         if self.use_logprobs:
             df[self.LOGPROB_COL] = None
         if self.search_mode != SearchMode.NONE:
             df[self.SEARCH_QUERIES_COL] = None
             df[self.URLS_USED_COL] = None
-        if self.n_samples > 0:
-            df[self.VERIFIED_COL] = None
-            df[self.AGREEMENT_COL] = None
-            df[self.UNCERTAINTY_COL] = None
 
         # Pass-through rows where assembly != 2 (no large assembly)
         mask_large_assembly = pd.to_numeric(df[self.assembly_col], errors="coerce") == 2
@@ -376,20 +381,28 @@ class ElectionsClassifier:
         else:
             results = self._classify_sequential(rows_to_classify)
 
-        for orig_idx, pred, conf, reason, logprob, queries_str, urls_str, verified, agreement, uncertainty in results:
-            df.at[orig_idx, self.PRED_COL] = pred
-            df.at[orig_idx, self.CONF_COL] = conf
-            if self.reasoning:
-                df.at[orig_idx, self.REASON_COL] = reason
+        for orig_idx, pred, conf, reason, logprob, queries_str, urls_str, majority_pred, agreement, uncertainty, sc_slot_preds, sc_slot_reasons, sc_slot_confs in results:
+            if self.n_samples == 0:
+                df.at[orig_idx, self.PRED_COL] = pred
+                df.at[orig_idx, self.CONF_COL] = conf
+                if self.reasoning:
+                    df.at[orig_idx, self.REASON_COL] = reason
+            else:
+                df.at[orig_idx, self.PRED_COL] = majority_pred if majority_pred is not None else pred
+                for i, slot_pred in enumerate(sc_slot_preds or [], start=1):
+                    df.at[orig_idx, f"elections_SC{i}"] = slot_pred
+                for i, slot_conf in enumerate(sc_slot_confs or [], start=1):
+                    df.at[orig_idx, f"elections_confidence_SC{i}"] = slot_conf
+                if self.reasoning:
+                    for i, slot_reason in enumerate(sc_slot_reasons or [], start=1):
+                        df.at[orig_idx, f"elections_reasoning_SC{i}"] = slot_reason
+                df.at[orig_idx, self.AGREEMENT_COL] = agreement
+                df.at[orig_idx, self.UNCERTAINTY_COL] = uncertainty
             if self.use_logprobs:
                 df.at[orig_idx, self.LOGPROB_COL] = logprob
             if self.search_mode != SearchMode.NONE:
                 df.at[orig_idx, self.SEARCH_QUERIES_COL] = queries_str or None
                 df.at[orig_idx, self.URLS_USED_COL] = urls_str or None
-            if self.n_samples > 0:
-                df.at[orig_idx, self.VERIFIED_COL] = verified
-                df.at[orig_idx, self.AGREEMENT_COL] = agreement
-                df.at[orig_idx, self.UNCERTAINTY_COL] = uncertainty
 
         return df
 
@@ -400,39 +413,45 @@ class ElectionsClassifier:
     def _call_llm(self, row: pd.Series) -> Tuple:
         """Call LLM with optional self-consistency majority voting.
 
-        Returns 10-tuple:
-            (prediction, confidence_score, reasoning, logprob,
+        Returns 12-tuple:
+            (prediction, confidence, reasoning, logprob,
              search_queries_str, urls_used_str,
-             verified_pred, agreement, uncertainty)
+             majority_pred, agreement, uncertainty,
+             sc_slot_preds, sc_slot_reasons, sc_slot_confs)
 
-        prediction:    initial prediction (sc_idx=0)
-        verified_pred: majority-vote prediction (None when n_samples=0)
-        agreement:     fraction of votes on the winner (None when n_samples=0)
-        uncertainty:   'none'|'low'|'high' (None when n_samples=0)
-
-        When n_samples == 0, makes a single call (no SC);
-        verified_pred/agreement/uncertainty are all None.
-        When n_samples > 0, makes 1 initial + n_samples SC calls.
-        Total API calls = n_samples + 1.
+        When n_samples == 0: last 6 elements are None.
+        When n_samples > 0: total calls = n_samples + 1.
+          sc_slot_preds[0]  = initial call (SC1)
+          sc_slot_preds[1:] = additional SC calls (SC2, SC3, ...)
         """
         pred, conf, reason, logprob, queries_str, urls_str = self._call_llm_once(row)
 
         if self.n_samples == 0:
-            return pred, conf, reason, logprob, queries_str, urls_str, None, None, None
+            return pred, conf, reason, logprob, queries_str, urls_str, None, None, None, None, None, None
 
-        # Collect majority-vote predictions: initial + n_samples SC calls
+        # SC1 = initial call
+        sc_slot_preds = [pred]
+        sc_slot_reasons = [reason]
+        sc_slot_confs = [conf]
         votes = [pred] if pred in ('0', '1', '2') else []
+
         for i, temp in enumerate(self.sc_temperatures[:self.n_samples]):
             try:
-                sc_pred, _, _, _, _, _ = self._call_llm_once(row, temperature=temp)
+                sc_pred, sc_conf, sc_reason, _, _, _ = self._call_llm_once(row, temperature=temp)
+                sc_slot_preds.append(sc_pred)
+                sc_slot_reasons.append(sc_reason)
+                sc_slot_confs.append(sc_conf)
                 if sc_pred in ('0', '1', '2'):
                     votes.append(sc_pred)
             except Exception as e:
                 from tqdm import tqdm as _tqdm
                 _tqdm.write(f"WARN: elections SC sample {i + 1} failed: {e}")
+                sc_slot_preds.append(None)
+                sc_slot_reasons.append(None)
+                sc_slot_confs.append(None)
 
         if not votes:
-            return pred, conf, reason, logprob, queries_str, urls_str, None, None, None
+            return pred, conf, reason, logprob, queries_str, urls_str, None, None, None, sc_slot_preds, sc_slot_reasons, sc_slot_confs
 
         n = len(votes)
         counter = Counter(votes)
@@ -447,7 +466,7 @@ class ElectionsClassifier:
             uncertainty = 'high'
             majority_pred = votes[0]  # tie → fall back to initial prediction
 
-        return pred, conf, reason, logprob, queries_str, urls_str, majority_pred, round(agreement, 3), uncertainty
+        return pred, conf, reason, logprob, queries_str, urls_str, majority_pred, round(agreement, 3), uncertainty, sc_slot_preds, sc_slot_reasons, sc_slot_confs
 
     def _call_llm_once(self, row: pd.Series, temperature: float = 0.0) -> Tuple[str, Optional[int], str, Optional[float], str, str]:
         """Single LLM call (no SC). Used directly by _call_llm().
@@ -573,7 +592,7 @@ class ElectionsClassifier:
                 result = self._call_llm(row)
             except Exception as e:
                 print(f"\nError on row {orig_idx}: {e}")
-                result = ("0", None, f"Error: {e}", None, "", "", None, None, None)
+                result = ("0", None, f"Error: {e}", None, "", "", None, None, None, None, None, None)
             results.append((orig_idx,) + result)
             time.sleep(self.delay)
         return results
@@ -599,7 +618,7 @@ class ElectionsClassifier:
                             result = future.result()
                         except Exception as e:
                             print(f"\nError on row {orig_idx}: {e}")
-                            result = ("0", None, f"Error: {e}", None, "", "", None, None, None)
+                            result = ("0", None, f"Error: {e}", None, "", "", None, None, None, None, None, None)
                         window_results.append((orig_idx,) + result)
 
                 window_results.sort(key=lambda x: x[0])

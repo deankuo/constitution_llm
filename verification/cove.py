@@ -99,7 +99,7 @@ class ChainOfVerification(BaseVerification):
         end_year: Optional[int] = None,
         initial_prediction: Optional[str] = None,
         initial_reasoning: Optional[str] = None,
-        **kwargs
+        **kwargs  # accepts extra_validate_fn but ignores it; constitution doc fields retain initial-call values
     ) -> VerificationResult:
         """
         Verify a prediction using Chain of Verification.

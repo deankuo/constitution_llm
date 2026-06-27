@@ -21,17 +21,14 @@ from sklearn.metrics import (
 )
 
 
-# Indicators with ground truth (exclude constitution)
-INDICATORS_WITH_GROUND_TRUTH = [
-    'sovereign', 'assembly', 'appointment', 'tenure', 'exit',
-    'collegiality', 'separate_powers'
-]
+# Indicators with ground truth available in the PLT dataset
+INDICATORS_WITH_GROUND_TRUTH = ['sovereign', 'collegiality', 'assembly']
 
 # Binary (2-class) indicators
-BINARY_INDICATORS = ['sovereign', 'assembly', 'exit', 'collegiality', 'separate_powers']
+BINARY_INDICATORS = ['sovereign', 'collegiality']
 
-# 3-class indicators
-MULTICLASS_INDICATORS = ['appointment', 'tenure']
+# Multi-class indicators (3+ classes)
+MULTICLASS_INDICATORS = ['assembly']
 
 
 def _to_str_labels(series: pd.Series) -> pd.Series:

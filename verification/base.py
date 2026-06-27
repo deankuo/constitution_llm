@@ -37,9 +37,15 @@ class VerificationResult:
     was_revised: bool = False
     sc_cost_usd: float = 0.0
     sc_tokens: int = 0
-    # Per-slot SC sample predictions (SC1, SC2, ...); None per slot if that call failed.
-    # Populated only for self-consistency; None for CoVe/no-verification.
+    # Legacy: per-slot SC sample predictions (SC2, SC3, ...); excludes SC1 (initial).
     sc_sample_predictions: Optional[List[Optional[str]]] = None
+    # All SC slots [SC1, SC2, ...] where SC1 = initial call.
+    # Populated only for self-consistency; None for CoVe/no-verification.
+    sc_all_predictions: Optional[List[Optional[str]]] = None
+    sc_all_reasonings: Optional[List[Optional[str]]] = None
+    sc_all_confidences: Optional[List[Optional[Any]]] = None
+    # Per-slot extra fields for constitution (document_name, constitution_year, document_types).
+    sc_all_extra_fields: Optional[List[Optional[Dict]]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -64,12 +70,14 @@ class PredictionSample:
         confidence: The confidence score
         temperature: Temperature used for this sample
         response: The full model response
+        parsed_response: Raw parsed JSON dict (for per-slot extra field extraction)
     """
     prediction: str
     reasoning: str
     confidence: Optional[int] = None
     temperature: float = 0.0
     response: Optional[ModelResponse] = None
+    parsed_response: Optional[Dict] = None
 
 
 class BaseVerification(ABC):

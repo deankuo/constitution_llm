@@ -228,7 +228,6 @@ def _apply_polity_verification(
     name: str,
     start_year: int,
     end_year: int,
-    model_suffix: str,
     verify_type: str,
     llm: Any,
     verifier_llm: Any,
@@ -238,22 +237,19 @@ def _apply_polity_verification(
     initial_status: str,
     initial_reasoning: str,
 ) -> None:
-    """
-    Apply self-consistency and/or CoVe verification to a polity-level constitution
-    prediction.  Updates `result` in-place.
+    """Apply SC and/or CoVe verification to a polity-level constitution prediction.
 
-    verify_type: 'self_consistency' | 'cove' | 'both'
-    For 'both': SC runs first; its majority prediction feeds into CoVe as the
-    initial prediction.
+    Updates result in-place. verify_type: 'self_consistency' | 'cove' | 'both'.
+    For 'both': SC runs first; its majority prediction feeds into CoVe.
     """
-    current_status = initial_status  # may be updated by SC before CoVe
+    current_status = initial_status
 
     # ------------------------------------------------------------------
     # Self-Consistency
     # ------------------------------------------------------------------
     if verify_type in ('self_consistency', 'both'):
-        # Seed with initial prediction so total samples = n_samples + 1,
-        # matching the leader pipeline's SelfConsistencyVerification behaviour.
+        # SC1 = initial call (already written to result as constitution_SC1).
+        # SC2..SCN+1 = additional calls at varying temperatures.
         sc_preds: List[float] = []
         if initial_status is not None:
             try:
@@ -262,36 +258,42 @@ def _apply_polity_verification(
                     sc_preds.append(seed)
             except (ValueError, TypeError):
                 pass
+
         temps = (sc_temperatures or [1.0, 1.0, 1.0])[:sc_n_samples]
-        for temp in temps:
+        for sc_i, temp in enumerate(temps, start=2):  # SC2, SC3, ...
             try:
-                resp = llm.call(
-                    system_prompt=system_prompt,
-                    user_prompt=user_prompt,
-                    temperature=temp
-                )
+                resp = llm.call(system_prompt=system_prompt, user_prompt=user_prompt, temperature=temp)
                 parsed = parse_json_response(resp.content, verbose=False)
                 validated = validate_constitution_response(parsed)
-                pred = validated.get('constitution')   # 1.0 or 0.0
+                pred = validated.get('constitution')
                 if pred is not None:
                     sc_preds.append(pred)
+                    result[f'constitution_SC{sc_i}'] = int(pred)
+                    result[f'constitution_year_SC{sc_i}'] = validated.get('constitution_year')
+                    result[f'constitution_document_name_SC{sc_i}'] = validated.get('document_name', 'N/A')
+                    result[f'constitution_document_types_SC{sc_i}'] = validated.get('document_types')
+                else:
+                    result[f'constitution_SC{sc_i}'] = None
             except Exception as e:
-                print(f"  SC sample (temp={temp}) failed: {e}")
+                print(f"  SC sample {sc_i} (temp={temp}) failed: {e}")
+                result[f'constitution_SC{sc_i}'] = None
 
         if sc_preds:
             counter = Counter(sc_preds)
             majority_pred, majority_count = counter.most_common(1)[0]
             agreement = majority_count / len(sc_preds)
+            n = len(sc_preds)
+            if majority_count == n:
+                uncertainty = 'none'
+            elif majority_count >= 2:
+                uncertainty = 'low'
+            else:
+                uncertainty = 'high'
             verified_int = int(majority_pred)
-            current_status = verified_int  # numeric 0/1/2
-            result[f'constitution_{model_suffix}'] = verified_int
-            result[f'constitution_sc_agreement_{model_suffix}'] = round(agreement, 3)
-            result[f'constitution_sc_verification_{model_suffix}'] = str({
-                'method': 'self_consistency',
-                'n_samples': len(sc_preds),
-                'vote_distribution': {int(k): v for k, v in dict(counter).items()},
-                'agreement_ratio': round(agreement, 3),
-            })
+            current_status = verified_int
+            result['constitution_prediction'] = verified_int
+            result['constitution_agreement'] = round(agreement, 3)
+            result['constitution_uncertainty'] = uncertainty
 
     # ------------------------------------------------------------------
     # Chain of Verification (CoVe)
@@ -307,7 +309,6 @@ def _apply_polity_verification(
                 config=CoVeConfig(questions_per_element=cove_questions_per_element),
                 cost_tracker=CostTracker()
             )
-            # Normalise initial prediction to '0' / '1' / '2'
             if current_status is not None and str(current_status) in ('0', '1', '2'):
                 init_pred = str(int(current_status))
             elif current_status is not None and str(current_status).lower() in ('yes', 'true'):
@@ -328,14 +329,12 @@ def _apply_polity_verification(
                 end_year=end_year,
             )
             verified_pred = verify_result.verified_prediction
-            result[f'constitution_cove_verification_{model_suffix}'] = str(
-                verify_result.verification_details
-            )
+            result['constitution_verification'] = str(verify_result.verification_details)
             if verified_pred in ('0', '1', '2'):
-                result[f'constitution_{model_suffix}'] = int(verified_pred)
+                result['constitution_prediction'] = int(verified_pred)
         except Exception as e:
             print(f"  CoVe verification failed: {e}")
-            result[f'constitution_cove_verification_{model_suffix}'] = f'Error: {e}'
+            result['constitution_verification'] = f'Error: {e}'
 
 
 def process_single_polity(
@@ -368,8 +367,8 @@ def process_single_polity(
     _cached_tokens) for the caller to aggregate; they are stripped before
     the final CSV is written.
 
-    Search metadata (URLs, queries) are returned under search_queries_{suffix}
-    and urls_used_{suffix} columns when search mode is active.
+    Search metadata (URLs, queries) are returned under search_queries
+    and urls_used columns when search mode is active.
     """
     system_prompt, user_prompt = create_prompt(country, name, start_year, end_year)
 
@@ -442,31 +441,46 @@ def process_single_polity(
     parsed_result = parse_llm_response(response_content, max_retries, retry_delay)
     validated = validate_constitution_response(parsed_result)
 
-    model_suffix = model_key.lower().replace("-", "_")
     status = validated.get('constitution')  # float 0.0, 1.0, or 2.0, or None
     explanation = validated.get('reasoning') or 'No explanation provided'
 
-    result = {
-        f'constitution_{model_suffix}': int(status) if status is not None else 0,
-        'constitution_year': validated.get('constitution_year', None),
-        f'constitution_name_{model_suffix}': validated.get('document_name', "N/A"),
-        f'constitution_document_types_{model_suffix}': validated.get('document_types', None),
-        f'explanation_{model_suffix}': explanation,
-        f'explanation_length_{model_suffix}': len(explanation) if explanation else 0,
-        f'confidence_score_{model_suffix}': validated.get('confidence_score', None),
-        # Private cost fields — stripped before CSV output
-        f'_input_tokens_{model_suffix}': input_tokens,
-        f'_output_tokens_{model_suffix}': output_tokens,
-        f'_cached_tokens_{model_suffix}': cached_tokens,
-        f'_thinking_tokens_{model_suffix}': thinking_tokens,
-        '_model_identifier': model_identifier,
-    }
+    use_sc = verify_type in ('self_consistency', 'both')
+    if use_sc:
+        # SC will be applied: use SC1 column names for the initial call.
+        result = {
+            'constitution_SC1': int(status) if status is not None else 0,
+            'constitution_year_SC1': validated.get('constitution_year', None),
+            'constitution_document_name_SC1': validated.get('document_name', "N/A"),
+            'constitution_document_types_SC1': validated.get('document_types', None),
+            # Private cost fields — stripped before CSV output
+            '_input_tokens': input_tokens,
+            '_output_tokens': output_tokens,
+            '_cached_tokens': cached_tokens,
+            '_thinking_tokens': thinking_tokens,
+            '_model_identifier': model_identifier,
+        }
+    else:
+        # No SC (none or cove): use plain column names.
+        result = {
+            'constitution_prediction': int(status) if status is not None else 0,
+            'constitution_year': validated.get('constitution_year', None),
+            'constitution_document_name': validated.get('document_name', "N/A"),
+            'constitution_document_types': validated.get('document_types', None),
+            'constitution_reasoning': explanation,
+            'constitution_confidence': validated.get('confidence_score', None),
+            # Private cost fields — stripped before CSV output
+            '_input_tokens': input_tokens,
+            '_output_tokens': output_tokens,
+            '_cached_tokens': cached_tokens,
+            '_thinking_tokens': thinking_tokens,
+            '_model_identifier': model_identifier,
+        }
 
-    # Only emit search columns when search was actually used (keep output clean for pure-LLM runs)
+    # Only emit search columns when search was actually used
     if query_tracker:
-        result[f'search_queries_{model_suffix}'] = ' | '.join(query_tracker)
+        result['search_queries'] = ' | '.join(query_tracker)
     if url_tracker:
-        result[f'urls_used_{model_suffix}'] = ' | '.join(url_tracker)
+        result['urls_used'] = ' | '.join(url_tracker)
 
     # Apply verification if requested
     if verify_type != 'none' and llm is not None:
@@ -478,7 +492,6 @@ def process_single_polity(
             name=name,
             start_year=start_year,
             end_year=end_year,
-            model_suffix=model_suffix,
             verify_type=verify_type,
             llm=llm,
             verifier_llm=verifier_llm,
@@ -547,13 +560,11 @@ def _process_one_row(
                     raise ValueError("Query function returned None")
             except Exception as exc:
                 print(f"\nERROR processing {country} with model {model_key}: {exc}")
-                model_suffix = model_key.lower().replace("-", "_")
                 error_msg = f"Failed after retries: {exc}"
-                entry_result[f'constitution_{model_suffix}'] = -1
-                entry_result[f'constitution_name_{model_suffix}'] = "Query Failed"
+                entry_result['constitution_prediction'] = -1
+                entry_result['constitution_document_name'] = "Query Failed"
                 entry_result['constitution_year'] = None
-                entry_result[f'explanation_{model_suffix}'] = error_msg
-                entry_result[f'explanation_length_{model_suffix}'] = len(error_msg)
+                entry_result['constitution_reasoning'] = error_msg
 
     return entry_result
 
@@ -563,26 +574,21 @@ def _aggregate_row_costs(
     models_dict: Dict[str, str],
     cost_tracker: CostTracker,
 ) -> None:
-    """
-    Read private cost fields from entry_result, record them in cost_tracker,
-    and remove them from entry_result so they don't appear in the CSV.
-    """
-    for model_key, model_identifier in models_dict.items():
-        model_suffix = model_key.lower().replace("-", "_")
-        in_tok = entry_result.pop(f'_input_tokens_{model_suffix}', 0) or 0
-        out_tok = entry_result.pop(f'_output_tokens_{model_suffix}', 0) or 0
-        ca_tok = entry_result.pop(f'_cached_tokens_{model_suffix}', 0) or 0
-        think_tok = entry_result.pop(f'_thinking_tokens_{model_suffix}', 0) or 0
-        if in_tok or out_tok:
-            cost_tracker.add_usage(
-                model=model_identifier,
-                input_tokens=int(in_tok),
-                output_tokens=int(out_tok),
-                cached_tokens=int(ca_tok),
-                thinking_tokens=int(think_tok),
-                indicator='constitution',
-            )
-    # Remove the shared identifier field if present
+    """Read private cost fields from entry_result, record in cost_tracker, then strip them."""
+    model_identifier = next(iter(models_dict.values()), '')
+    in_tok = entry_result.pop('_input_tokens', 0) or 0
+    out_tok = entry_result.pop('_output_tokens', 0) or 0
+    ca_tok = entry_result.pop('_cached_tokens', 0) or 0
+    think_tok = entry_result.pop('_thinking_tokens', 0) or 0
+    if in_tok or out_tok:
+        cost_tracker.add_usage(
+            model=model_identifier,
+            input_tokens=int(in_tok),
+            output_tokens=int(out_tok),
+            cached_tokens=int(ca_tok),
+            thinking_tokens=int(think_tok),
+            indicator='constitution',
+        )
     entry_result.pop('_model_identifier', None)
 
 
@@ -676,10 +682,8 @@ def process_batch(
             except Exception as e:
                 print(f"\nERROR on row {processed_count}: {e}")
                 entry_result = row.to_dict()
-                for model_key in models_dict:
-                    model_suffix = model_key.lower().replace("-", "_")
-                    entry_result[f'constitution_{model_suffix}'] = -1
-                    entry_result[f'explanation_{model_suffix}'] = f"Error: {e}"
+                entry_result['constitution_prediction'] = -1
+                entry_result['constitution_reasoning'] = f"Error: {e}"
 
             _handle_row_result(entry_result, processed_count)
             time.sleep(delay)
@@ -707,10 +711,8 @@ def process_batch(
                         except Exception as e:
                             print(f"\nERROR on row {orig_idx}: {e}")
                             entry_result = row.to_dict()
-                            for model_key in models_dict:
-                                model_suffix = model_key.lower().replace("-", "_")
-                                entry_result[f'constitution_{model_suffix}'] = -1
-                                entry_result[f'explanation_{model_suffix}'] = f"Error: {e}"
+                            entry_result['constitution_prediction'] = -1
+                            entry_result['constitution_reasoning'] = f"Error: {e}"
                         window_results.append((orig_idx, entry_result))
 
                 # Re-sort by original index to preserve row order
@@ -791,63 +793,52 @@ def main():
         description=(
             'Historical Political Indicators Pipeline\n'
             '\n'
-            'Two pipeline levels:\n'
-            '  polity  -- Legacy pipeline. Predicts constitution (Yes/No) at the polity level.\n'
-            '             Input: plt_polity_data_v2.csv  (columns: territorynamehistorical, start_year, end_year)\n'
-            '             Supports multiple models in parallel and web search.\n'
+            'Two pipelines:\n'
+            '  indicators   -- Main pipeline. Predicts any combination of indicators at the\n'
+            '                  leader level (one row per leader reign).\n'
+            '                  Input: plt_leaders_data.csv\n'
+            '                  Supports single / multiple / sequential prompt modes,\n'
+            '                  self-consistency, and Chain-of-Verification (CoVe).\n'
             '\n'
-            '  leader  -- New modular pipeline. Predicts any combination of 7 indicators at the\n'
-            '             leader level (one row per leader reign).\n'
-            '             Input: plt_leaders_data.csv  (columns: territorynamehistorical, name, start_year, end_year)\n'
-            '             Supports single / multiple / sequential prompt modes, self-consistency,\n'
-            '             and Chain-of-Verification (CoVe).'
+            '  constitution -- Legacy pipeline. Predicts constitution (0/1/2) at the polity\n'
+            '                  level. Single model only.\n'
+            '                  Input: plt_polity_data_v2.csv'
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # --- POLITY level (legacy, constitution only) ---
+  # --- CONSTITUTION pipeline (legacy, polity level) ---
 
-  # Basic run with default Gemini model
-  python main.py --pipeline polity
-
-  # Multiple models, custom input/output
-  python main.py --pipeline polity -i data/plt_polity_data_v2.csv -o results.csv -m GPT=gpt-4o Claude=claude-3-5-sonnet-20241022
-
-  # Enable web search, test on first 10 rows
-  python main.py --pipeline polity --models GPT=gpt-4o --search-mode agentic --test 10
+  python main.py --pipeline constitution
+  python main.py --pipeline constitution -i data/plt_polity_data_v2.csv -o results.csv
+  python main.py --pipeline constitution --models gemini-3.1-pro-preview --search-mode agentic --test 10
 
 
-  # --- LEADER level (new modular pipeline) ---
+  # --- INDICATORS pipeline (main, leader level) ---
 
   # Predict all indicators (default: single mode)
-  python main.py --pipeline leader --indicators constitution sovereign federalism checks collegiality petition assembly entry exit symbolism
+  python main.py --pipeline indicators --indicators constitution sovereign federalism checks collegiality petition assembly entry exit symbolism
 
-  # With agentic search (LLM decides whether to search)
-  python main.py --pipeline leader --indicators sovereign assembly checks --search-mode agentic --test 10
+  # With agentic search
+  python main.py --pipeline indicators --indicators sovereign assembly checks --search-mode agentic --test 10
 
-  # With forced search (always search before LLM answers)
-  python main.py --pipeline leader --indicators sovereign assembly checks --search-mode forced --test 10
+  # With forced search
+  python main.py --pipeline indicators --indicators sovereign assembly checks --search-mode forced --test 10
 
   # With Gemini Batch API (50% cost savings, no search)
-  python main.py --pipeline leader --indicators sovereign assembly checks --models gemini-3.1-pro-preview --use-batch --test 20
-
-  # With forced search + Gemini Batch API (pre-search + batch)
-  python main.py --pipeline leader --indicators sovereign assembly checks --models gemini-3.1-pro-preview --search-mode forced --use-batch --test 20
+  python main.py --pipeline indicators --indicators sovereign assembly checks --models gemini-3.1-pro-preview --use-batch --test 20
 
   # With self-consistency verification on assembly
-  python main.py --pipeline leader --indicators assembly --verify self_consistency --verify-indicators assembly
+  python main.py --pipeline indicators --indicators assembly --verify self_consistency --verify-indicators assembly
 
-  # Multiple prompt mode — separate LLM call per indicator
-  python main.py --pipeline leader --mode multiple --indicators sovereign federalism checks collegiality petition assembly entry exit symbolism
+  # Multiple prompt mode
+  python main.py --pipeline indicators --mode multiple --indicators sovereign federalism checks collegiality petition assembly entry exit symbolism
 
   # Sequential mode with a user-defined indicator order
-  python main.py --pipeline leader --mode sequential --indicators sovereign federalism checks collegiality assembly entry exit symbolism --sequence assembly sovereign checks collegiality federalism entry exit symbolism
-
-  # Sequential mode with randomised indicator order
-  python main.py --pipeline leader --mode sequential --indicators sovereign federalism checks collegiality assembly entry exit symbolism --random-sequence
+  python main.py --pipeline indicators --mode sequential --indicators sovereign federalism checks collegiality assembly entry exit symbolism --sequence assembly sovereign checks collegiality federalism entry exit symbolism
 
   # CoVe verification with a Bedrock verifier model
-  python main.py --pipeline leader --indicators constitution --verify cove --verify-indicators constitution --verifier-model us.anthropic.claude-sonnet-4-5-20250929-v1:0
+  python main.py --pipeline indicators --indicators constitution --verify cove --verify-indicators constitution --verifier-model us.anthropic.claude-sonnet-4-5-20250929-v1:0
         """
     )
 
@@ -857,9 +848,9 @@ Examples:
         default=None,
         help=(
             'Input data file path (CSV or JSONL). Format is auto-detected by extension.\n'
-            'Defaults to the standard file for the chosen pipeline level:\n'
-            '  polity → ./data/plt_polity_data_v2.csv  (requires: territorynamehistorical, start_year, end_year)\n'
-            '  leader → ./data/plt_leaders_data.csv    (requires: territorynamehistorical, name, start_year, end_year)'
+            'Defaults to the standard file for the chosen pipeline:\n'
+            '  constitution → ./data/plt_polity_data_v2.csv  (requires: territorynamehistorical, start_year, end_year)\n'
+            '  indicators   → ./data/plt_leaders_data.csv    (requires: territorynamehistorical, name, start_year, end_year)'
         )
     )
     parser.add_argument(
@@ -964,15 +955,15 @@ Examples:
 
     parser.add_argument(
         '--pipeline',
-        choices=['leader', 'polity'],
-        default='polity',
+        choices=['indicators', 'constitution'],
+        default='indicators',
         help=(
-            'Pipeline level to run (default: polity).\n'
-            '  polity  — Legacy pipeline: predicts constitution (Yes/No) at the polity level.\n'
-            '            One row per polity period; supports multiple models in parallel.\n'
-            '  leader  — New modular pipeline: predicts any of 7 indicators at the leader level.\n'
-            '            One row per leader reign; supports single/multiple/sequential prompt\n'
-            '            modes, self-consistency, and Chain-of-Verification (CoVe).'
+            'Pipeline to run (default: indicators).\n'
+            '  indicators   — Main pipeline: predicts any combination of indicators at the\n'
+            '                 leader level. Supports single/multiple/sequential prompt modes,\n'
+            '                 self-consistency, and Chain-of-Verification (CoVe).\n'
+            '  constitution — Legacy pipeline: predicts constitution (0/1/2) at the polity\n'
+            '                 level. Single model only.'
         )
     )
     parser.add_argument(
@@ -990,8 +981,8 @@ Examples:
     parser.add_argument(
         '--verify',
         choices=['none', 'self_consistency', 'cove', 'both'],
-        default='none',
-        help='Verification method to use'
+        default='self_consistency',
+        help='Verification method to use (default: self_consistency)'
     )
     parser.add_argument(
         '--verify-indicators',
@@ -1064,7 +1055,7 @@ Examples:
 
     # Resolve default input file based on pipeline level if not explicitly provided
     if args.input is None:
-        if args.pipeline == 'leader':
+        if args.pipeline == 'indicators':
             args.input = './data/plt_leaders_data.csv'
         else:
             args.input = './data/plt_polity_data_v2.csv'
@@ -1120,8 +1111,8 @@ Examples:
         elif not any(kw in model_id_for_check for kw in ('2.5', '3.5', '3.0', '3.1')):
             print(f"INFO: --logprobs: supported models are gemini-2.5-flash and gemini-2.5-pro. Other Gemini models will fall back silently.")
 
-    if args.pipeline == 'leader':
-        print("Pipeline: LEADER level (modular, all 7 indicators supported)")
+    if args.pipeline == 'indicators':
+        print("Pipeline: INDICATORS (modular, all indicators supported)")
         print(f"Input:    {args.input}")
         print(f"Search:   {search_mode.value}")
         if args.use_batch:
@@ -1199,7 +1190,7 @@ Examples:
             print(f"JSON saved to: {json_path}")
             if not args.test:
                 log_experiment(
-                    output_path=args.output, pipeline='leader',
+                    output_path=args.output, pipeline='indicators',
                     prompt_style=args.mode, model=model_identifier,
                     indicators=args.indicators, verify=args.verify,
                     search_mode=args.search_mode, total_entries=len(df),
@@ -1279,7 +1270,7 @@ Examples:
                 )
                 if not args.test:
                     log_experiment(
-                        output_path=args.output, pipeline='leader',
+                        output_path=args.output, pipeline='indicators',
                         prompt_style=args.mode, model=model_identifier,
                         indicators=args.indicators, verify=args.verify,
                         search_mode=args.search_mode, total_entries=len(df),
@@ -1394,7 +1385,7 @@ Examples:
                 predictor.cost_tracker.print_summary()
                 if not args.test:
                     log_experiment(
-                        output_path=args.output, pipeline='leader',
+                        output_path=args.output, pipeline='indicators',
                         prompt_style=args.mode, model=model_identifier,
                         indicators=args.indicators, verify=args.verify,
                         search_mode=args.search_mode, total_entries=len(df),
@@ -1468,12 +1459,15 @@ Examples:
             )
             results_df = runner.run(df)
 
-        # Print cost summary
-        predictor.cost_tracker.print_summary()
+        # Print cost summary (batch mode bypasses predictor so tracker shows $0)
+        if args.use_batch:
+            print("\n[INFO] Cost tracking not available in Gemini Batch API mode.")
+        else:
+            predictor.cost_tracker.print_summary()
 
         if not args.test:
             log_experiment(
-                output_path=args.output, pipeline='leader',
+                output_path=args.output, pipeline='indicators',
                 prompt_style=args.mode, model=model_identifier,
                 indicators=args.indicators, verify=args.verify,
                 search_mode=args.search_mode, total_entries=len(df),
@@ -1484,34 +1478,18 @@ Examples:
         return
 
     # ==========================================================================
-    # POLITY PIPELINE PATH (legacy, constitution only)
+    # CONSTITUTION PIPELINE PATH (legacy, constitution only)
     # ==========================================================================
-    print("Pipeline: POLITY level (legacy, constitution only)")
+    print("Pipeline: CONSTITUTION (legacy, single-model, polity level)")
     print(f"Input:    {args.input}")
 
-    # Parse model specifications
-    # Accept either KEY=IDENTIFIER format or a bare model identifier.
-    # When no key is given, auto-derive one from known provider prefixes.
-    def _auto_key(model_id: str) -> str:
-        if any(model_id.startswith(p) for p in GEMINI_MODELS):
-            return "Gemini"
-        if any(model_id.startswith(p) for p in OPENAI_MODELS):
-            return "GPT"
-        if any(model_id.startswith(p) for p in ANTHROPIC_MODELS):
-            return "Claude"
-        if model_id.startswith(BEDROCK_ARN_PREFIX) or model_id.startswith("us.") or model_id.startswith("global."):
-            return "Bedrock"
-        # Fallback: use the identifier itself as the key
-        return model_id
-
-    models_dict = {}
-    for model_arg in args.models:
-        if '=' in model_arg:
-            key, value = model_arg.split('=', 1)
-        else:
-            value = model_arg
-            key = _auto_key(value)
-        models_dict[key] = value
+    # Single model only — take the first --models argument.
+    _model_arg = args.models[0]
+    if '=' in _model_arg:
+        _, _model_identifier = _model_arg.split('=', 1)
+    else:
+        _model_identifier = _model_arg
+    models_dict = {"model": _model_identifier}
 
     # Collect LLM parameters
     llm_params = {
@@ -1541,13 +1519,11 @@ Examples:
     if args.user_prompt:
         USER_PROMPT_TEMPLATE = args.user_prompt
 
-    # Create BaseLLM instances and verifier for verification (if requested)
+    # Create single LLM instance and verifier for verification (if requested)
     model_llms: Dict[str, Any] = {}
     verifier_llm_instance: Any = None
-    # Always create LLM instances — needed for cost tracking AND verification
-    print("Creating LLM instances for cost tracking...")
-    for model_key, model_identifier in models_dict.items():
-        model_llms[model_key] = create_llm(model_identifier, api_keys, use_logprobs=args.logprobs)
+    print("Creating LLM instance...")
+    model_llms["model"] = create_llm(_model_identifier, api_keys, use_logprobs=args.logprobs)
 
     if args.verify in ('cove', 'both'):
         if args.verifier_model:
@@ -1587,14 +1563,14 @@ Examples:
 
     if not args.test:
         log_experiment(
-            output_path=args.output, pipeline='polity',
-            prompt_style='legacy', model=', '.join(models_dict.values()),
+            output_path=args.output, pipeline='constitution',
+            prompt_style='legacy', model=_model_identifier,
             indicators=['constitution'], verify=args.verify,
             search_mode=args.search_mode, total_entries=len(df),
             cost_summary=polity_cost_tracker.get_summary(),
             n_samples=args.n_samples,
         )
-    print("\nPolity-level pipeline completed successfully!")
+    print("\nConstitution pipeline completed successfully!")
 
 
 if __name__ == "__main__":

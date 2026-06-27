@@ -1,0 +1,243 @@
+% !TEX program = xelatex
+\documentclass[11pt, a4paper]{article}
+
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{fontspec}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{hyperref}
+\usepackage{parskip}
+
+\setmainfont{Times New Roman}
+\setmonofont{Courier New}
+
+\hypersetup{colorlinks=false, pdftitle={Output Dataset Codebook}}
+
+\newcolumntype{P}[1]{>{\raggedright\arraybackslash}p{#1}}
+\newcommand{\ra}[1]{\renewcommand{\arraystretch}{#1}}
+\newcommand{\thead}[1]{\textbf{#1}}
+
+% ═══════════════════════════════════════════════════════════════════════════════
+\begin{document}
+% ═══════════════════════════════════════════════════════════════════════════════
+
+\begin{center}
+  {\LARGE\bfseries The Growth of Executive Constraints}\\[0.4cm]
+  {\large LLM Pipeline Codebook}\\[0.2cm]
+  {\small \today}
+\end{center}
+
+\bigskip
+
+This codebook documents every column that appears in the pipeline output files
+(\texttt{*.csv} / \texttt{*.json}).
+
+\textbf{Coding principle.}
+All indicators code \textit{de facto} (actual) power, not de jure (formal) arrangements.
+
+\medskip
+\textbf{Default run settings.}
+The pipeline is run with \texttt{--verify self\_consistency --n-samples 2},
+which makes 3 total LLM calls per indicator (1 initial + 2 additional samples).
+This produces per-indicator columns \texttt{\_SC1}, \texttt{\_SC2}, \texttt{\_SC3},
+plus \texttt{\_verified} (majority vote), \texttt{\_agreement}, and \texttt{\_uncertainty}.
+If \texttt{--n-samples 1} is used, only \texttt{\_SC1} and \texttt{\_SC2} appear.
+
+% ═══════════════════════════════════════════════════════════════════════════════
+\section{Input Columns}
+% ═══════════════════════════════════════════════════════════════════════════════
+
+\ra{1.3}
+\begin{longtable}{P{4.5cm} P{2cm} P{8cm}}
+  \toprule
+  \thead{Column} & \thead{Type} & \thead{Meaning} \\
+  \midrule
+  \endhead
+  \bottomrule
+  \endfoot
+  \texttt{polity\_name}        & string & Name of the historical polity \\
+  \texttt{polity\_region}      & string & Geographic region \\
+  \texttt{leader\_name}        & string & Name of the leader \\
+  \texttt{leader\_first\_year} & int    & First year of tenure (negative = BCE) \\
+  \texttt{leader\_last\_year}  & int    & Last year of tenure (negative = BCE) \\
+  \texttt{tenure}              & int    & Duration of tenure in years \\
+\end{longtable}
+
+% ═══════════════════════════════════════════════════════════════════════════════
+\section{Indicator Output Columns}
+% ═══════════════════════════════════════════════════════════════════════════════
+
+Each indicator produces the following columns (replace \texttt{\{ind\}} with
+the indicator name, e.g.\ \texttt{sovereign\_prediction}).
+
+\ra{1.3}
+\begin{longtable}{P{4.5cm} P{2.3cm} P{7.7cm}}
+  \toprule
+  \thead{Column} & \thead{Type} & \thead{Meaning} \\
+  \midrule
+  \endhead
+  \bottomrule
+  \endfoot
+  \texttt{\{ind\}\_prediction}  & int         & LLM prediction label \\
+  \texttt{\{ind\}\_reasoning}   & string      & Step-by-step reasoning text \\
+  \texttt{\{ind\}\_confidence}  & int (1–100) & LLM self-reported confidence score \\
+  \texttt{\{ind\}\_SC1}         & int / null  & Prediction from sample 1 (initial call) \\
+  \texttt{\{ind\}\_SC2}         & int / null  & Prediction from sample 2 \\
+  \texttt{\{ind\}\_SC3}         & int / null  & Prediction from sample 3 (with \texttt{--n-samples 2}) \\
+  \texttt{\{ind\}\_verified}    & int / null  & Majority-vote prediction across all samples; null if no consensus \\
+  \texttt{\{ind\}\_agreement}   & float (0–1) & Fraction of samples agreeing with the majority label \\
+  \texttt{\{ind\}\_uncertainty} & string      & \texttt{none} = all agree; \texttt{low} = partial; \texttt{high} = all differ \\
+\end{longtable}
+
+\subsection*{Indicator Label Definitions}
+
+\ra{1.3}
+\begin{longtable}{P{3.2cm} P{2.5cm} P{8.8cm}}
+  \toprule
+  \thead{Indicator} & \thead{Values} & \thead{Label Meanings} \\
+  \midrule
+  \endhead
+  \bottomrule
+  \endfoot
+  \texttt{constitution}   & 0, 1, 2    &
+    0 = no written law;\newline
+    1 = code of law (governs subjects only);\newline
+    2 = full constitution (written law + governance rules + limits on authority) \\[4pt]
+  \texttt{sovereign}      & 0, 1       &
+    0 = colony, vassal, tributary, or protectorate;\newline
+    1 = sovereign domestic governance \\[4pt]
+  \texttt{federalism}     & 0, 1       &
+    0 = unitary state;\newline
+    1 = sovereignty divided between central and local units
+          (confederations, leagues, composite monarchies) \\[4pt]
+  \texttt{collegiality}   & 0, 1       &
+    0 = single actor dominates decision-making;\newline
+    1 = decisions genuinely shared by a constituted body \\[4pt]
+  \texttt{petition}       & 0, 1       &
+    0 = petitioning is rare, ineffective, or unrecorded;\newline
+    1 = petitions are a regular and institutionalized feature of political life \\[4pt]
+  \texttt{assembly}       & 0, 1, 2, 3 &
+    0 = none;\newline
+    1 = small advisory council (institutionalized);\newline
+    2 = legislature with policymaking or selection role;\newline
+    3 = popular assembly (most citizens or chosen by lot) \\[4pt]
+  \texttt{symbolism}      & 0, 1, 2, 3 &
+    \textit{Non-monotonic — higher code does not mean more power.}\newline
+    0 = plain (ruler little distinguished from others);\newline
+    1 = decorated (impressive but officeholder understood as mortal);\newline
+    2 = deified (holder regarded as divine or quasi-divine);\newline
+    3 = ceremonial (trappings so extensive they constrain power) \\[4pt]
+  \texttt{entry}          & 0–10, 99   &
+    How the executive came to power:\newline
+    0 = force (coup, rebellion, conquest);\newline
+    1 = foreign power appointment;\newline
+    2 = ruling party appointment (one-party system);\newline
+    3 = royal council appointment;\newline
+    4 = hereditary succession;\newline
+    5 = military appointment;\newline
+    6 = legislature appointment;\newline
+    7 = head of state appointment;\newline
+    8 = head of government appointment;\newline
+    9 = direct popular election;\newline
+    10 = other (e.g., clerical bodies such as College of Cardinals);\newline
+    99 = unknown \\[4pt]
+  \texttt{exit}           & 0–14, 99   &
+    Circumstances of departure:\newline
+    0 = voluntary retirement or abdication (not due to ill health);\newline
+    1 = other regular exit (term limits, electoral defeat);\newline
+    2 = regular transition to another office;\newline
+    3 = died on campaign in civil war (disease or accident);\newline
+    4 = died on campaign in foreign war (disease or accident);\newline
+    5 = died of natural causes;\newline
+    6 = retired due to ill health;\newline
+    7 = suicide;\newline
+    8 = deposed by domestic actors;\newline
+    9 = assassinated or forced suicide;\newline
+    10 = killed in battle in civil war;\newline
+    11 = killed in battle in foreign war;\newline
+    12 = irregular transition to another office;\newline
+    13 = deposed by foreign state;\newline
+    14 = still in office at end of observation period;\newline
+    99 = unknown \\
+\end{longtable}
+
+% ═══════════════════════════════════════════════════════════════════════════════
+\section{Constitution-Specific Columns}
+% ═══════════════════════════════════════════════════════════════════════════════
+
+\ra{1.3}
+\begin{longtable}{P{6.5cm} P{2cm} P{6cm}}
+  \toprule
+  \thead{Column} & \thead{Type} & \thead{Meaning} \\
+  \midrule
+  \endhead
+  \bottomrule
+  \endfoot
+  \texttt{constitution\_document\_name}  & string     & Semicolon-separated names of referenced constitutional documents, or \texttt{"N/A"} \\
+  \texttt{constitution\_year}            & string     & Semicolon-separated years corresponding to those documents \\
+  \texttt{constitution\_document\_types} & string     & Semicolon-separated type codes (1 or 2) matching the document names \\
+\end{longtable}
+
+% ═══════════════════════════════════════════════════════════════════════════════
+\section{Checks Sub-Indicator Columns}
+% ═══════════════════════════════════════════════════════════════════════════════
+
+The \texttt{checks} indicator is split into nine binary sub-indicators coding
+whether that actor \textit{actually} checks the executive
+(0 = does not check; 1 = does check).
+Each sub-indicator generates the same column set as any other indicator
+(\texttt{\_prediction}, \texttt{\_reasoning}, \texttt{\_confidence},
+\texttt{\_SC1}, \texttt{\_SC2}, \texttt{\_SC3},
+\texttt{\_verified}, \texttt{\_agreement}, \texttt{\_uncertainty}).
+
+\ra{1.3}
+\begin{longtable}{P{5cm} P{9.5cm}}
+  \toprule
+  \thead{Sub-indicator prefix} & \thead{Actor} \\
+  \midrule
+  \endhead
+  \bottomrule
+  \endfoot
+  \texttt{checks\_local}        & Local or constituent territorial/kin-based units \\
+  \texttt{checks\_military}     & Armed forces or a warrior estate \\
+  \texttt{checks\_clergy}       & Religious authorities \\
+  \texttt{checks\_aristocracy}  & Hereditary or titled upper stratum \\
+  \texttt{checks\_bourgeoisie}  & Urban commercial or capital-holding class \\
+  \texttt{checks\_bureaucracy}  & Professional administrative apparatus \\
+  \texttt{checks\_judiciary}    & Independent adjudicative bodies \\
+  \texttt{checks\_assembly}     & Deliberative representative or popular body \\
+  \texttt{checks\_council}      & Institutionalized elite advisory council \\
+\end{longtable}
+
+% ═══════════════════════════════════════════════════════════════════════════════
+\section{Elections Columns (Downstream)}
+% ═══════════════════════════════════════════════════════════════════════════════
+
+Produced by \texttt{pipeline/post\_processing.py}, run separately after the
+main pipeline. Rows where \texttt{assembly\_prediction}~$\neq$~2 receive a
+pass-through label of 0 with no API call.
+
+\ra{1.3}
+\begin{longtable}{P{4.8cm} P{2.3cm} P{7.4cm}}
+  \toprule
+  \thead{Column} & \thead{Type} & \thead{Meaning} \\
+  \midrule
+  \endhead
+  \bottomrule
+  \endfoot
+  \texttt{elections\_prediction} & int         &
+    0 = not elected (or pass-through when \texttt{assembly}~$\neq$~2);\newline
+    1 = elected, no organised factions;\newline
+    2 = competitive elections (organised factions or parties) \\
+  \texttt{elections\_reasoning}  & string / null & Reasoning text; null for pass-through rows \\
+  \texttt{elections\_confidence} & int / null    & Confidence 1–100; null for pass-through rows \\
+  \texttt{elections\_SC1}        & int / null    & Prediction from sample 1 \\
+  \texttt{elections\_SC2}        & int / null    & Prediction from sample 2 \\
+  \texttt{elections\_SC3}        & int / null    & Prediction from sample 3 (with \texttt{--n-samples 2}) \\
+  \texttt{elections\_verified}   & int / null    & Majority-vote prediction; null if no consensus \\
+  \texttt{elections\_agreement}  & float (0–1)   & Fraction of samples agreeing with the majority label \\
+  \texttt{elections\_uncertainty}& string        & \texttt{none} / \texttt{low} / \texttt{high} \\
+\end{longtable}
+
+\end{document}

@@ -616,8 +616,8 @@ def sanity_check_and_reprocess(
     temp_reprocessed_csv: str = './data/temp/temp_reprocessed_rows.csv',
     min_confidence: Optional[float] = None,
     min_reasoning_length: Optional[int] = None,
-    pipeline: str = 'leader',
-    mode: str = 'multiple',
+    pipeline: str = 'indicators',
+    mode: str = 'single',
     indicators: Optional[List[str]] = None,
     model: str = DEFAULT_PRIMARY_MODEL,
     verify: str = 'none',
@@ -644,9 +644,9 @@ def sanity_check_and_reprocess(
         temp_reprocessed_csv: Temporary file for reprocessed results
         min_confidence: Minimum acceptable confidence score
         min_reasoning_length: Minimum acceptable reasoning length
-        pipeline: Which pipeline to use for reprocessing ('leader' or 'polity').
-                  'leader' — new modular pipeline (requires name column, supports all 7 indicators).
-                  'polity' — legacy pipeline (constitution only, no name column required).
+        pipeline: Which pipeline to use for reprocessing ('indicators' or 'constitution').
+                  'indicators' — main modular pipeline (requires name column, supports all indicators).
+                  'constitution' — legacy pipeline (constitution only, no name column required).
         mode: Prompt mode ('single', 'multiple', or 'sequential') — leader pipeline only
         indicators: List of indicators to reprocess (defaults to the specified indicator)
         model: Model to use for reprocessing
@@ -784,12 +784,12 @@ def sanity_check_and_reprocess(
     actual_parallel_rows = parallel_rows if parallel_rows > 0 else min(len(failed_df), 8)
 
     # Build reprocessing command based on pipeline level
-    if pipeline == 'polity':
-        # Polity pipeline: legacy, constitution only
-        print("Using POLITY pipeline for reprocessing (constitution only).")
+    if pipeline == 'constitution':
+        # Constitution pipeline: legacy, constitution only
+        print("Using CONSTITUTION pipeline for reprocessing (constitution only).")
         cmd = [
             'python3', 'main.py',
-            '--pipeline', 'polity',
+            '--pipeline', 'constitution',
             '--input', temp_failed_csv,
             '--output', temp_reprocessed_csv,
             '--models', model,
@@ -800,7 +800,7 @@ def sanity_check_and_reprocess(
         ]
         print(f"Reprocessing indicator: constitution (polity pipeline)")
     else:
-        # Leader pipeline: modular, supports all indicators
+        # Indicators pipeline: modular, supports all indicators
         # For single mode: reprocess ALL indicators together
         # For multiple mode: reprocess only specified indicators
         if indicators is None:
@@ -815,7 +815,7 @@ def sanity_check_and_reprocess(
 
         cmd = [
             'python3', 'main.py',
-            '--pipeline', 'leader',
+            '--pipeline', 'indicators',
             '--input', temp_failed_csv,
             '--output', temp_reprocessed_csv,
             '--mode', mode,
@@ -878,16 +878,31 @@ def sanity_check_and_reprocess(
     print("Step 6: Merging reprocessed results with original dataset...")
 
     def _cols_for_indicator(ind: str, reproc: pd.DataFrame) -> List[str]:
-        """Return the prediction/reasoning/confidence (and extra) cols for `ind`."""
-        cols = []
-        for suffix in ['_prediction', '_reasoning', '_confidence']:
-            col = f'{ind}{suffix}'
-            if col in reproc.columns:
-                cols.append(col)
+        """Return all output columns for `ind` present in reproc (plain + SC slots)."""
+        # Plain columns (no SC)
+        plain = ['_prediction', '_reasoning', '_confidence', '_agreement',
+                 '_uncertainty', '_verification', '_logprob']
+        cols = [f'{ind}{s}' for s in plain if f'{ind}{s}' in reproc.columns]
+        # SC slot columns: {ind}_SC1, {ind}_reasoning_SC1, {ind}_confidence_SC1, …
+        for col in reproc.columns:
+            if (col.startswith(f'{ind}_SC') or
+                    col.startswith(f'{ind}_reasoning_SC') or
+                    col.startswith(f'{ind}_confidence_SC')):
+                if col not in cols:
+                    cols.append(col)
+        # Constitution extra columns (plain + SC slot variants)
         if ind == 'constitution':
-            for extra in ['constitution_document_name', 'constitution_year']:
-                if extra in reproc.columns:
+            const_extras = ['constitution_document_name', 'constitution_year',
+                            'constitution_document_types']
+            for extra in const_extras:
+                if extra in reproc.columns and extra not in cols:
                     cols.append(extra)
+            for col in reproc.columns:
+                if (col.startswith('constitution_document_name_SC') or
+                        col.startswith('constitution_year_SC') or
+                        col.startswith('constitution_document_types_SC')):
+                    if col not in cols:
+                        cols.append(col)
         return cols
 
     final_df = df.copy()
@@ -990,19 +1005,19 @@ Examples:
     parser.add_argument('--min-confidence', type=float, help='Minimum confidence score (1-100)')
     parser.add_argument('--min-reasoning-length', type=int, default=None,
                        help='Minimum reasoning length (default: disabled). Short reasoning is not a failure signal.')
-    parser.add_argument('--pipeline', choices=['leader', 'polity'], default='leader',
+    parser.add_argument('--pipeline', choices=['indicators', 'constitution'], default='indicators',
                        help=(
-                           'Pipeline to use for reprocessing (default: leader). '
-                           'leader — new modular pipeline, supports all 7 indicators, requires name column. '
-                           'polity — legacy pipeline, constitution only, no name column required.'
+                           'Pipeline to use for reprocessing (default: indicators). '
+                           'indicators — main modular pipeline, supports all indicators, requires name column. '
+                           'constitution — legacy pipeline, constitution only, no name column required.'
                        ))
-    parser.add_argument('--mode', choices=['single', 'multiple', 'sequential'], default='multiple',
-                       help='Prompt mode for reprocessing (leader pipeline only): single, multiple, or sequential')
+    parser.add_argument('--mode', choices=['single', 'multiple', 'sequential'], default='single',
+                       help='Prompt mode for reprocessing (indicators pipeline only): single, multiple, or sequential (default: single)')
     parser.add_argument('--model', default='gemini-3.1-pro-preview', help='Model to use (default: gemini-3.1-pro-preview)')
     parser.add_argument('--verify', choices=['none', 'self_consistency', 'cove', 'both'],
-                       default='none', help='Verification method (default: none)')
-    parser.add_argument('--n-samples', type=int, default=0,
-                       help='Additional SC samples when --verify self_consistency (0 = single call, default: 0)')
+                       default='self_consistency', help='Verification method (default: self_consistency)')
+    parser.add_argument('--n-samples', type=int, default=2,
+                       help='Additional SC samples when --verify self_consistency (default: 2)')
     parser.add_argument('--temperature', type=float, default=0.0, help='Temperature (default: 0.0)')
     parser.add_argument('--max-tokens', type=int, default=DEFAULT_MAX_TOKENS, help=f'Max tokens (default: {DEFAULT_MAX_TOKENS})')
     parser.add_argument('--top-p', type=float, default=0.95, help='Top-p sampling (default: 0.95)')

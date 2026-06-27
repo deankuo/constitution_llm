@@ -21,8 +21,8 @@ Self-consistency convention — matches main.py / SelfConsistencyConfig
     sc_idx=1..n_samples → SC samples (temp=1.0 each, default)
     Total votes in majority = n_samples + 1
 
-    n_samples=0 → no SC (single call), no _verified/_agreement/_uncertainty columns
-    n_samples=2 → 3 votes, write _verified/_agreement/_uncertainty
+    n_samples=0 → no SC (single call), no _prediction (majority)/_agreement/_uncertainty columns
+    n_samples=2 → 3 votes, write _prediction (majority vote)/_agreement/_uncertainty
 
 Custom ID format:
     constitution/elections:  "{row_idx}|{indicator}|{sc_idx}"
@@ -369,15 +369,19 @@ def _submit_and_wait(
 # ---------------------------------------------------------------------------
 
 def _parse_constitution(response_text: str) -> tuple[str, str, Optional[int], dict]:
-    """Returns (prediction_str, reasoning, confidence, extra_fields)."""
+    """Returns (prediction_str, reasoning, confidence, extra_fields).
+
+    extra_fields keys: 'document_name', 'constitution_year', 'document_types'
+    (no column-name prefix; caller appends _SC{n} suffix).
+    """
     parsed = parse_json_response(response_text, verbose=False)
     v = validate_constitution_response(parsed)
     pred = v.get("constitution")
     pred_str = str(int(float(pred))) if pred is not None else ""
     extra = {
-        "constitution_document_name": v.get("document_name"),
+        "document_name": v.get("document_name"),
         "constitution_year": v.get("constitution_year"),
-        "constitution_document_types": v.get("document_types"),
+        "document_types": v.get("document_types"),
     }
     return pred_str, v.get("reasoning", ""), v.get("confidence_score"), extra
 
@@ -452,10 +456,8 @@ def _aggregate_and_merge(
 
     for (row_idx, indicator), sc_map in tqdm(grouped.items(), desc="aggregating SC"):
         votes: list[str] = []
-        sc_preds: dict[int, str] = {}  # sc_idx → normalized pred string
-        initial_reasoning = ""
-        initial_confidence = None
-        extra_fields: dict = {}
+        # Maps sc_idx → (pred_str, reasoning, confidence, extra_fields)
+        sc_slot_data: dict[int, tuple] = {}
 
         for sc_idx in sorted(sc_map.keys()):
             resp_text = sc_map[sc_idx]
@@ -464,41 +466,58 @@ def _aggregate_and_merge(
 
             if indicator == "constitution":
                 pred_str, reasoning, confidence, extra = _parse_constitution(resp_text)
-                if sc_idx == 0:
-                    initial_reasoning = reasoning
-                    initial_confidence = confidence
-                    extra_fields = extra
             elif indicator == "elections":
                 pred_str, reasoning, confidence = _parse_elections(resp_text)
-                if sc_idx == 0:
-                    initial_reasoning = reasoning
-                    initial_confidence = confidence
+                extra = {}
             else:
                 pred_str, reasoning, confidence = _parse_indicator(resp_text, indicator)
-                if sc_idx == 0:
-                    initial_reasoning = reasoning
-                    initial_confidence = confidence
+                extra = {}
 
+            sc_slot_data[sc_idx] = (pred_str, reasoning, confidence, extra)
             if pred_str:
                 votes.append(pred_str)
-                sc_preds[sc_idx] = pred_str
-
-        initial_pred = votes[0] if votes else None
-        initial_stored = _denormalize_pred(initial_pred, indicator)
 
         updates = row_updates[row_idx]
-        updates[f"{indicator}_prediction"] = initial_stored
-        updates[f"{indicator}_reasoning"] = initial_reasoning
-        updates[f"{indicator}_confidence"] = initial_confidence
-        updates.update(extra_fields)
 
-        if n_samples > 0:
-            for sc_idx in range(1, n_samples + 1):
-                raw = sc_preds.get(sc_idx)
-                updates[f"{indicator}_SC{sc_idx}"] = _denormalize_pred(raw, indicator) if raw else None
+        if n_samples == 0:
+            # No SC: plain column names.
+            sc_idx_0 = sc_slot_data.get(0, ("", "", None, {}))
+            pred0, reasoning0, confidence0, extra0 = sc_idx_0
+            updates[f"{indicator}_prediction"] = _denormalize_pred(pred0, indicator) if pred0 else None
+            updates[f"{indicator}_reasoning"] = reasoning0
+            updates[f"{indicator}_confidence"] = confidence0
+            if indicator == "constitution":
+                updates["constitution_document_name"] = extra0.get("document_name")
+                updates["constitution_year"] = extra0.get("constitution_year")
+                updates["constitution_document_types"] = extra0.get("document_types")
+        else:
+            # SC mode: _SCN columns for each slot; _prediction = majority vote.
+            # sc_idx=0 → SC1, sc_idx=1 → SC2, ..., sc_idx=N → SC{N+1}
+            for sc_idx in range(0, n_samples + 1):
+                slot_n = sc_idx + 1  # SC1 = sc_idx 0, SC2 = sc_idx 1, ...
+                slot = sc_slot_data.get(sc_idx)
+                if slot is not None:
+                    pred_str, reasoning, confidence, extra = slot
+                    updates[f"{indicator}_SC{slot_n}"] = _denormalize_pred(pred_str, indicator) if pred_str else None
+                    if indicator != "constitution":
+                        updates[f"{indicator}_reasoning_SC{slot_n}"] = reasoning
+                        updates[f"{indicator}_confidence_SC{slot_n}"] = confidence
+                    else:
+                        updates[f"constitution_document_name_SC{slot_n}"] = extra.get("document_name")
+                        updates[f"constitution_year_SC{slot_n}"] = extra.get("constitution_year")
+                        updates[f"constitution_document_types_SC{slot_n}"] = extra.get("document_types")
+                else:
+                    updates[f"{indicator}_SC{slot_n}"] = None
+                    if indicator != "constitution":
+                        updates[f"{indicator}_reasoning_SC{slot_n}"] = None
+                        updates[f"{indicator}_confidence_SC{slot_n}"] = None
+                    else:
+                        updates[f"constitution_document_name_SC{slot_n}"] = None
+                        updates[f"constitution_year_SC{slot_n}"] = None
+                        updates[f"constitution_document_types_SC{slot_n}"] = None
+
             final_pred_str, agreement, uncertainty = _aggregate_sc(votes, indicator)
-            final_pred = _denormalize_pred(final_pred_str, indicator)
-            updates[f"{indicator}_verified"] = final_pred
+            updates[f"{indicator}_prediction"] = _denormalize_pred(final_pred_str, indicator)
             updates[f"{indicator}_agreement"] = round(agreement, 3)
             updates[f"{indicator}_uncertainty"] = uncertainty
 
