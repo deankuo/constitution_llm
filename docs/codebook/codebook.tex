@@ -34,14 +34,14 @@ This codebook documents every column that appears in the pipeline output files
 (\texttt{*.csv} / \texttt{*.json}).
 
 \textbf{Coding principle.}
-All indicators code \textit{de facto} (actual) power, not de jure (formal) arrangements.
+All indicators code \textit{de facto} (actual) power, not de jure (formal) arrangements. (We might want to discuss about this)
 
 \medskip
 \textbf{Default run settings.}
 The pipeline is run with \texttt{--verify self\_consistency --n-samples 2},
 which makes 3 total LLM calls per indicator (1 initial + 2 additional samples).
 This produces per-indicator columns \texttt{\_SC1}, \texttt{\_SC2}, \texttt{\_SC3},
-plus \texttt{\_verified} (majority vote), \texttt{\_agreement}, and \texttt{\_uncertainty}.
+plus \texttt{\_prediction} (majority vote), \texttt{\_agreement}, and \\ \texttt{\_uncertainty}.
 If \texttt{--n-samples 1} is used, only \texttt{\_SC1} and \texttt{\_SC2} appear.
 
 % ═══════════════════════════════════════════════════════════════════════════════
@@ -69,7 +69,7 @@ If \texttt{--n-samples 1} is used, only \texttt{\_SC1} and \texttt{\_SC2} appear
 % ═══════════════════════════════════════════════════════════════════════════════
 
 Each indicator produces the following columns (replace \texttt{\{ind\}} with
-the indicator name, e.g.\ \texttt{sovereign\_prediction}).
+the indicator name, \\ e.g.\ \texttt{sovereign\_prediction}).
 
 \ra{1.3}
 \begin{longtable}{P{4.5cm} P{2.3cm} P{7.7cm}}
@@ -80,12 +80,12 @@ the indicator name, e.g.\ \texttt{sovereign\_prediction}).
   \bottomrule
   \endfoot
   \texttt{\{ind\}\_prediction}  & int         & LLM prediction label \\
-  \texttt{\{ind\}\_reasoning}   & string      & Step-by-step reasoning text \\
+  \texttt{\{ind\}\_reasoning}   & string      & Step-by-step reasoning text (If any) \\
   \texttt{\{ind\}\_confidence}  & int (1–100) & LLM self-reported confidence score \\
-  \texttt{\{ind\}\_SC1}         & int / null  & Prediction from sample 1 (initial call) \\
+  \texttt{\{ind\}\_SC1}         & int / null  & Prediction from sample 1 \\
   \texttt{\{ind\}\_SC2}         & int / null  & Prediction from sample 2 \\
   \texttt{\{ind\}\_SC3}         & int / null  & Prediction from sample 3 (with \texttt{--n-samples 2}) \\
-  \texttt{\{ind\}\_verified}    & int / null  & Majority-vote prediction across all samples; null if no consensus \\
+  \texttt{\{ind\}\_prediction}    & int / null  & Majority-vote prediction across all samples; null if no consensus \\
   \texttt{\{ind\}\_agreement}   & float (0–1) & Fraction of samples agreeing with the majority label \\
   \texttt{\{ind\}\_uncertainty} & string      & \texttt{none} = all agree; \texttt{low} = partial; \texttt{high} = all differ \\
 \end{longtable}
@@ -211,12 +211,11 @@ Each sub-indicator generates the same column set as any other indicator
 \end{longtable}
 
 % ═══════════════════════════════════════════════════════════════════════════════
-\section{Elections Columns (Downstream)}
+\section{Elections Column (Downstream)}
 % ═══════════════════════════════════════════════════════════════════════════════
 
-Produced by \texttt{pipeline/post\_processing.py}, run separately after the
-main pipeline. Rows where \texttt{assembly\_prediction}~$\neq$~2 receive a
-pass-through label of 0 with no API call.
+Run separately after the main pipeline (applies for both standard and batch pipelines). Rows where \texttt{assembly\_prediction}~$\neq$~2 receive a
+pass-through label of 0 with no API call (hard coded).
 
 \ra{1.3}
 \begin{longtable}{P{4.8cm} P{2.3cm} P{7.4cm}}
@@ -230,13 +229,13 @@ pass-through label of 0 with no API call.
     0 = not elected (or pass-through when \texttt{assembly}~$\neq$~2);\newline
     1 = elected, no organised factions;\newline
     2 = competitive elections (organised factions or parties) \\
-  \texttt{elections\_reasoning}  & string / null & Reasoning text; null for pass-through rows \\
-  \texttt{elections\_confidence} & int / null    & Confidence 1–100; null for pass-through rows \\
   \texttt{elections\_SC1}        & int / null    & Prediction from sample 1 \\
   \texttt{elections\_SC2}        & int / null    & Prediction from sample 2 \\
   \texttt{elections\_SC3}        & int / null    & Prediction from sample 3 (with \texttt{--n-samples 2}) \\
-  \texttt{elections\_verified}   & int / null    & Majority-vote prediction; null if no consensus \\
-  \texttt{elections\_agreement}  & float (0–1)   & Fraction of samples agreeing with the majority label \\
+  \texttt{elections\_reasoning}  & string / null & Reasoning text; null for pass-through rows \\
+  \texttt{elections\_confidence} & int / null    & Confidence 1–100; null for pass-through rows \\
+  \texttt{elections\_prediction}   & int / null    & Majority-vote prediction; null if no consensus \\
+  \texttt{elections\_agreement}  & float (0-1)   & Fraction of samples agreeing with the majority label \\
   \texttt{elections\_uncertainty}& string        & \texttt{none} / \texttt{low} / \texttt{high} \\
 \end{longtable}
 
