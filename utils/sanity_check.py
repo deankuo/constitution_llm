@@ -1021,8 +1021,8 @@ Examples:
     parser.add_argument('--temperature', type=float, default=0.0, help='Temperature (default: 0.0)')
     parser.add_argument('--max-tokens', type=int, default=DEFAULT_MAX_TOKENS, help=f'Max tokens (default: {DEFAULT_MAX_TOKENS})')
     parser.add_argument('--top-p', type=float, default=0.95, help='Top-p sampling (default: 0.95)')
-    parser.add_argument('--check-null-prediction', action='store_true', default=True,
-                       help='Check for null predictions (default: True)')
+    parser.add_argument('--no-check-null-prediction', action='store_true', default=False,
+                       help='Skip checking for null predictions (default: check is enabled)')
     parser.add_argument('--sequence', nargs='+',
                        help='Indicator sequence for sequential mode (space-separated)')
     parser.add_argument('--random-sequence', action='store_true',
@@ -1052,7 +1052,7 @@ Examples:
         temperature=args.temperature,
         sequence=args.sequence,
         random_sequence=args.random_sequence,
-        check_null_prediction=args.check_null_prediction,
+        check_null_prediction=not args.no_check_null_prediction,
         cleanup_temp_files=not args.no_cleanup,
         reasoning=args.reasoning,
         parallel_rows=args.parallel_rows,

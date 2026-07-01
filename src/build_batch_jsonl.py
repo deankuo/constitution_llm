@@ -111,10 +111,9 @@ def _make_request_line(
         "top_p": DEFAULT_TOP_P,
     }
     if use_grounding:
-        # Google Search grounding is incompatible with response_mime_type=application/json.
-        # Drop the MIME constraint so Gemini can append grounding attribution; JSON is still
-        # extracted from text by parse_json_response in the runner.
         config["tools"] = [{"google_search": {}}]
+        # Drop response_mime_type so Gemini can append grounding attribution to the response;
+        # JSON is extracted from the text by parse_json_response in the runner.
     else:
         config["response_mime_type"] = "application/json"
     return {
@@ -202,6 +201,8 @@ def build_constitution_requests(
     max_tokens: int,
     sc_temperatures: list[float] = None,
     use_grounding: bool = False,
+    reasoning: bool = True,
+    pre_searcher=None,
     original_idx_col: Optional[str] = None,
 ) -> list[dict]:
     """Build requests for the constitution task.
@@ -209,6 +210,9 @@ def build_constitution_requests(
     Total requests per row = n_samples + 1 (initial + n_samples SC samples).
 
     Args:
+        reasoning:        Include reasoning field in prompt output (default True).
+        pre_searcher:     Optional PreSearcher instance. When provided, fetches
+            Wikipedia/DuckDuckGo/Serper context and injects it into each user prompt.
         original_idx_col: Column name in df holding original row indices (for subset
             re-runs via sanity_check). When set, embeds original_row_idx in metadata
             so the runner merges back into the right output rows.
@@ -221,7 +225,15 @@ def build_constitution_requests(
     for pos_idx in tqdm(range(len(df)), desc="constitution"):
         row = df.iloc[pos_idx]
         polity, name, start_year, end_year = _row_fields(row)
-        sys_p, usr_p = get_constitution_prompt(polity, name, start_year, end_year)
+        sys_p, usr_p = get_constitution_prompt(polity, name, start_year, end_year, reasoning=reasoning)
+
+        search_queries = None
+        search_urls = None
+        if pre_searcher is not None:
+            result = pre_searcher.search(polity, name, start_year, end_year)
+            usr_p = pre_searcher.enrich_prompt(usr_p, result)
+            search_queries = " | ".join(result.search_queries) if result.search_queries else None
+            search_urls = " | ".join(result.urls_used) if result.urls_used else None
 
         row_idx = int(row[original_idx_col]) if original_idx_col and original_idx_col in row.index else pos_idx
 
@@ -235,6 +247,10 @@ def build_constitution_requests(
                 )
                 if original_idx_col:
                     req["metadata"]["original_row_idx"] = str(row_idx)
+                if search_queries is not None:
+                    req["metadata"]["search_queries"] = search_queries
+                if search_urls is not None:
+                    req["metadata"]["search_urls"] = search_urls
             requests.append(req)
 
     return requests
@@ -249,6 +265,7 @@ def build_indicator_requests(
     reasoning: bool = True,
     prompt_version: str = "v1",
     use_grounding: bool = False,
+    pre_searcher=None,
     original_idx_col: Optional[str] = None,
 ) -> list[dict]:
     """Build requests for non-constitution indicators using SinglePromptBuilder.
@@ -261,6 +278,8 @@ def build_indicator_requests(
         reasoning:        Include reasoning fields in output (default True).
         prompt_version:   Which SinglePromptBuilder variant: 'v1', 'v2', or 'v3'.
         use_grounding:    Embed Google Search tool in config for native Gemini grounding.
+        pre_searcher:     Optional PreSearcher instance. When provided, fetches
+            Wikipedia/DuckDuckGo/Serper context and injects it into each user prompt.
         original_idx_col: Column name holding original row indices (subset re-runs).
     """
     from prompts.single_builder import SinglePromptBuilder, SinglePromptBuilderV2, SinglePromptBuilderV3
@@ -285,12 +304,21 @@ def build_indicator_requests(
         prompts = builder.build(polity, name, start_year, end_year)
         prompt = prompts[0]  # SinglePromptBuilder returns exactly one PromptOutput
 
+        usr_p = prompt.user_prompt
+        search_queries = None
+        search_urls = None
+        if pre_searcher is not None:
+            result = pre_searcher.search(polity, name, start_year, end_year)
+            usr_p = pre_searcher.enrich_prompt(usr_p, result)
+            search_queries = " | ".join(result.search_queries) if result.search_queries else None
+            search_urls = " | ".join(result.urls_used) if result.urls_used else None
+
         row_idx = int(row[original_idx_col]) if original_idx_col and original_idx_col in row.index else pos_idx
 
         for sc_idx, temp in enumerate(all_temps):
             custom_id = f"{row_idx}|single|{sc_idx}"
             req = _make_request_line(
-                custom_id, prompt.system_prompt, prompt.user_prompt, temp, max_tokens, n_samples,
+                custom_id, prompt.system_prompt, usr_p, temp, max_tokens, n_samples,
                 use_grounding=use_grounding,
             )
             req["metadata"]["indicators"] = indicators_json
@@ -300,6 +328,10 @@ def build_indicator_requests(
                 )
                 if original_idx_col:
                     req["metadata"]["original_row_idx"] = str(row_idx)
+                if search_queries is not None:
+                    req["metadata"]["search_queries"] = search_queries
+                if search_urls is not None:
+                    req["metadata"]["search_urls"] = search_urls
             requests.append(req)
 
     return requests
@@ -312,6 +344,8 @@ def build_elections_requests(
     sc_temperatures: list[float] = None,
     prompt_version: str = "v1",
     use_grounding: bool = False,
+    reasoning: bool = True,
+    pre_searcher=None,
     original_idx_col: Optional[str] = None,
 ) -> list[dict]:
     """Build requests for the elections downstream task.
@@ -322,12 +356,15 @@ def build_elections_requests(
 
     Args:
         use_grounding:    Embed Google Search tool for native Gemini grounding.
+        reasoning:        Include reasoning field in prompt output (default True).
+        pre_searcher:     Optional PreSearcher instance for context injection.
         original_idx_col: Column name holding original row indices (subset re-runs).
     """
     from pipeline.post_processing import (
         ELECTIONS_SYSTEM_PROMPT,
         ELECTIONS_USER_PROMPT_TEMPLATE,
         _SINGLE_PROMPTS,
+        _strip_reasoning,
     )
 
     if "assembly_prediction" not in df.columns:
@@ -339,6 +376,9 @@ def build_elections_requests(
         sys_tmpl, usr_tmpl = _SINGLE_PROMPTS[prompt_version]
     else:
         sys_tmpl, usr_tmpl = ELECTIONS_SYSTEM_PROMPT, ELECTIONS_USER_PROMPT_TEMPLATE
+
+    if not reasoning:
+        sys_tmpl, usr_tmpl = _strip_reasoning(sys_tmpl, usr_tmpl)
 
     all_temps = _all_temperatures(n_samples, sc_temperatures)
     requests = []
@@ -365,6 +405,16 @@ def build_elections_requests(
             polity=polity, name=name, start_year=start_year, end_year=end_year
         )
 
+        search_queries = None
+        search_urls = None
+        if pre_searcher is not None:
+            start_int = int(start_year) if str(start_year).lstrip("-").isdigit() else None
+            end_int = int(end_year) if str(end_year).lstrip("-").isdigit() else None
+            result = pre_searcher.search(polity, name, start_int, end_int)
+            usr_p = pre_searcher.enrich_prompt(usr_p, result)
+            search_queries = " | ".join(result.search_queries) if result.search_queries else None
+            search_urls = " | ".join(result.urls_used) if result.urls_used else None
+
         for sc_idx, temp in enumerate(all_temps):
             custom_id = f"{row_idx}|elections|{sc_idx}"
             req = _make_request_line(custom_id, sys_tmpl, usr_p, temp, max_tokens, n_samples,
@@ -375,6 +425,10 @@ def build_elections_requests(
                 )
                 if original_idx_col:
                     req["metadata"]["original_row_idx"] = str(row_idx)
+                if search_queries is not None:
+                    req["metadata"]["search_queries"] = search_queries
+                if search_urls is not None:
+                    req["metadata"]["search_urls"] = search_urls
             requests.append(req)
 
     n_eligible = eligible_mask.sum()
@@ -429,9 +483,9 @@ def main():
     parser.add_argument(
         "--reasoning",
         type=lambda x: x.lower() == "true",
-        default=False,
+        default=True,
         help=(
-            "Include reasoning fields in the prompt output (default: False). "
+            "Include reasoning fields in the prompt output (default: True). "
             "Set to False to reduce output tokens — omits {indicator}_reasoning from the response JSON."
         ),
     )
@@ -444,12 +498,15 @@ def main():
         ),
     )
     parser.add_argument(
-        "--search-mode", choices=["none", "gemini_grounding"], default="none",
+        "--search-mode", choices=["none", "pre_search", "gemini_grounding"], default="none",
         help=(
             "Search mode to embed in requests (default: none).\n"
             "  none:             Pure LLM — no search tools.\n"
-            "  gemini_grounding: Adds Google Search tool so Gemini decides when to search.\n"
-            "                    Grounding metadata is captured per response by the runner."
+            "  pre_search:       Fetch Wikipedia/DuckDuckGo/Serper BEFORE building the JSONL\n"
+            "                    and inject retrieved text into each prompt. Metadata stored\n"
+            "                    in request metadata for output columns.\n"
+            "  gemini_grounding: DEPRECATED — Gemini Batch API runs offline and cannot make\n"
+            "                    live web searches. Use pre_search instead."
         ),
     )
     parser.add_argument(
@@ -469,6 +526,15 @@ def main():
     args = parser.parse_args()
 
     use_grounding = args.search_mode == "gemini_grounding"
+    use_pre_search = args.search_mode == "pre_search"
+
+    # Set up pre-searcher if requested
+    pre_searcher = None
+    if use_pre_search:
+        import os as _os
+        from pipeline.pre_search import PreSearcher
+        pre_searcher = PreSearcher(serper_api_key=_os.getenv("SERPER_API_KEY", ""))
+        print("  Pre-search enabled: Wikipedia → DuckDuckGo → Serper (if SERPER_API_KEY set)")
 
     print(f"Loading: {args.input}")
     df = load_dataframe(args.input)
@@ -490,6 +556,8 @@ def main():
         requests = build_constitution_requests(
             df, args.n_samples, args.max_tokens,
             use_grounding=use_grounding,
+            reasoning=args.reasoning,
+            pre_searcher=pre_searcher,
             original_idx_col=args.original_idx_col,
         )
     elif args.task == "indicators":
@@ -498,12 +566,15 @@ def main():
             df, args.indicators, args.n_samples, args.max_tokens,
             reasoning=args.reasoning, prompt_version=args.prompt_version,
             use_grounding=use_grounding,
+            pre_searcher=pre_searcher,
             original_idx_col=args.original_idx_col,
         )
     elif args.task == "elections":
         requests = build_elections_requests(
             df, args.n_samples, args.max_tokens, prompt_version=args.prompt_version,
             use_grounding=use_grounding,
+            reasoning=args.reasoning,
+            pre_searcher=pre_searcher,
             original_idx_col=args.original_idx_col,
         )
 
@@ -535,13 +606,14 @@ def main():
     }
     if args.original_idx_col:
         manifest["original_idx_col"] = args.original_idx_col
+    manifest["reasoning"] = args.reasoning
     if args.task == "indicators":
         manifest["indicators"] = args.indicators
         manifest["prompt_version"] = args.prompt_version
-        manifest["reasoning"] = args.reasoning
     elif args.task == "elections":
         manifest["prompt_version"] = args.prompt_version
     manifest_path = Path(written_files[0]).parent / "logs" / (Path(args.output).stem + "_manifest.json")
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
     with open(manifest_path, "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2, ensure_ascii=False)
     print(f"Manifest: {manifest_path}")

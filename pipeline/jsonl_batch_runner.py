@@ -178,10 +178,9 @@ def _make_req(custom_id: str, system_prompt: str, user_prompt: str,
         "top_p": DEFAULT_TOP_P,
     }
     if use_grounding:
-        # Google Search grounding is incompatible with response_mime_type=application/json.
-        # Drop the MIME constraint so Gemini can append grounding attribution; JSON is still
-        # extracted from the text response by parse_json_response / extract_json_from_response.
         config["tools"] = [{"google_search": {}}]
+        # Drop response_mime_type so Gemini can append grounding attribution to the response;
+        # JSON is extracted from the text by parse_json_response in the runner.
     else:
         config["response_mime_type"] = "application/json"
     return {
@@ -256,7 +255,7 @@ def _build_requests_in_memory(
     if constitution_in:
         for row_idx in tqdm(range(len(df)), desc="constitution"):
             polity, name, start_year, end_year = _row_fields(df.iloc[row_idx])
-            sys_p, usr_p = get_constitution_prompt(polity, name, start_year, end_year)
+            sys_p, usr_p = get_constitution_prompt(polity, name, start_year, end_year, reasoning=reasoning)
             for sc_idx, temp in enumerate(all_temps):
                 cid = f"{row_idx}|constitution|{sc_idx}"
                 requests.append(_make_req(cid, sys_p, usr_p, temp, max_tokens, n_samples, use_grounding))
@@ -331,13 +330,15 @@ def _extract_grounding(response) -> tuple:
 
 
 def _requests_use_grounding(requests: list) -> bool:
-    """Detect if batch requests include the Google Search grounding tool."""
+    """Detect if batch requests include google_search or google_search_retrieval."""
     if not requests:
         return False
     tools = requests[0].get("config", {}).get("tools", [])
     if isinstance(tools, list):
         for tool in tools:
-            if isinstance(tool, dict) and "google_search" in tool:
+            if isinstance(tool, dict) and (
+                "google_search" in tool or "google_search_retrieval" in tool
+            ):
                 return True
     return False
 
@@ -511,6 +512,21 @@ def _aggregate_and_merge(
             else:
                 expanded_grounding[cid] = (q, u)
 
+    # Collect pre-search metadata (fetched at build time, stored in request metadata sc_idx=0).
+    # Keys: search_queries, search_urls — written as {indicator}_search_queries / _urls_used.
+    pre_search_by_row: dict[int, tuple[str, str]] = {}
+    if request_metadata:
+        for cid, meta in request_metadata.items():
+            try:
+                row_idx, _, sc_idx = _parse_custom_id(cid)
+            except Exception:
+                continue
+            if sc_idx == 0 and ("search_queries" in meta or "search_urls" in meta):
+                pre_search_by_row[row_idx] = (
+                    meta.get("search_queries") or "",
+                    meta.get("search_urls") or "",
+                )
+
     # Group by (row_idx, indicator) → {sc_idx: response_text}
     grouped: dict[tuple[int, str], dict[int, str]] = defaultdict(dict)
     for cid, resp_text in expanded.items():
@@ -558,14 +574,13 @@ def _aggregate_and_merge(
                 updates["constitution_document_name"] = extra0.get("document_name")
                 updates["constitution_year"] = extra0.get("constitution_year")
                 updates["constitution_document_types"] = extra0.get("document_types")
-            # Grounding metadata (no SC)
-            g_key = f"{row_idx}|{indicator}|0"
-            if g_key in expanded_grounding:
-                q, u = expanded_grounding[g_key]
-                if q:
-                    updates[f"{indicator}_search_queries"] = q
-                if u:
-                    updates[f"{indicator}_urls_used"] = u
+            # Grounding metadata (no SC) — always write columns when grounding was requested,
+            # leave None if Gemini chose not to search for this row.
+            if grounding_data is not None:
+                g_key = f"{row_idx}|{indicator}|0"
+                q, u = expanded_grounding.get(g_key, (None, None))
+                updates[f"{indicator}_search_queries"] = q
+                updates[f"{indicator}_urls_used"] = u
         else:
             # SC mode: _SCN columns for each slot; _prediction = majority vote.
             # sc_idx=0 → SC1, sc_idx=1 → SC2, ..., sc_idx=N → SC{N+1}
@@ -591,19 +606,25 @@ def _aggregate_and_merge(
                         updates[f"constitution_document_name_SC{slot_n}"] = None
                         updates[f"constitution_year_SC{slot_n}"] = None
                         updates[f"constitution_document_types_SC{slot_n}"] = None
-                # Grounding metadata per SC slot
-                g_key = f"{row_idx}|{indicator}|{sc_idx}"
-                if g_key in expanded_grounding:
-                    q, u = expanded_grounding[g_key]
-                    if q:
-                        updates[f"{indicator}_search_queries_SC{slot_n}"] = q
-                    if u:
-                        updates[f"{indicator}_urls_used_SC{slot_n}"] = u
+                # Grounding metadata per SC slot — always write when grounding was requested.
+                if grounding_data is not None:
+                    g_key = f"{row_idx}|{indicator}|{sc_idx}"
+                    q, u = expanded_grounding.get(g_key, (None, None))
+                    updates[f"{indicator}_search_queries_SC{slot_n}"] = q
+                    updates[f"{indicator}_urls_used_SC{slot_n}"] = u
 
             final_pred_str, agreement, uncertainty = _aggregate_sc(votes, indicator)
             updates[f"{indicator}_prediction"] = _denormalize_pred(final_pred_str, indicator)
             updates[f"{indicator}_agreement"] = round(agreement, 3)
             updates[f"{indicator}_uncertainty"] = uncertainty
+
+        # Pre-search metadata (fetched at build time, one entry per row regardless of SC slots)
+        if row_idx in pre_search_by_row:
+            q, u = pre_search_by_row[row_idx]
+            if q:
+                updates["search_queries"] = q
+            if u:
+                updates["urls_used"] = u
 
     # Merge into result DataFrame (df already reset_index'd before this call)
     result_df = df.copy()
@@ -755,7 +776,6 @@ def run_from_jsonl(
     n_samples: int,
     input_path: Optional[str] = None,
     poll_interval: int = 30,
-    max_tokens: int = DEFAULT_MAX_TOKENS,
 ) -> pd.DataFrame:
     """Read one or more pre-built JSONL chunk files, submit each as its own batch job,
     aggregate SC across all results, and write output.
