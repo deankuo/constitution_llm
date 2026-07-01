@@ -111,6 +111,9 @@ def _make_request_line(
         "top_p": DEFAULT_TOP_P,
     }
     if use_grounding:
+        # google_search is the only search tool supported by the Gemini Batch API.
+        # google_search_retrieval (dynamic threshold) is a real-time-only tool and causes
+        # all batch requests to fail with errors.
         config["tools"] = [{"google_search": {}}]
         # Drop response_mime_type so Gemini can append grounding attribution to the response;
         # JSON is extracted from the text by parse_json_response in the runner.

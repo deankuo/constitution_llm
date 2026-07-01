@@ -178,18 +178,18 @@ def _make_req(custom_id: str, system_prompt: str, user_prompt: str,
         "top_p": DEFAULT_TOP_P,
     }
     if use_grounding:
-        # config["tools"] = [{"google_search": {}}]
+        config["tools"] = [{"google_search": {}}]
         # Drop response_mime_type so Gemini can append grounding attribution to the response;
         # JSON is extracted from the text by parse_json_response in the runner.
         
-        config["tools"] = [{
-        "google_search_retrieval": {
-            "dynamic_retrieval_config": {
-                "mode": "MODE_DYNAMIC",
-                "dynamic_threshold": 0.3   # ← this is the threshold
-                }
-            }
-        }]
+        # config["tools"] = [{
+        # "google_search_retrieval": {
+        #     "dynamic_retrieval_config": {
+        #         "mode": "MODE_DYNAMIC",
+        #         "dynamic_threshold": 0   # ← this is the threshold
+        #         }
+        #     }
+        # }]
     else:
         config["response_mime_type"] = "application/json"
     return {
