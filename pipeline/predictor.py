@@ -62,6 +62,8 @@ class PredictionConfig:
     reasoning: bool = True  # Include reasoning for non-constitution indicators
     # Uncertainty quantification (gemini-2.5-* models only)
     use_logprobs: bool = False
+    # Gemini native Google Search grounding (gemini_grounding search mode)
+    use_grounding: bool = False
 
 
 @dataclass
@@ -94,6 +96,12 @@ class IndicatorPrediction:
     sc_all_reasonings: Optional[List[Optional[str]]] = None
     sc_all_confidences: Optional[List[Optional[Any]]] = None
     sc_all_extra_fields: Optional[List[Optional[Dict]]] = None
+    # Gemini grounding metadata (populated when use_grounding=True, multiple mode only).
+    # No-SC run: single query/url string.  SC run: per-slot lists.
+    grounding_queries: Optional[str] = None
+    grounding_urls: Optional[str] = None
+    sc_all_grounding_queries: Optional[List[Optional[str]]] = None
+    sc_all_grounding_urls: Optional[List[Optional[str]]] = None
 
 
 @dataclass
@@ -143,6 +151,17 @@ class PolityPrediction:
                         result[f'constitution_year_SC{sc_i}'] = extra.get('constitution_year')
                         result[f'constitution_document_types_SC{sc_i}'] = extra.get('document_types')
 
+                # Grounding metadata per SC slot (multiple mode; None for single/sequential).
+                if ind_pred.sc_all_grounding_queries is not None:
+                    for sc_i, (q, u) in enumerate(zip(
+                        ind_pred.sc_all_grounding_queries,
+                        ind_pred.sc_all_grounding_urls or [None] * len(ind_pred.sc_all_grounding_queries),
+                    ), start=1):
+                        if q:
+                            result[f'{ind_name}_search_queries_SC{sc_i}'] = q
+                        if u:
+                            result[f'{ind_name}_urls_used_SC{sc_i}'] = u
+
                 if ind_pred.agreement_ratio is not None:
                     result[f'{ind_name}_agreement'] = round(ind_pred.agreement_ratio, 3)
                 if ind_pred.sc_uncertainty is not None:
@@ -174,6 +193,12 @@ class PolityPrediction:
                     result['constitution_document_name'] = ind_pred.document_name
                     result['constitution_year'] = ind_pred.constitution_year
                     result['constitution_document_types'] = ind_pred.document_types
+
+                # Grounding metadata for no-SC runs.
+                if ind_pred.grounding_queries:
+                    result[f'{ind_name}_search_queries'] = ind_pred.grounding_queries
+                if ind_pred.grounding_urls:
+                    result[f'{ind_name}_urls_used'] = ind_pred.grounding_urls
 
         return result
 
@@ -222,7 +247,8 @@ class Predictor:
         self.cost_tracker = cost_tracker or CostTracker()
 
         # Initialize LLM
-        self.llm = create_llm(config.model, api_keys, use_logprobs=config.use_logprobs)
+        self.llm = create_llm(config.model, api_keys, use_logprobs=config.use_logprobs,
+                              use_grounding=config.use_grounding)
 
         # Initialize verifier LLM if needed
         self.verifier_llm = None
@@ -342,6 +368,12 @@ class Predictor:
                 # Parse response
                 parsed = parse_json_response(response.content, verbose=False)
 
+                # Extract grounding metadata from initial call (multiple mode).
+                # For single/sequential mode (>1 indicator per prompt), grounding
+                # is shared across all indicators but not currently tracked per-indicator.
+                from models.llm_clients import extract_grounding_metadata as _ext_g
+                _init_g_queries, _init_g_urls = _ext_g(response)
+
                 # Extract per-indicator logprobs from token stream (Gemini only)
                 logprobs_by_indicator = {}
                 if response.logprobs_result is not None:
@@ -410,6 +442,10 @@ class Predictor:
                 sc_cost_per_indicator = prompt_sc_cost / num_indicators if num_indicators else 0.0
                 sc_tokens_per_indicator = prompt_sc_tokens // num_indicators if num_indicators else 0
 
+                # For multiple mode, grounding is per-indicator; for single/sequential
+                # it's shared across indicators (only emit for multiple mode).
+                _is_multiple = len(prompt.indicators) == 1
+
                 # Process each indicator in the prompt
                 for indicator in prompt.indicators:
                     ind_prediction = self._process_indicator(
@@ -425,6 +461,8 @@ class Predictor:
                         tokens_per_indicator=tokens_per_indicator + sc_tokens_per_indicator,
                         logprob=logprobs_by_indicator.get(indicator),
                         prompt_sc_parseds=prompt_sc_parseds,
+                        init_grounding_queries=_init_g_queries if _is_multiple else None,
+                        init_grounding_urls=_init_g_urls if _is_multiple else None,
                     )
 
                     predictions[indicator] = ind_prediction
@@ -474,6 +512,8 @@ class Predictor:
         tokens_per_indicator: int = 0,
         logprob: Optional[float] = None,
         prompt_sc_parseds: Optional[List[Dict]] = None,
+        init_grounding_queries: Optional[str] = None,
+        init_grounding_urls: Optional[str] = None,
     ) -> IndicatorPrediction:
         """Process a single indicator from parsed response."""
         # Validate response based on indicator type
@@ -510,6 +550,8 @@ class Predictor:
         sc_all_reasons = None
         sc_all_confs = None
         sc_all_extra = None
+        sc_all_g_queries = None
+        sc_all_g_urls = None
         verification_cost = 0.0
         verification_tokens = 0
 
@@ -566,6 +608,8 @@ class Predictor:
                 sc_all_reasons = verify_result.sc_all_reasonings
                 sc_all_confs = verify_result.sc_all_confidences
                 sc_all_extra = verify_result.sc_all_extra_fields
+                sc_all_g_queries = verify_result.sc_all_grounding_queries
+                sc_all_g_urls = verify_result.sc_all_grounding_urls
 
             except Exception as e:
                 verification_details = {'error': str(e)}
@@ -592,6 +636,10 @@ class Predictor:
             sc_all_reasonings=sc_all_reasons,
             sc_all_confidences=sc_all_confs,
             sc_all_extra_fields=sc_all_extra,
+            grounding_queries=init_grounding_queries,
+            grounding_urls=init_grounding_urls,
+            sc_all_grounding_queries=sc_all_g_queries,
+            sc_all_grounding_urls=sc_all_g_urls,
         )
 
     def _calculate_cost(self, response: ModelResponse) -> float:

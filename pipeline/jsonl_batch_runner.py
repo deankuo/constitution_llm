@@ -169,16 +169,24 @@ def _all_temperatures(n_samples: int, sc_temperatures: list[float] = None) -> li
 
 
 def _make_req(custom_id: str, system_prompt: str, user_prompt: str,
-              temperature: float, max_tokens: int, n_samples: int) -> dict:
+              temperature: float, max_tokens: int, n_samples: int,
+              use_grounding: bool = False) -> dict:
+    config: dict = {
+        "system_instruction": {"parts": [{"text": system_prompt}]},
+        "temperature": temperature,
+        "max_output_tokens": max_tokens,
+        "top_p": DEFAULT_TOP_P,
+    }
+    if use_grounding:
+        # Google Search grounding is incompatible with response_mime_type=application/json.
+        # Drop the MIME constraint so Gemini can append grounding attribution; JSON is still
+        # extracted from the text response by parse_json_response / extract_json_from_response.
+        config["tools"] = [{"google_search": {}}]
+    else:
+        config["response_mime_type"] = "application/json"
     return {
         "contents": [{"parts": [{"text": user_prompt}], "role": "user"}],
-        "config": {
-            "system_instruction": {"parts": [{"text": system_prompt}]},
-            "temperature": temperature,
-            "max_output_tokens": max_tokens,
-            "top_p": DEFAULT_TOP_P,
-            "response_mime_type": "application/json",
-        },
+        "config": config,
         "metadata": {"custom_id": custom_id, "n_samples": str(n_samples)},
     }
 
@@ -202,6 +210,7 @@ def _build_requests_in_memory(
     prompt_builder=None,
     reasoning: bool = True,
     prompt_version: str = "v1",
+    use_grounding: bool = False,
 ) -> list[dict]:
     """Build all batch requests in memory.
 
@@ -225,17 +234,15 @@ def _build_requests_in_memory(
             prompts = prompt_builder.build(polity, name, start_year, end_year)
             for prompt in prompts:
                 if len(prompt.indicators) == 1:
-                    # Multiple mode: one indicator per prompt
                     indicator = prompt.indicators[0]
                     for sc_idx, temp in enumerate(all_temps):
                         cid = f"{row_idx}|{indicator}|{sc_idx}"
-                        requests.append(_make_req(cid, prompt.system_prompt, prompt.user_prompt, temp, max_tokens, n_samples))
+                        requests.append(_make_req(cid, prompt.system_prompt, prompt.user_prompt, temp, max_tokens, n_samples, use_grounding))
                 else:
-                    # Single mode: all indicators in one prompt
                     indicators_json = json.dumps(prompt.indicators)
                     for sc_idx, temp in enumerate(all_temps):
                         cid = f"{row_idx}|single|{sc_idx}"
-                        req = _make_req(cid, prompt.system_prompt, prompt.user_prompt, temp, max_tokens, n_samples)
+                        req = _make_req(cid, prompt.system_prompt, prompt.user_prompt, temp, max_tokens, n_samples, use_grounding)
                         req["metadata"]["indicators"] = indicators_json
                         requests.append(req)
         return requests
@@ -252,7 +259,7 @@ def _build_requests_in_memory(
             sys_p, usr_p = get_constitution_prompt(polity, name, start_year, end_year)
             for sc_idx, temp in enumerate(all_temps):
                 cid = f"{row_idx}|constitution|{sc_idx}"
-                requests.append(_make_req(cid, sys_p, usr_p, temp, max_tokens, n_samples))
+                requests.append(_make_req(cid, sys_p, usr_p, temp, max_tokens, n_samples, use_grounding))
 
     if other_indicators:
         from prompts.single_builder import SinglePromptBuilder, SinglePromptBuilderV2, SinglePromptBuilderV3
@@ -265,7 +272,7 @@ def _build_requests_in_memory(
             prompt = builder.build(polity, name, start_year, end_year)[0]
             for sc_idx, temp in enumerate(all_temps):
                 cid = f"{row_idx}|single|{sc_idx}"
-                req = _make_req(cid, prompt.system_prompt, prompt.user_prompt, temp, max_tokens, n_samples)
+                req = _make_req(cid, prompt.system_prompt, prompt.user_prompt, temp, max_tokens, n_samples, use_grounding)
                 req["metadata"]["indicators"] = indicators_json
                 requests.append(req)
 
@@ -296,12 +303,52 @@ def _extract_text(response) -> str:
     return str(response)
 
 
+def _extract_grounding(response) -> tuple:
+    """Extract (queries_str, urls_str) from a Gemini batch inline response.
+
+    Returns (None, None) when grounding was not used or metadata is absent.
+    """
+    try:
+        g_meta = getattr(response.candidates[0], "grounding_metadata", None)
+        if not g_meta:
+            return None, None
+        queries = getattr(g_meta, "web_search_queries", None) or []
+        queries_str = " | ".join(queries) if queries else None
+        chunks = getattr(g_meta, "grounding_chunks", None) or []
+        urls = []
+        for chunk in chunks:
+            web = getattr(chunk, "web", None)
+            if web:
+                title = getattr(web, "title", "") or ""
+                uri = getattr(web, "uri", "") or ""
+                entry = f"{title} ({uri})" if title else uri
+                if entry:
+                    urls.append(entry)
+        urls_str = " | ".join(urls) if urls else None
+        return queries_str or None, urls_str or None
+    except (IndexError, AttributeError, TypeError):
+        return None, None
+
+
+def _requests_use_grounding(requests: list) -> bool:
+    """Detect if batch requests include the Google Search grounding tool."""
+    if not requests:
+        return False
+    tools = requests[0].get("config", {}).get("tools", [])
+    if isinstance(tools, list):
+        for tool in tools:
+            if isinstance(tool, dict) and "google_search" in tool:
+                return True
+    return False
+
+
 def _submit_and_wait(
     client,
     model: str,
     requests: list[dict],
     display_name: str,
     poll_interval: int = 30,
+    grounding_data: Optional[dict] = None,
 ) -> dict[str, str]:
     """Submit one batch job and wait for completion. Returns custom_id → response_text.
 
@@ -359,6 +406,10 @@ def _submit_and_wait(
 
         resp = inline_resp.response
         results[cid] = _extract_text(resp) if resp else ""
+        if grounding_data is not None and resp is not None:
+            q, u = _extract_grounding(resp)
+            if q or u:
+                grounding_data[cid] = (q, u)
 
     print(f"  Collected {len(results)} responses ({n_failed} failed requests)")
     return results
@@ -416,6 +467,7 @@ def _aggregate_and_merge(
     df: pd.DataFrame,
     n_samples: int,
     request_metadata: Optional[dict[str, dict]] = None,
+    grounding_data: Optional[dict] = None,
 ) -> pd.DataFrame:
     """Parse all responses, aggregate SC votes, merge into df.
 
@@ -442,6 +494,22 @@ def _aggregate_and_merge(
                 expanded[f"{row_idx}|{ind}|{sc_idx}"] = resp_text
         else:
             expanded[cid] = resp_text
+
+    # Expand grounding data the same way so lookup works by per-indicator cid.
+    expanded_grounding: dict[str, tuple] = {}
+    if grounding_data:
+        for cid, (q, u) in grounding_data.items():
+            try:
+                row_idx, indicator, sc_idx = _parse_custom_id(cid)
+            except Exception:
+                continue
+            if indicator == "single":
+                meta = (request_metadata or {}).get(cid, {})
+                inds = json.loads(meta.get("indicators", "[]"))
+                for ind in inds:
+                    expanded_grounding[f"{row_idx}|{ind}|{sc_idx}"] = (q, u)
+            else:
+                expanded_grounding[cid] = (q, u)
 
     # Group by (row_idx, indicator) → {sc_idx: response_text}
     grouped: dict[tuple[int, str], dict[int, str]] = defaultdict(dict)
@@ -490,6 +558,14 @@ def _aggregate_and_merge(
                 updates["constitution_document_name"] = extra0.get("document_name")
                 updates["constitution_year"] = extra0.get("constitution_year")
                 updates["constitution_document_types"] = extra0.get("document_types")
+            # Grounding metadata (no SC)
+            g_key = f"{row_idx}|{indicator}|0"
+            if g_key in expanded_grounding:
+                q, u = expanded_grounding[g_key]
+                if q:
+                    updates[f"{indicator}_search_queries"] = q
+                if u:
+                    updates[f"{indicator}_urls_used"] = u
         else:
             # SC mode: _SCN columns for each slot; _prediction = majority vote.
             # sc_idx=0 → SC1, sc_idx=1 → SC2, ..., sc_idx=N → SC{N+1}
@@ -515,6 +591,14 @@ def _aggregate_and_merge(
                         updates[f"constitution_document_name_SC{slot_n}"] = None
                         updates[f"constitution_year_SC{slot_n}"] = None
                         updates[f"constitution_document_types_SC{slot_n}"] = None
+                # Grounding metadata per SC slot
+                g_key = f"{row_idx}|{indicator}|{sc_idx}"
+                if g_key in expanded_grounding:
+                    q, u = expanded_grounding[g_key]
+                    if q:
+                        updates[f"{indicator}_search_queries_SC{slot_n}"] = q
+                    if u:
+                        updates[f"{indicator}_urls_used_SC{slot_n}"] = u
 
             final_pred_str, agreement, uncertainty = _aggregate_sc(votes, indicator)
             updates[f"{indicator}_prediction"] = _denormalize_pred(final_pred_str, indicator)
@@ -567,6 +651,7 @@ def run_inline_batch(
     poll_interval: int = 30,
     reasoning: bool = True,
     prompt_version: str = "v1",
+    use_grounding: bool = False,
 ) -> pd.DataFrame:
     """Build prompts in memory, submit as one Gemini batch job, aggregate SC.
 
@@ -609,8 +694,11 @@ def run_inline_batch(
         prompt_builder=prompt_builder,
         reasoning=reasoning,
         prompt_version=prompt_version,
+        use_grounding=use_grounding,
     )
     print(f"[Batch] Built {len(requests)} requests")
+    if use_grounding:
+        print("[Batch] Google Search grounding enabled — metadata will be stored per indicator/SC slot.")
 
     # Build metadata lookup for _aggregate_and_merge (needed for single-mode expansion)
     request_metadata = {r["metadata"]["custom_id"]: r["metadata"] for r in requests}
@@ -619,12 +707,14 @@ def run_inline_batch(
     chunks = _chunk_requests(requests)
     display_base = f"const-llm-{Path(output_path).stem}-{int(time.time())}"
     raw_results: dict[str, str] = {}
+    all_grounding: dict[str, tuple] = {}
     for i, chunk in enumerate(chunks):
         chunk_label = f"chunk {i + 1}/{len(chunks)}" if len(chunks) > 1 else "single job"
         display_name = f"{display_base}-c{i + 1:03d}" if len(chunks) > 1 else display_base
         size_mb = sum(len(json.dumps(r, ensure_ascii=False).encode()) + 1 for r in chunk) / 1024 / 1024
         print(f"\n[Batch] Submitting {chunk_label}: {len(chunk)} requests ({size_mb:.1f} MB) ...")
-        chunk_results = _submit_and_wait(client, model, chunk, display_name, poll_interval)
+        chunk_results = _submit_and_wait(client, model, chunk, display_name, poll_interval,
+                                         grounding_data=all_grounding if use_grounding else None)
         raw_results.update(chunk_results)
 
     # Report missing rows
@@ -638,7 +728,8 @@ def run_inline_batch(
         print("  Re-run these rows by filtering the input and rebuilding the JSONL.")
 
     # Aggregate SC and merge
-    result_df = _aggregate_and_merge(raw_results, df, n_samples, request_metadata)
+    result_df = _aggregate_and_merge(raw_results, df, n_samples, request_metadata,
+                                      grounding_data=all_grounding if use_grounding else None)
 
     # Write outputs
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
@@ -741,20 +832,28 @@ def run_from_jsonl(
     # Build metadata lookup for _aggregate_and_merge (needed for single-mode expansion)
     request_metadata = {r["metadata"]["custom_id"]: r["metadata"] for r in all_requests}
 
+    # Auto-detect grounding from JSONL content
+    use_grounding = _requests_use_grounding(all_requests)
+    if use_grounding:
+        print("  Detected Google Search grounding in JSONL — grounding metadata will be collected.")
+
     # Chunk by size and submit each chunk as a separate batch job
     chunks = _chunk_requests(all_requests)
     client = _get_client(api_key)
     display_base = f"const-llm-{Path(output_path).stem}-{int(time.time())}"
     raw_results: dict[str, str] = {}
+    all_grounding: dict[str, tuple] = {}
     for i, chunk in enumerate(chunks):
         chunk_label = f"chunk {i + 1}/{len(chunks)}" if len(chunks) > 1 else "single job"
         display_name = f"{display_base}-c{i + 1:03d}" if len(chunks) > 1 else display_base
         size_mb = sum(len(json.dumps(r, ensure_ascii=False).encode()) + 1 for r in chunk) / 1024 / 1024
         print(f"\nSubmitting {chunk_label}: {len(chunk)} requests ({size_mb:.1f} MB) ...")
-        chunk_results = _submit_and_wait(client, model, chunk, display_name, poll_interval)
+        chunk_results = _submit_and_wait(client, model, chunk, display_name, poll_interval,
+                                         grounding_data=all_grounding if use_grounding else None)
         raw_results.update(chunk_results)
 
-    result_df = _aggregate_and_merge(raw_results, df, n_samples, request_metadata)
+    result_df = _aggregate_and_merge(raw_results, df, n_samples, request_metadata,
+                                      grounding_data=all_grounding if use_grounding else None)
 
     # Response-level failures (CID missing from results or response text empty)
     expected_cids = {r["metadata"]["custom_id"] for r in all_requests}

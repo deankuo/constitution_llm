@@ -147,10 +147,12 @@ class GeminiLLM(BaseLLM):
         default_temperature: float = DEFAULT_TEMPERATURE,
         default_max_tokens: int = DEFAULT_MAX_TOKENS,
         use_logprobs: bool = False,
+        use_grounding: bool = False,
     ):
         super().__init__(api_key, model, default_temperature, default_max_tokens)
         self._client = None
         self.use_logprobs = use_logprobs
+        self.use_grounding = use_grounding
 
     def _get_client(self):
         """Lazily create and cache a google.genai Client."""
@@ -219,6 +221,10 @@ class GeminiLLM(BaseLLM):
                 response_mime_type="application/json",
                 safety_settings=safety_settings,
             )
+            if self.use_grounding:
+                base_config_kwargs["tools"] = [genai_types.Tool(
+                    google_search=genai_types.GoogleSearch()
+                )]
             if "response_schema" in kwargs:
                 base_config_kwargs["response_schema"] = kwargs["response_schema"]
 
@@ -544,6 +550,47 @@ class BedrockLLM(BaseLLM):
                 raise ModelError(f"Error querying Bedrock model '{model_to_use}': {e}")
 
         raise ModelError(f"Failed after {self.max_retries} attempts")
+
+
+# =============================================================================
+# Grounding Metadata Extraction
+# =============================================================================
+
+def extract_grounding_metadata(model_response) -> tuple:
+    """Extract (queries_str, urls_str) from a Gemini grounding_metadata response.
+
+    Returns (None, None) when grounding was not used or metadata is unavailable.
+    Accepts a ModelResponse or any object with a .raw_response attribute.
+    """
+    try:
+        raw = getattr(model_response, 'raw_response', model_response)
+        if raw is None:
+            return None, None
+        candidates = getattr(raw, 'candidates', None)
+        if not candidates:
+            return None, None
+        g_meta = getattr(candidates[0], 'grounding_metadata', None)
+        if not g_meta:
+            return None, None
+
+        queries = getattr(g_meta, 'web_search_queries', None) or []
+        queries_str = " | ".join(queries) if queries else None
+
+        chunks = getattr(g_meta, 'grounding_chunks', None) or []
+        urls = []
+        for chunk in chunks:
+            web = getattr(chunk, 'web', None)
+            if web:
+                title = getattr(web, 'title', '') or ''
+                uri = getattr(web, 'uri', '') or ''
+                entry = f"{title} ({uri})" if title else uri
+                if entry:
+                    urls.append(entry)
+        urls_str = " | ".join(urls) if urls else None
+
+        return queries_str or None, urls_str or None
+    except (IndexError, AttributeError, TypeError):
+        return None, None
 
 
 # =============================================================================

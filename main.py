@@ -877,13 +877,15 @@ Examples:
     )
     parser.add_argument(
         '--search-mode',
-        choices=['none', 'agentic', 'forced'],
+        choices=['none', 'agentic', 'forced', 'gemini_grounding'],
         default='none',
         help=(
             'Search mode for LLM generation (default: none).\n'
-            '  none    — Pure LLM output, no web search.\n'
-            '  agentic — LLM decides whether to search (tool_choice=auto).\n'
-            '  forced  — Always perform web search before LLM answers.'
+            '  none              — Pure LLM output, no web search.\n'
+            '  agentic           — LLM decides whether to search (tool_choice=auto).\n'
+            '  forced            — Always perform web search before LLM answers.\n'
+            '  gemini_grounding  — Gemini native Google Search grounding (Gemini models only).\n'
+            '                      Grounding metadata stored per indicator / per SC slot.'
         )
     )
     parser.add_argument(
@@ -892,7 +894,7 @@ Examples:
         help=(
             'Use Gemini Batch API for main predictions (50%% cost savings).\n'
             'Only works with Gemini models. Verification runs synchronously after batch.\n'
-            'Compatible with --search-mode forced (pre-search + batch).'
+            'Compatible with --search-mode forced and --search-mode gemini_grounding.'
         )
     )
 
@@ -1085,6 +1087,15 @@ Examples:
             "Set the SERPER_API_KEY environment variable or use --search-mode forced "
             "(which uses free Wikipedia/DuckDuckGo first)."
         )
+
+    if search_mode == SearchMode.GEMINI_GROUNDING:
+        model_arg_check = args.models[0]
+        model_id_check = model_arg_check.split('=', 1)[-1] if '=' in model_arg_check else model_arg_check
+        if not any(model_id_check.startswith(prefix) for prefix in GEMINI_MODELS):
+            raise ValueError(
+                f"--search-mode gemini_grounding requires a Gemini model, got '{model_id_check}'. "
+                "Gemini grounding is a Gemini-specific feature."
+            )
 
     # Validate batch configuration
     if args.use_batch:
@@ -1394,6 +1405,73 @@ Examples:
                     )
                 print("\nLeader-level pipeline (forced search) completed successfully!")
                 return
+
+        # ── Search mode: gemini_grounding ─────────────────────────────────
+        # Gemini native Google Search grounding; grounding metadata stored per
+        # indicator / per SC slot.  Batch path: tools config embedded at build
+        # time and auto-detected by the runner.  Sync path: use_grounding=True
+        # on PredictionConfig so GeminiLLM always adds the search tool.
+        if search_mode == SearchMode.GEMINI_GROUNDING:
+            df = load_polity_data(args.input)
+            if args.test:
+                df = _parse_test_argument(args.test, df)
+
+            if args.use_batch:
+                from pipeline.jsonl_batch_runner import run_inline_batch
+                results_df = run_inline_batch(
+                    df=df,
+                    indicators=args.indicators,
+                    model=model_identifier,
+                    api_key=api_keys.get('gemini', ''),
+                    n_samples=args.n_samples,
+                    output_path=args.output,
+                    sc_temperatures=args.sc_temperatures,
+                    max_tokens=args.max_tokens,
+                    reasoning=args.reasoning,
+                    use_grounding=True,
+                )
+                print("\n[INFO] Cost tracking not available in Gemini Batch API mode.")
+            else:
+                config = PredictionConfig(
+                    mode=PromptMode(args.mode),
+                    indicators=args.indicators,
+                    verify=VerificationType(args.verify),
+                    verify_indicators=_verify_indicators,
+                    model=model_identifier,
+                    verifier_model=args.verifier_model,
+                    temperature=args.temperature,
+                    max_tokens=args.max_tokens,
+                    top_p=args.top_p,
+                    sc_n_samples=args.n_samples,
+                    sc_temperatures=args.sc_temperatures,
+                    sequence=args.sequence,
+                    random_sequence=args.random_sequence,
+                    reasoning=args.reasoning,
+                    use_logprobs=args.logprobs,
+                    use_grounding=True,
+                )
+                predictor = Predictor(config, api_keys)
+                batch_config = BatchConfig(
+                    checkpoint_interval=args.checkpoint_interval,
+                    delay_between_calls=args.delay,
+                    max_retries=args.max_retries,
+                    retry_delay=args.retry_delay,
+                    max_workers=args.parallel_rows,
+                )
+                runner = BatchRunner(predictor=predictor, config=batch_config, output_path=args.output)
+                results_df = runner.run(df)
+                predictor.cost_tracker.print_summary()
+                if not args.test:
+                    log_experiment(
+                        output_path=args.output, pipeline='indicators',
+                        prompt_style=args.mode, model=model_identifier,
+                        indicators=args.indicators, verify=args.verify,
+                        search_mode=args.search_mode, total_entries=len(df),
+                        cost_summary=predictor.cost_tracker.get_summary(),
+                        n_samples=args.n_samples,
+                    )
+            print("\nLeader-level pipeline (Gemini grounding) completed successfully!")
+            return
 
         # ── Search mode: none (default) ───────────────────────────────────
         # Two sub-paths: batch (Gemini Batch API) OR synchronous (BatchRunner)

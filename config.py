@@ -155,9 +155,10 @@ class PromptMode(Enum):
 
 class SearchMode(Enum):
     """Search modes for LLM generation."""
-    NONE = "none"          # Pure LLM output, no search
-    AGENTIC = "agentic"    # LLM decides whether to search (tool_choice=auto)
-    FORCED = "forced"      # Always search before LLM answers
+    NONE = "none"                        # Pure LLM output, no search
+    AGENTIC = "agentic"                  # LLM decides via tool calling (Serper backend)
+    FORCED = "forced"                    # Always pre-search before LLM answers
+    GEMINI_GROUNDING = "gemini_grounding"  # Gemini native Google Search grounding
 
 
 # Default verification configuration

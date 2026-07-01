@@ -93,22 +93,33 @@ def _make_request_line(
     temperature: float,
     max_tokens: int,
     n_samples: int,
+    use_grounding: bool = False,
 ) -> dict:
     """One JSONL line in Gemini InlinedRequestDict format.
 
     Embeds custom_id and n_samples in metadata so the runner can:
     - Match responses via metadata echo in InlinedResponse.metadata
     - Detect n_samples mismatches between build and run steps
+
+    When use_grounding=True, adds Google Search tool to the config so Gemini
+    can call Google Search natively (grounding_metadata populated in response).
     """
+    config: dict = {
+        "system_instruction": {"parts": [{"text": system_prompt}]},
+        "temperature": temperature,
+        "max_output_tokens": max_tokens,
+        "top_p": DEFAULT_TOP_P,
+    }
+    if use_grounding:
+        # Google Search grounding is incompatible with response_mime_type=application/json.
+        # Drop the MIME constraint so Gemini can append grounding attribution; JSON is still
+        # extracted from text by parse_json_response in the runner.
+        config["tools"] = [{"google_search": {}}]
+    else:
+        config["response_mime_type"] = "application/json"
     return {
         "contents": [{"parts": [{"text": user_prompt}], "role": "user"}],
-        "config": {
-            "system_instruction": {"parts": [{"text": system_prompt}]},
-            "temperature": temperature,
-            "max_output_tokens": max_tokens,
-            "top_p": DEFAULT_TOP_P,
-            "response_mime_type": "application/json",
-        },
+        "config": config,
         "metadata": {"custom_id": custom_id, "n_samples": str(n_samples)},
     }
 
@@ -190,27 +201,40 @@ def build_constitution_requests(
     n_samples: int,
     max_tokens: int,
     sc_temperatures: list[float] = None,
+    use_grounding: bool = False,
+    original_idx_col: Optional[str] = None,
 ) -> list[dict]:
     """Build requests for the constitution task.
 
     Total requests per row = n_samples + 1 (initial + n_samples SC samples).
+
+    Args:
+        original_idx_col: Column name in df holding original row indices (for subset
+            re-runs via sanity_check). When set, embeds original_row_idx in metadata
+            so the runner merges back into the right output rows.
     """
     from prompts.constitution import get_prompt as get_constitution_prompt
 
     all_temps = _all_temperatures(n_samples, sc_temperatures)
     requests = []
 
-    for row_idx in tqdm(range(len(df)), desc="constitution"):
-        polity, name, start_year, end_year = _row_fields(df.iloc[row_idx])
+    for pos_idx in tqdm(range(len(df)), desc="constitution"):
+        row = df.iloc[pos_idx]
+        polity, name, start_year, end_year = _row_fields(row)
         sys_p, usr_p = get_constitution_prompt(polity, name, start_year, end_year)
+
+        row_idx = int(row[original_idx_col]) if original_idx_col and original_idx_col in row.index else pos_idx
 
         for sc_idx, temp in enumerate(all_temps):
             custom_id = f"{row_idx}|constitution|{sc_idx}"
-            req = _make_request_line(custom_id, sys_p, usr_p, temp, max_tokens, n_samples)
+            req = _make_request_line(custom_id, sys_p, usr_p, temp, max_tokens, n_samples,
+                                     use_grounding=use_grounding)
             if sc_idx == 0:
                 req["metadata"]["row_data"] = json.dumps(
-                    df.iloc[row_idx].to_dict(), ensure_ascii=False, default=str
+                    row.to_dict(), ensure_ascii=False, default=str
                 )
+                if original_idx_col:
+                    req["metadata"]["original_row_idx"] = str(row_idx)
             requests.append(req)
 
     return requests
@@ -224,6 +248,8 @@ def build_indicator_requests(
     sc_temperatures: list[float] = None,
     reasoning: bool = True,
     prompt_version: str = "v1",
+    use_grounding: bool = False,
+    original_idx_col: Optional[str] = None,
 ) -> list[dict]:
     """Build requests for non-constitution indicators using SinglePromptBuilder.
 
@@ -232,10 +258,10 @@ def build_indicator_requests(
     Total requests per row = n_samples + 1.
 
     Args:
-        reasoning:      Include reasoning fields in output (default True). Set False
-                        to reduce output tokens and cost.
-        prompt_version: Which SinglePromptBuilder variant to use:
-                        'v1' (full definitions), 'v2' (tabular), 'v3' (compact).
+        reasoning:        Include reasoning fields in output (default True).
+        prompt_version:   Which SinglePromptBuilder variant: 'v1', 'v2', or 'v3'.
+        use_grounding:    Embed Google Search tool in config for native Gemini grounding.
+        original_idx_col: Column name holding original row indices (subset re-runs).
     """
     from prompts.single_builder import SinglePromptBuilder, SinglePromptBuilderV2, SinglePromptBuilderV3
 
@@ -253,21 +279,27 @@ def build_indicator_requests(
     indicators_json = json.dumps(indicators)
     requests = []
 
-    for row_idx in tqdm(range(len(df)), desc="indicators"):
-        polity, name, start_year, end_year = _row_fields(df.iloc[row_idx])
+    for pos_idx in tqdm(range(len(df)), desc="indicators"):
+        row = df.iloc[pos_idx]
+        polity, name, start_year, end_year = _row_fields(row)
         prompts = builder.build(polity, name, start_year, end_year)
         prompt = prompts[0]  # SinglePromptBuilder returns exactly one PromptOutput
+
+        row_idx = int(row[original_idx_col]) if original_idx_col and original_idx_col in row.index else pos_idx
 
         for sc_idx, temp in enumerate(all_temps):
             custom_id = f"{row_idx}|single|{sc_idx}"
             req = _make_request_line(
-                custom_id, prompt.system_prompt, prompt.user_prompt, temp, max_tokens, n_samples
+                custom_id, prompt.system_prompt, prompt.user_prompt, temp, max_tokens, n_samples,
+                use_grounding=use_grounding,
             )
             req["metadata"]["indicators"] = indicators_json
             if sc_idx == 0:
                 req["metadata"]["row_data"] = json.dumps(
-                    df.iloc[row_idx].to_dict(), ensure_ascii=False, default=str
+                    row.to_dict(), ensure_ascii=False, default=str
                 )
+                if original_idx_col:
+                    req["metadata"]["original_row_idx"] = str(row_idx)
             requests.append(req)
 
     return requests
@@ -279,12 +311,18 @@ def build_elections_requests(
     max_tokens: int,
     sc_temperatures: list[float] = None,
     prompt_version: str = "v1",
+    use_grounding: bool = False,
+    original_idx_col: Optional[str] = None,
 ) -> list[dict]:
     """Build requests for the elections downstream task.
 
     Only rows with assembly_prediction == 2 get an LLM call.
     Others are handled as pass-through (elections_prediction = "0") in the runner.
     Total requests per eligible row = n_samples + 1.
+
+    Args:
+        use_grounding:    Embed Google Search tool for native Gemini grounding.
+        original_idx_col: Column name holding original row indices (subset re-runs).
     """
     from pipeline.post_processing import (
         ELECTIONS_SYSTEM_PROMPT,
@@ -306,12 +344,12 @@ def build_elections_requests(
     requests = []
     skipped = 0
 
-    for row_idx in tqdm(range(len(df)), desc="elections"):
-        if not eligible_mask.iloc[row_idx]:
+    for pos_idx in tqdm(range(len(df)), desc="elections"):
+        if not eligible_mask.iloc[pos_idx]:
             skipped += 1
             continue
 
-        row = df.iloc[row_idx]
+        row = df.iloc[pos_idx]
         polity = str(
             row.get(COL_TERRITORY_NAME) or row.get("territorynamehistorical") or "Unknown Polity"
         )
@@ -321,17 +359,22 @@ def build_elections_requests(
         start_year = row.get(COL_START_YEAR) or row.get("start_year") or "?"
         end_year = row.get(COL_END_YEAR) or row.get("end_year") or "?"
 
+        row_idx = int(row[original_idx_col]) if original_idx_col and original_idx_col in row.index else pos_idx
+
         usr_p = usr_tmpl.format(
             polity=polity, name=name, start_year=start_year, end_year=end_year
         )
 
         for sc_idx, temp in enumerate(all_temps):
             custom_id = f"{row_idx}|elections|{sc_idx}"
-            req = _make_request_line(custom_id, sys_tmpl, usr_p, temp, max_tokens, n_samples)
+            req = _make_request_line(custom_id, sys_tmpl, usr_p, temp, max_tokens, n_samples,
+                                     use_grounding=use_grounding)
             if sc_idx == 0:
                 req["metadata"]["row_data"] = json.dumps(
                     row.to_dict(), ensure_ascii=False, default=str
                 )
+                if original_idx_col:
+                    req["metadata"]["original_row_idx"] = str(row_idx)
             requests.append(req)
 
     n_eligible = eligible_mask.sum()
@@ -401,10 +444,31 @@ def main():
         ),
     )
     parser.add_argument(
+        "--search-mode", choices=["none", "gemini_grounding"], default="none",
+        help=(
+            "Search mode to embed in requests (default: none).\n"
+            "  none:             Pure LLM — no search tools.\n"
+            "  gemini_grounding: Adds Google Search tool so Gemini decides when to search.\n"
+            "                    Grounding metadata is captured per response by the runner."
+        ),
+    )
+    parser.add_argument(
+        "--original-idx-col", default=None,
+        help=(
+            "Column name in the input file that holds the original row indices. "
+            "Used for subset re-runs (e.g. after sanity_check.py filters failed rows): "
+            "the value in this column becomes the row_idx in custom_id and is embedded "
+            "in metadata[original_row_idx] so the runner merges back into the correct "
+            "rows of the original output file."
+        ),
+    )
+    parser.add_argument(
         "--test", type=int, default=None,
         help="Process only the first N rows (for quick sanity checks).",
     )
     args = parser.parse_args()
+
+    use_grounding = args.search_mode == "gemini_grounding"
 
     print(f"Loading: {args.input}")
     df = load_dataframe(args.input)
@@ -417,20 +481,30 @@ def main():
     print(
         f"Task: {args.task} | Rows: {len(df)} | "
         f"n_samples={args.n_samples} | Total per group: {total_per_group} | "
-        f"Temperatures: {all_temps}"
+        f"Temperatures: {all_temps} | search_mode={args.search_mode}"
     )
+    if args.original_idx_col:
+        print(f"  original-idx-col: '{args.original_idx_col}' (subset re-run mode)")
 
     if args.task == "constitution":
-        requests = build_constitution_requests(df, args.n_samples, args.max_tokens)
+        requests = build_constitution_requests(
+            df, args.n_samples, args.max_tokens,
+            use_grounding=use_grounding,
+            original_idx_col=args.original_idx_col,
+        )
     elif args.task == "indicators":
         print(f"Indicators: {args.indicators} | prompt_version={args.prompt_version} | reasoning={args.reasoning}")
         requests = build_indicator_requests(
             df, args.indicators, args.n_samples, args.max_tokens,
             reasoning=args.reasoning, prompt_version=args.prompt_version,
+            use_grounding=use_grounding,
+            original_idx_col=args.original_idx_col,
         )
     elif args.task == "elections":
         requests = build_elections_requests(
-            df, args.n_samples, args.max_tokens, prompt_version=args.prompt_version
+            df, args.n_samples, args.max_tokens, prompt_version=args.prompt_version,
+            use_grounding=use_grounding,
+            original_idx_col=args.original_idx_col,
         )
 
     max_bytes = args.max_size_mb * 1024 * 1024
@@ -452,12 +526,15 @@ def main():
     manifest: dict = {
         "build_timestamp": datetime.now(timezone.utc).isoformat(),
         "task": args.task,
+        "search_mode": args.search_mode,
         "n_samples": args.n_samples,
         "total_requests": len(requests),
         "total_groups": n_groups,
         "source_file": str(Path(args.input).resolve()),
         "output_files": [str(p) for p in written_files],
     }
+    if args.original_idx_col:
+        manifest["original_idx_col"] = args.original_idx_col
     if args.task == "indicators":
         manifest["indicators"] = args.indicators
         manifest["prompt_version"] = args.prompt_version

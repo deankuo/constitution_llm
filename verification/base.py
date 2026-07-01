@@ -46,6 +46,9 @@ class VerificationResult:
     sc_all_confidences: Optional[List[Optional[Any]]] = None
     # Per-slot extra fields for constitution (document_name, constitution_year, document_types).
     sc_all_extra_fields: Optional[List[Optional[Dict]]] = None
+    # Per-slot Gemini grounding metadata (populated when use_grounding=True on the LLM).
+    sc_all_grounding_queries: Optional[List[Optional[str]]] = None
+    sc_all_grounding_urls: Optional[List[Optional[str]]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""

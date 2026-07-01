@@ -269,6 +269,23 @@ class SelfConsistencyVerification(BaseVerification):
                 else:
                     sc_all_extra_fields.append(None)
 
+        # Extract per-slot grounding metadata when LLM used Gemini native search.
+        sc_all_grounding_queries: Optional[List[Optional[str]]] = None
+        sc_all_grounding_urls: Optional[List[Optional[str]]] = None
+        if samples and any(s is not None and s.response is not None for s in samples):
+            from models.llm_clients import extract_grounding_metadata as _ext_g
+            qs, us = [], []
+            for s in samples:
+                if s is not None and s.response is not None:
+                    q, u = _ext_g(s.response)
+                else:
+                    q, u = None, None
+                qs.append(q)
+                us.append(u)
+            if any(q is not None for q in qs):
+                sc_all_grounding_queries = qs
+                sc_all_grounding_urls = us
+
         valid_samples = [s for s in samples if s is not None]
         if not valid_samples:
             # No valid samples
@@ -290,6 +307,8 @@ class SelfConsistencyVerification(BaseVerification):
                 sc_all_reasonings=sc_all_reasonings,
                 sc_all_confidences=sc_all_confidences,
                 sc_all_extra_fields=sc_all_extra_fields,
+                sc_all_grounding_queries=sc_all_grounding_queries,
+                sc_all_grounding_urls=sc_all_grounding_urls,
             )
 
         # Count predictions. validate_indicator_response is the gatekeeper — a
@@ -317,6 +336,8 @@ class SelfConsistencyVerification(BaseVerification):
                 sc_all_reasonings=sc_all_reasonings,
                 sc_all_confidences=sc_all_confidences,
                 sc_all_extra_fields=sc_all_extra_fields,
+                sc_all_grounding_queries=sc_all_grounding_queries,
+                sc_all_grounding_urls=sc_all_grounding_urls,
             )
 
         # Majority vote
@@ -374,6 +395,8 @@ class SelfConsistencyVerification(BaseVerification):
             sc_all_reasonings=sc_all_reasonings,
             sc_all_confidences=sc_all_confidences,
             sc_all_extra_fields=sc_all_extra_fields,
+            sc_all_grounding_queries=sc_all_grounding_queries,
+            sc_all_grounding_urls=sc_all_grounding_urls,
         )
 
 
