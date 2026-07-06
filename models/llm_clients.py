@@ -218,13 +218,19 @@ class GeminiLLM(BaseLLM):
                 temperature=temperature if temperature is not None else self.default_temperature,
                 top_p=top_p if top_p is not None else DEFAULT_TOP_P,
                 max_output_tokens=max_tokens or self.default_max_tokens,
-                response_mime_type="application/json",
                 safety_settings=safety_settings,
             )
             if self.use_grounding:
+                # response_mime_type="application/json" is incompatible with tools: Gemini
+                # will not actually invoke google_search — it instead emits a fake tool-call
+                # description as JSON text (verified empirically). Drop JSON mode so grounding
+                # can run; parse_json_response extracts the JSON from the grounded text response.
+                # Matches the same workaround in src/build_batch_jsonl.py's request builder.
                 base_config_kwargs["tools"] = [genai_types.Tool(
                     google_search=genai_types.GoogleSearch()
                 )]
+            else:
+                base_config_kwargs["response_mime_type"] = "application/json"
             if "response_schema" in kwargs:
                 base_config_kwargs["response_schema"] = kwargs["response_schema"]
 

@@ -37,6 +37,27 @@ python pipeline/jsonl_batch_runner.py \\
     --output data/results/exp001.csv \\
     --model gemini-3.1-pro-preview \\
     --n-samples 2
+
+Retrying failed rows (large runs, e.g. 13k+ rows)
+--------------------------------------------------
+run_from_jsonl detects two kinds of per-row failure and reports both:
+  - response-level: request missing from the batch output, or response text empty
+  - prediction-level: response received but a requested indicator's _prediction
+    is still null after parsing (truncated/malformed JSON)
+It writes {output_stem}_failed_requests.jsonl (ready to resubmit) and
+{output_stem}_provenance.json (model, timestamps, exact failed row list).
+
+To retry and merge back into the SAME combined dataset:
+    python pipeline/jsonl_batch_runner.py \\
+        --input data/results/exp001_failed_requests.jsonl \\
+        --dataset data/results/exp001.csv \\
+        --output data/results/exp001.csv \\
+        --model gemini-3.1-pro-preview --n-samples 2
+
+--dataset MUST be the prior run's --output (not the original raw input) —
+_aggregate_and_merge only overwrites rows present in --input, so every
+already-successful row is carried through untouched. Repeat until
+_failed_requests.jsonl is no longer produced.
 """
 
 import argparse
@@ -171,31 +192,39 @@ def _all_temperatures(n_samples: int, sc_temperatures: list[float] = None) -> li
 def _make_req(custom_id: str, system_prompt: str, user_prompt: str,
               temperature: float, max_tokens: int, n_samples: int,
               use_grounding: bool = False) -> dict:
-    config: dict = {
-        "system_instruction": {"parts": [{"text": system_prompt}]},
+    """Build one request in Gemini's file-upload batch format: {"key", "request", "metadata"}.
+
+    File-upload (not inline) is used because inline requests are capped at 20MB
+    total request size, while file uploads support up to 2GB — see
+    https://ai.google.dev/gemini-api/docs/batch-api.
+
+    IMPORTANT: file-upload JSONL is sent to the raw REST GenerateContentRequest
+    schema with no SDK dict→proto translation (unlike inline src=[...], which
+    the SDK converts). That schema has no "config" field — system_instruction
+    and tools are top-level siblings of "contents"; generation_config holds
+    temperature/max_output_tokens/top_p/response_mime_type. Confirmed empirically:
+    a request body with "config" is rejected with "no such field: 'config'".
+    """
+    generation_config: dict = {
         "temperature": temperature,
         "max_output_tokens": max_tokens,
         "top_p": DEFAULT_TOP_P,
     }
+    request_body: dict = {
+        "contents": [{"parts": [{"text": user_prompt}], "role": "user"}],
+        "system_instruction": {"parts": [{"text": system_prompt}]},
+    }
     if use_grounding:
-        config["tools"] = [{"google_search": {}}]
+        request_body["tools"] = [{"google_search": {}}]
         # Drop response_mime_type so Gemini can append grounding attribution to the response;
         # JSON is extracted from the text by parse_json_response in the runner.
-        
-        # config["tools"] = [{
-        # "google_search_retrieval": {
-        #     "dynamic_retrieval_config": {
-        #         "mode": "MODE_DYNAMIC",
-        #         "dynamic_threshold": 0   # ← this is the threshold
-        #         }
-        #     }
-        # }]
     else:
-        config["response_mime_type"] = "application/json"
+        generation_config["response_mime_type"] = "application/json"
+    request_body["generation_config"] = generation_config
     return {
-        "contents": [{"parts": [{"text": user_prompt}], "role": "user"}],
-        "config": config,
-        "metadata": {"custom_id": custom_id, "n_samples": str(n_samples)},
+        "key": custom_id,
+        "request": request_body,
+        "metadata": {"n_samples": str(n_samples)},
     }
 
 
@@ -296,45 +325,44 @@ def _get_client(api_key: str):
     return genai.Client(api_key=api_key)
 
 
-def _extract_text(response) -> str:
-    """Extract text from a Gemini GenerateContentResponse."""
-    if hasattr(response, "text"):
-        try:
-            return response.text
-        except (ValueError, AttributeError):
-            pass
-    if hasattr(response, "candidates"):
-        try:
-            return response.candidates[0].content.parts[0].text
-        except (IndexError, AttributeError):
-            pass
-    return str(response)
+def _extract_text(response: dict) -> str:
+    """Extract text from a raw (camelCase) GenerateContentResponse dict.
+
+    Operates on the raw dict downloaded from a file-based batch job's output
+    file, not an SDK-typed object — pydantic's strict GenerateContentResponse
+    model rejects newly-added API fields it doesn't know about yet (e.g.
+    usageMetadata.serviceTier), so we deliberately avoid model_validate() here.
+    """
+    try:
+        return response["candidates"][0]["content"]["parts"][0]["text"]
+    except (KeyError, IndexError, TypeError):
+        return ""
 
 
-def _extract_grounding(response) -> tuple:
-    """Extract (queries_str, urls_str) from a Gemini batch inline response.
+def _extract_grounding(response: dict) -> tuple:
+    """Extract (queries_str, urls_str) from a raw (camelCase) response dict.
 
     Returns (None, None) when grounding was not used or metadata is absent.
     """
     try:
-        g_meta = getattr(response.candidates[0], "grounding_metadata", None)
+        g_meta = response["candidates"][0].get("groundingMetadata")
         if not g_meta:
             return None, None
-        queries = getattr(g_meta, "web_search_queries", None) or []
+        queries = g_meta.get("webSearchQueries") or []
         queries_str = " | ".join(queries) if queries else None
-        chunks = getattr(g_meta, "grounding_chunks", None) or []
+        chunks = g_meta.get("groundingChunks") or []
         urls = []
         for chunk in chunks:
-            web = getattr(chunk, "web", None)
+            web = chunk.get("web")
             if web:
-                title = getattr(web, "title", "") or ""
-                uri = getattr(web, "uri", "") or ""
+                title = web.get("title", "") or ""
+                uri = web.get("uri", "") or ""
                 entry = f"{title} ({uri})" if title else uri
                 if entry:
                     urls.append(entry)
         urls_str = " | ".join(urls) if urls else None
         return queries_str or None, urls_str or None
-    except (IndexError, AttributeError, TypeError):
+    except (KeyError, IndexError, TypeError):
         return None, None
 
 
@@ -342,7 +370,7 @@ def _requests_use_grounding(requests: list) -> bool:
     """Detect if batch requests include google_search or google_search_retrieval."""
     if not requests:
         return False
-    tools = requests[0].get("config", {}).get("tools", [])
+    tools = requests[0].get("request", {}).get("tools", [])
     if isinstance(tools, list):
         for tool in tools:
             if isinstance(tool, dict) and (
@@ -360,69 +388,99 @@ def _submit_and_wait(
     poll_interval: int = 30,
     grounding_data: Optional[dict] = None,
 ) -> dict[str, str]:
-    """Submit one batch job and wait for completion. Returns custom_id → response_text.
+    """Upload requests as a JSONL file, submit one batch job, wait for completion.
 
-    Requests must include metadata.custom_id for ID matching.
-    Falls back to positional index if metadata is not echoed by Gemini.
+    Returns custom_id ("key") → response_text.
+
+    Uses the file-upload path (client.files.upload + src=<file name>) rather
+    than inline submission: inline requests are capped at 20MB total request
+    size, while file uploads support up to 2GB — see
+    https://ai.google.dev/gemini-api/docs/batch-api. Each request must already
+    be in {"key", "request", "metadata"} shape (see _make_req).
+
+    The output file is JSONL where each line is either
+    {"key", "metadata"?, "response": <GenerateContentResponse>} or
+    {"key", "error": {"code", "message"}} for individual request failures.
     """
-    # Strip metadata from what we send; keep it in our copy for positional fallback
-    api_requests = [
-        {"contents": r["contents"], "config": r["config"], "metadata": r.get("metadata")}
-        for r in requests
-    ]
-    our_cids = [r["metadata"]["custom_id"] for r in requests]
+    import tempfile
 
-    print(f"  Submitting {len(requests)} requests as one batch job ...")
-    job = client.batches.create(
-        model=model,
-        src=api_requests,
-        config={"display_name": display_name},
-    )
-    print(f"  Job: {job.name}")
+    our_cids = [r["key"] for r in requests]
 
-    while True:
-        job = client.batches.get(name=job.name)
-        state = str(getattr(job.state, "name", str(job.state))).upper()
-        if any(k in state for k in ("SUCCEEDED", "FAILED", "CANCELLED", "EXPIRED")):
-            break
-        print(f"  State: {state} — polling again in {poll_interval}s ...")
-        time.sleep(poll_interval)
+    tmp_path = None
+    uploaded_name = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False, encoding="utf-8") as tmp:
+            for r in requests:
+                tmp.write(json.dumps(r, ensure_ascii=False) + "\n")
+            tmp_path = tmp.name
 
-    print(f"  Final state: {state}")
-    results: dict[str, str] = {}
+        print(f"  Uploading {len(requests)} requests as a JSONL file ...")
+        uploaded = client.files.upload(file=tmp_path, config={"mime_type": "jsonl"})
+        uploaded_name = uploaded.name
 
-    if "SUCCEEDED" not in state:
-        print(f"  WARNING: job ended in {state}; no results collected.")
+        job = client.batches.create(
+            model=model,
+            src=uploaded_name,
+            config={"display_name": display_name},
+        )
+        print(f"  Job: {job.name}")
+
+        while True:
+            job = client.batches.get(name=job.name)
+            state = str(getattr(job.state, "name", str(job.state))).upper()
+            if any(k in state for k in ("SUCCEEDED", "FAILED", "CANCELLED", "EXPIRED")):
+                break
+            print(f"  State: {state} — polling again in {poll_interval}s ...")
+            time.sleep(poll_interval)
+
+        print(f"  Final state: {state}")
+        results: dict[str, str] = {}
+
+        if "SUCCEEDED" not in state:
+            print(f"  WARNING: job ended in {state}; no results collected.")
+            return results
+
+        dest = getattr(job, "dest", None)
+        if not dest or not dest.file_name:
+            print("  WARNING: no output file in job.dest.")
+            return results
+
+        raw = client.files.download(file=dest.file_name).decode("utf-8")
+        n_failed = 0
+        for i, line in enumerate(raw.strip().split("\n")):
+            if not line:
+                continue
+            record = json.loads(line)
+            cid = record.get("key", our_cids[i] if i < len(our_cids) else None)
+            if cid is None:
+                continue
+
+            if "error" in record:
+                n_failed += 1
+                results[cid] = ""
+                continue
+
+            resp_dict = record.get("response")
+            if not resp_dict:
+                results[cid] = ""
+                continue
+
+            results[cid] = _extract_text(resp_dict)
+            if grounding_data is not None:
+                q, u = _extract_grounding(resp_dict)
+                if q or u:
+                    grounding_data[cid] = (q, u)
+
+        print(f"  Collected {len(results)} responses ({n_failed} failed requests)")
         return results
-
-    inlined = getattr(getattr(job, "dest", None), "inlined_responses", None)
-    if inlined is None:
-        print("  WARNING: no inlined_responses in job.dest.")
-        return results
-
-    n_failed = 0
-    for i, inline_resp in enumerate(inlined):
-        if i >= len(our_cids):
-            break
-
-        # Prefer metadata echo; fall back to positional match
-        meta = getattr(inline_resp, "metadata", None)
-        cid = meta["custom_id"] if (meta and "custom_id" in meta) else our_cids[i]
-
-        if getattr(inline_resp, "error", None):
-            n_failed += 1
-            results[cid] = ""
-            continue
-
-        resp = inline_resp.response
-        results[cid] = _extract_text(resp) if resp else ""
-        if grounding_data is not None and resp is not None:
-            q, u = _extract_grounding(resp)
-            if q or u:
-                grounding_data[cid] = (q, u)
-
-    print(f"  Collected {len(results)} responses ({n_failed} failed requests)")
-    return results
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        if uploaded_name:
+            try:
+                client.files.delete(name=uploaded_name)
+            except Exception:
+                pass
 
 
 # ---------------------------------------------------------------------------
@@ -505,33 +563,36 @@ def _aggregate_and_merge(
         else:
             expanded[cid] = resp_text
 
-    # Expand grounding data the same way so lookup works by per-indicator cid.
-    expanded_grounding: dict[str, tuple] = {}
+    # Task label for search-metadata columns: a "single" request covers multiple
+    # indicators with ONE LLM call, so its search/grounding result is a per-task
+    # property, not per-indicator — writing it once as "indicators_*" instead of
+    # duplicating identical values across every combined indicator's own columns.
+    def _task_label(indicator: str) -> str:
+        return "indicators" if indicator not in ("constitution", "elections") else indicator
+
+    # Grounding data keyed by (row_idx, task_label, sc_idx) — built from the
+    # ORIGINAL (non-expanded) cid, so a "single" call contributes exactly one
+    # entry regardless of how many indicators it covers.
+    grounding_by_task: dict[tuple[int, str, int], tuple[str, str]] = {}
     if grounding_data:
         for cid, (q, u) in grounding_data.items():
             try:
                 row_idx, indicator, sc_idx = _parse_custom_id(cid)
             except Exception:
                 continue
-            if indicator == "single":
-                meta = (request_metadata or {}).get(cid, {})
-                inds = json.loads(meta.get("indicators", "[]"))
-                for ind in inds:
-                    expanded_grounding[f"{row_idx}|{ind}|{sc_idx}"] = (q, u)
-            else:
-                expanded_grounding[cid] = (q, u)
+            grounding_by_task[(row_idx, _task_label(indicator), sc_idx)] = (q, u)
 
-    # Collect pre-search metadata (fetched at build time, stored in request metadata sc_idx=0).
-    # Keys: search_queries, search_urls — written as {indicator}_search_queries / _urls_used.
-    pre_search_by_row: dict[int, tuple[str, str]] = {}
+    # Collect pre-search metadata (fetched at build time, stored in request metadata
+    # sc_idx=0), keyed by (row_idx, task_label) for the same reason as grounding above.
+    pre_search_by_row: dict[tuple[int, str], tuple[str, str]] = {}
     if request_metadata:
         for cid, meta in request_metadata.items():
             try:
-                row_idx, _, sc_idx = _parse_custom_id(cid)
+                row_idx, indicator, sc_idx = _parse_custom_id(cid)
             except Exception:
                 continue
             if sc_idx == 0 and ("search_queries" in meta or "search_urls" in meta):
-                pre_search_by_row[row_idx] = (
+                pre_search_by_row[(row_idx, _task_label(indicator))] = (
                     meta.get("search_queries") or "",
                     meta.get("search_urls") or "",
                 )
@@ -583,13 +644,6 @@ def _aggregate_and_merge(
                 updates["constitution_document_name"] = extra0.get("document_name")
                 updates["constitution_year"] = extra0.get("constitution_year")
                 updates["constitution_document_types"] = extra0.get("document_types")
-            # Grounding metadata (no SC) — always write columns when grounding was requested,
-            # leave None if Gemini chose not to search for this row.
-            if grounding_data is not None:
-                g_key = f"{row_idx}|{indicator}|0"
-                q, u = expanded_grounding.get(g_key, (None, None))
-                updates[f"{indicator}_search_queries"] = q
-                updates[f"{indicator}_urls_used"] = u
         else:
             # SC mode: _SCN columns for each slot; _prediction = majority vote.
             # sc_idx=0 → SC1, sc_idx=1 → SC2, ..., sc_idx=N → SC{N+1}
@@ -615,12 +669,6 @@ def _aggregate_and_merge(
                         updates[f"constitution_document_name_SC{slot_n}"] = None
                         updates[f"constitution_year_SC{slot_n}"] = None
                         updates[f"constitution_document_types_SC{slot_n}"] = None
-                # Grounding metadata per SC slot — always write when grounding was requested.
-                if grounding_data is not None:
-                    g_key = f"{row_idx}|{indicator}|{sc_idx}"
-                    q, u = expanded_grounding.get(g_key, (None, None))
-                    updates[f"{indicator}_search_queries_SC{slot_n}"] = q
-                    updates[f"{indicator}_urls_used_SC{slot_n}"] = u
 
             final_pred_str, agreement, uncertainty = _aggregate_sc(votes, indicator)
             updates[f"{indicator}_prediction"] = _denormalize_pred(final_pred_str, indicator)
@@ -628,12 +676,27 @@ def _aggregate_and_merge(
             updates[f"{indicator}_uncertainty"] = uncertainty
 
         # Pre-search metadata (fetched at build time, one entry per row regardless of SC slots)
-        if row_idx in pre_search_by_row:
-            q, u = pre_search_by_row[row_idx]
+        task_label = _task_label(indicator)
+        if (row_idx, task_label) in pre_search_by_row:
+            q, u = pre_search_by_row[(row_idx, task_label)]
             if q:
-                updates["search_queries"] = q
+                updates[f"{task_label}_search_queries"] = q
             if u:
-                updates["urls_used"] = u
+                updates[f"{task_label}_urls_used"] = u
+
+    # Grounding metadata — one column pair per (row, task), not per indicator: a
+    # "single" call covers multiple indicators with ONE grounding result, so this
+    # is written once as "indicators_*" rather than duplicated across each of
+    # sovereign_*, federalism_*, assembly_*, etc.
+    for (row_idx, task_label, sc_idx), (q, u) in grounding_by_task.items():
+        updates = row_updates[row_idx]
+        if n_samples == 0:
+            updates[f"{task_label}_search_queries"] = q
+            updates[f"{task_label}_urls_used"] = u
+        else:
+            slot_n = sc_idx + 1
+            updates[f"{task_label}_search_queries_SC{slot_n}"] = q
+            updates[f"{task_label}_urls_used_SC{slot_n}"] = u
 
     # Merge into result DataFrame (df already reset_index'd before this call)
     result_df = df.copy()
@@ -654,6 +717,16 @@ def _aggregate_and_merge(
             [result_df, pd.DataFrame(index=result_df.index, columns=ordered_new_cols)],
             axis=1,
         )
+
+    # Pre-existing columns being written into (e.g. merging retry results into a prior
+    # run's output CSV) may have been inferred as numeric dtype (float64) by read_csv
+    # because earlier failed rows left NaNs mixed in with valid values. Predictions are
+    # parsed as str, so assigning into such a column raises pandas' LossySetitemError.
+    # Newly-created columns (above) are already object dtype and unaffected.
+    touched_cols = {col for cols in row_updates.values() for col in cols}
+    for col in touched_cols:
+        if col in result_df.columns and result_df[col].dtype != object:
+            result_df[col] = result_df[col].astype(object)
 
     for row_idx, cols in row_updates.items():
         if row_idx >= n_rows:
@@ -731,9 +804,9 @@ def run_inline_batch(
         print("[Batch] Google Search grounding enabled — metadata will be stored per indicator/SC slot.")
 
     # Build metadata lookup for _aggregate_and_merge (needed for single-mode expansion)
-    request_metadata = {r["metadata"]["custom_id"]: r["metadata"] for r in requests}
+    request_metadata = {r["key"]: r.get("metadata", {}) for r in requests}
 
-    # Chunk requests to stay under Gemini's 2 GB per-job limit, then submit sequentially
+    # Chunk requests to stay under Gemini's 2 GB file-upload limit, then submit sequentially
     chunks = _chunk_requests(requests)
     display_base = f"const-llm-{Path(output_path).stem}-{int(time.time())}"
     raw_results: dict[str, str] = {}
@@ -748,7 +821,7 @@ def run_inline_batch(
         raw_results.update(chunk_results)
 
     # Report missing rows
-    expected_cids = {r["metadata"]["custom_id"] for r in requests}
+    expected_cids = {r["key"] for r in requests}
     missing_cids = expected_cids - set(raw_results.keys())
     empty_cids = {cid for cid, text in raw_results.items() if not text}
     if missing_cids or empty_cids:
@@ -835,8 +908,8 @@ def run_from_jsonl(
     if df is None:
         row_data_by_idx: dict[int, dict] = {}
         for r in all_requests:
+            cid = r.get("key", "")
             meta = r.get("metadata", {})
-            cid = meta.get("custom_id", "")
             try:
                 ri, _, si = _parse_custom_id(cid)
                 if si == 0 and "row_data" in meta:
@@ -851,15 +924,15 @@ def run_from_jsonl(
             print(f"  Reconstructed {len(df)} rows from JSONL row_data ({len(df.columns)} columns)")
         else:
             max_row_idx = max(
-                int(r["metadata"]["custom_id"].split("|")[0])
+                int(r["key"].split("|")[0])
                 for r in all_requests
-                if "metadata" in r and "custom_id" in r["metadata"]
+                if "key" in r
             )
             df = pd.DataFrame({"row_idx": range(max_row_idx + 1)})
             print(f"  No row_data in JSONL; output will contain predictions only ({max_row_idx + 1} rows)")
 
     # Build metadata lookup for _aggregate_and_merge (needed for single-mode expansion)
-    request_metadata = {r["metadata"]["custom_id"]: r["metadata"] for r in all_requests}
+    request_metadata = {r["key"]: r.get("metadata", {}) for r in all_requests}
 
     # Auto-detect grounding from JSONL content
     use_grounding = _requests_use_grounding(all_requests)
@@ -885,7 +958,7 @@ def run_from_jsonl(
                                       grounding_data=all_grounding if use_grounding else None)
 
     # Response-level failures (CID missing from results or response text empty)
-    expected_cids = {r["metadata"]["custom_id"] for r in all_requests}
+    expected_cids = {r["key"] for r in all_requests}
     missing = expected_cids - set(raw_results.keys())
     empty = {cid for cid, text in raw_results.items() if not text}
     response_failed_rows = sorted({_parse_custom_id(cid)[0] for cid in missing | empty})
@@ -896,13 +969,12 @@ def run_from_jsonl(
     # indicators task). Requested indicators are in metadata["indicators"] (single mode) or
     # directly in the custom_id indicator slot (constitution/elections).
     requested_indicators: set[str] = set()
-    for meta in request_metadata.values():
+    for cid, meta in request_metadata.items():
         if "indicators" in meta:
             try:
                 requested_indicators.update(json.loads(meta["indicators"]))
             except (json.JSONDecodeError, TypeError):
                 pass
-        cid = meta.get("custom_id", "")
         try:
             _, ind, _ = _parse_custom_id(cid)
             if ind not in ("single",):
@@ -936,14 +1008,21 @@ def run_from_jsonl(
         failed_row_set = set(all_failed_rows)
         failed_requests = [
             r for r in all_requests
-            if _parse_custom_id(r["metadata"]["custom_id"])[0] in failed_row_set
+            if _parse_custom_id(r["key"])[0] in failed_row_set
         ]
         retry_path = Path(output_path).parent / (Path(output_path).stem + "_failed_requests.jsonl")
+        retry_path.parent.mkdir(parents=True, exist_ok=True)
         with open(retry_path, "w", encoding="utf-8") as f:
             for r in failed_requests:
                 f.write(json.dumps(r, ensure_ascii=False) + "\n")
         print(f"  Retry JSONL: {retry_path} ({len(all_failed_rows)} rows, {len(failed_requests)} requests)")
-        print(f"  Re-run: python pipeline/jsonl_batch_runner.py --input {retry_path} --output ...")
+        print(
+            f"  Re-run: python pipeline/jsonl_batch_runner.py --input {retry_path} "
+            f"--dataset {output_path} --output {output_path} ...\n"
+            f"    NOTE: --dataset MUST point at this run's output ({output_path}), not the original\n"
+            f"    raw input — otherwise only the {len(all_failed_rows)} retried rows survive and every\n"
+            f"    already-successful row is dropped from the merged result."
+        )
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     result_df.to_csv(output_path, index=False)
@@ -1001,7 +1080,10 @@ def main():
             "When provided, predictions are merged into the full original DataFrame "
             "(all original columns are preserved in the output). "
             "When omitted, a minimal DataFrame is built from the JSONL row indices — "
-            "the output contains only prediction/confidence/reasoning columns."
+            "the output contains only prediction/confidence/reasoning columns.\n"
+            "RETRY ROUNDS: when re-running a '..._failed_requests.jsonl', pass the PRIOR "
+            "run's --output CSV here (not the original raw input) so only the retried rows "
+            "are overwritten and every already-successful row is preserved."
         ),
     )
     parser.add_argument("--output", "-o", required=True, help="Output CSV path.")

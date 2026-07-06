@@ -56,7 +56,7 @@ from typing import Optional
 import pandas as pd
 from tqdm import tqdm
 
-MAX_CHUNK_BYTES = 1_900 * 1024 * 1024  # 1.9 GB — safely under Gemini's 2 GB batch limit
+MAX_CHUNK_BYTES = 1_900 * 1024 * 1024  # 1.9 GB — safely under Gemini's 2 GB file-upload limit (files.upload)
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -95,34 +95,52 @@ def _make_request_line(
     n_samples: int,
     use_grounding: bool = False,
 ) -> dict:
-    """One JSONL line in Gemini InlinedRequestDict format.
+    """One JSONL line in Gemini's file-upload batch format: {"key", "request", "metadata"}.
 
-    Embeds custom_id and n_samples in metadata so the runner can:
-    - Match responses via metadata echo in InlinedResponse.metadata
-    - Detect n_samples mismatches between build and run steps
+    File-upload (not inline) is used because inline requests are capped at 20MB
+    total request size, while file uploads support up to 2GB — see
+    https://ai.google.dev/gemini-api/docs/batch-api. The runner uploads this
+    JSONL via client.files.upload() and submits with src=<uploaded file name>.
 
-    When use_grounding=True, adds Google Search tool to the config so Gemini
-    can call Google Search natively (grounding_metadata populated in response).
+    "key" is the custom_id Gemini echoes back to correlate each output line
+    with its request. "metadata" is an application-defined sibling field —
+    verified empirically that Gemini echoes it back unchanged in the output
+    line alongside "key" and "response", so row_data/indicators/search
+    provenance can still ride along per-request exactly as before.
+
+    IMPORTANT: file-upload JSONL is sent to the raw REST GenerateContentRequest
+    schema with no SDK dict→proto translation (unlike inline requests, which
+    the SDK converts). That schema has no "config" field — system_instruction
+    and tools are top-level siblings of "contents"; generation_config holds
+    temperature/max_output_tokens/top_p/response_mime_type. Confirmed empirically:
+    a request body with "config" is rejected with "no such field: 'config'".
+
+    When use_grounding=True, adds Google Search tool so Gemini can call Google
+    Search natively (grounding_metadata populated in response).
     """
-    config: dict = {
-        "system_instruction": {"parts": [{"text": system_prompt}]},
+    generation_config: dict = {
         "temperature": temperature,
         "max_output_tokens": max_tokens,
         "top_p": DEFAULT_TOP_P,
+    }
+    request_body: dict = {
+        "contents": [{"parts": [{"text": user_prompt}], "role": "user"}],
+        "system_instruction": {"parts": [{"text": system_prompt}]},
     }
     if use_grounding:
         # google_search is the only search tool supported by the Gemini Batch API.
         # google_search_retrieval (dynamic threshold) is a real-time-only tool and causes
         # all batch requests to fail with errors.
-        config["tools"] = [{"google_search": {}}]
+        request_body["tools"] = [{"google_search": {}}]
         # Drop response_mime_type so Gemini can append grounding attribution to the response;
         # JSON is extracted from the text by parse_json_response in the runner.
     else:
-        config["response_mime_type"] = "application/json"
+        generation_config["response_mime_type"] = "application/json"
+    request_body["generation_config"] = generation_config
     return {
-        "contents": [{"parts": [{"text": user_prompt}], "role": "user"}],
-        "config": config,
-        "metadata": {"custom_id": custom_id, "n_samples": str(n_samples)},
+        "key": custom_id,
+        "request": request_body,
+        "metadata": {"n_samples": str(n_samples)},
     }
 
 
@@ -508,8 +526,9 @@ def main():
             "  pre_search:       Fetch Wikipedia/DuckDuckGo/Serper BEFORE building the JSONL\n"
             "                    and inject retrieved text into each prompt. Metadata stored\n"
             "                    in request metadata for output columns.\n"
-            "  gemini_grounding: DEPRECATED — Gemini Batch API runs offline and cannot make\n"
-            "                    live web searches. Use pre_search instead."
+            "  gemini_grounding: Embed Gemini's native google_search tool in each request.\n"
+            "                    Runs server-side during batch processing (no client round-trip\n"
+            "                    needed); grounding_metadata is parsed back out by the runner."
         ),
     )
     parser.add_argument(

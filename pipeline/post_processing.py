@@ -313,7 +313,10 @@ class ElectionsClassifier:
         self.model = model
         self.use_logprobs = use_logprobs
         self.reasoning = reasoning
-        self.llm = create_llm(model, api_keys, use_logprobs=use_logprobs)
+        self.llm = create_llm(
+            model, api_keys, use_logprobs=use_logprobs,
+            use_grounding=(search_mode == SearchMode.GEMINI_GROUNDING),
+        )
         self.n_samples = n_samples
         # Default SC temperatures: n_samples draws at 0.7
         self.sc_temperatures = sc_temperatures or ([0.7] * n_samples if n_samples > 0 else [])
@@ -560,6 +563,14 @@ class ElectionsClassifier:
             )
             parsed = parse_json_response(response.content, verbose=False)
 
+            if self.search_mode == SearchMode.GEMINI_GROUNDING:
+                from models.llm_clients import extract_grounding_metadata
+                g_queries, g_urls = extract_grounding_metadata(response)
+                if g_queries:
+                    queries_str = g_queries
+                if g_urls:
+                    urls_str = g_urls
+
         pred = str(parsed.get("elections", "0"))
         if pred not in ("0", "1", "2"):
             pred = "0"
@@ -708,13 +719,14 @@ Examples:
     )
     parser.add_argument(
         "--search-mode",
-        choices=["none", "agentic", "forced"],
+        choices=["none", "agentic", "forced", "gemini_grounding"],
         default="none",
         help=(
             "Search mode (default: none).\n"
-            "  none    — Pure LLM output.\n"
-            "  agentic — LLM decides whether to search.\n"
-            "  forced  — Always search before LLM answers (Wikipedia/DuckDuckGo/Serper)."
+            "  none             — Pure LLM output.\n"
+            "  agentic          — LLM decides whether to search.\n"
+            "  forced           — Always search before LLM answers (Wikipedia/DuckDuckGo/Serper).\n"
+            "  gemini_grounding — Gemini native Google Search (Gemini models only)."
         )
     )
     parser.add_argument(
@@ -800,6 +812,14 @@ Examples:
 
     if search_mode == SearchMode.AGENTIC and not os.getenv("SERPER_API_KEY"):
         raise ValueError("Agentic search requires SERPER_API_KEY environment variable.")
+
+    if search_mode == SearchMode.GEMINI_GROUNDING:
+        from config import GEMINI_MODELS
+        if not any(args.model.startswith(prefix) for prefix in GEMINI_MODELS):
+            raise ValueError(
+                f"--search-mode gemini_grounding requires a Gemini model, got '{args.model}'. "
+                "Gemini grounding is a Gemini-specific feature."
+            )
 
     classifier = ElectionsClassifier(
         model=args.model,

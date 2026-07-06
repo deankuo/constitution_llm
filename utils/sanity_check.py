@@ -629,6 +629,7 @@ def sanity_check_and_reprocess(
     reasoning: bool = True,
     parallel_rows: int = 0,
     delay: float = DEFAULT_DELAY,
+    search_mode: str = 'none',
     **kwargs
 ) -> pd.DataFrame:
     """
@@ -661,6 +662,10 @@ def sanity_check_and_reprocess(
         parallel_rows: Number of rows to process concurrently when reprocessing (0 = auto: use
                        number of failed rows, capped at 8). Maps to --parallel-rows in main.py.
         delay: Delay between API calls in seconds (default: DEFAULT_DELAY from config).
+        search_mode: Search mode to use when reprocessing ('none', 'agentic', 'forced',
+                     'gemini_grounding'). Should match the search mode used to produce the
+                     original dataset — reprocessing with a different mode changes how the
+                     failed rows are answered. Passed straight through to main.py.
         **kwargs: Additional arguments passed to identify_failed_rows
 
     Returns:
@@ -797,6 +802,7 @@ def sanity_check_and_reprocess(
             '--temperature', str(temperature),
             '--parallel-rows', str(actual_parallel_rows),
             '--delay', str(delay),
+            '--search-mode', search_mode,
         ]
         print(f"Reprocessing indicator: constitution (polity pipeline)")
     else:
@@ -825,6 +831,7 @@ def sanity_check_and_reprocess(
             '--temperature', str(temperature),
             '--parallel-rows', str(actual_parallel_rows),
             '--delay', str(delay),
+            '--search-mode', search_mode,
         ]
 
         # Self-consistency n_samples pass-through
@@ -1034,6 +1041,12 @@ Examples:
                        help='Rows to process concurrently when reprocessing (0 = auto: use number of failed rows, max 8)')
     parser.add_argument('--delay', type=float, default=DEFAULT_DELAY,
                        help=f'Delay between API calls in seconds (default: {DEFAULT_DELAY})')
+    parser.add_argument('--search-mode', choices=['none', 'agentic', 'forced', 'gemini_grounding'],
+                       default='none',
+                       help=(
+                           'Search mode for reprocessing (default: none). Should match the search '
+                           'mode used to produce the original dataset, passed through to main.py.'
+                       ))
 
     args = parser.parse_args()
 
@@ -1057,4 +1070,5 @@ Examples:
         reasoning=args.reasoning,
         parallel_rows=args.parallel_rows,
         delay=args.delay,
+        search_mode=args.search_mode,
     )

@@ -358,6 +358,7 @@ def process_single_polity(
     cove_questions_per_element: int = 1,
     # Search tracking
     force_search: bool = False,
+    use_grounding: bool = False,
 ) -> Optional[Dict]:
     """Process a single polity for constitution analysis (polity pipeline).
 
@@ -425,6 +426,30 @@ def process_single_polity(
         output_tokens = model_response.output_tokens
         cached_tokens = model_response.cached_tokens
         thinking_tokens = model_response.thinking_tokens
+    elif llm is not None and use_search_flag and use_grounding:
+        # Gemini native Google Search grounding: the search tool is already
+        # attached to this LLM instance (use_grounding=True at construction),
+        # so a plain call triggers server-side grounding automatically —
+        # no client-side tool-call loop needed (unlike agentic/Serper search).
+        model_response = llm.call(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=llm_params.get('temperature', DEFAULT_TEMPERATURE),
+            max_tokens=llm_params.get('max_tokens', DEFAULT_MAX_TOKENS),
+            top_p=llm_params.get('top_p', DEFAULT_TOP_P),
+        )
+        response_content = model_response.content
+        input_tokens = model_response.input_tokens
+        output_tokens = model_response.output_tokens
+        cached_tokens = model_response.cached_tokens
+        thinking_tokens = model_response.thinking_tokens
+
+        from models.llm_clients import extract_grounding_metadata
+        g_queries, g_urls = extract_grounding_metadata(model_response)
+        if g_queries:
+            query_tracker.append(g_queries)
+        if g_urls:
+            url_tracker.append(g_urls)
     else:
         # Agentic search: the LLM decides what to search
         response_content = _route_to_model(
@@ -520,6 +545,7 @@ def _process_one_row(
     sc_temperatures: Optional[List[float]],
     cove_questions_per_element: int,
     force_search: bool = False,
+    use_grounding: bool = False,
 ) -> Dict:
     """
     Process all models for a single polity row.
@@ -545,7 +571,7 @@ def _process_one_row(
                 max_retries, retry_delay, use_search_flag,
                 verify_type, model_llms.get(model_key), verifier_llm,
                 sc_n_samples, sc_temperatures, cove_questions_per_element,
-                force_search,
+                force_search, use_grounding,
             ): model_key
             for model_key, model_identifier in models_dict.items()
         }
@@ -616,6 +642,7 @@ def process_batch(
     output_path: Optional[str] = None,
     # Search mode
     force_search: bool = False,
+    use_grounding: bool = False,
 ) -> pd.DataFrame:
     """Process polity data in batches (polity pipeline).
 
@@ -659,6 +686,7 @@ def process_batch(
             sc_temperatures=sc_temperatures,
             cove_questions_per_element=cove_questions_per_element,
             force_search=force_search,
+            use_grounding=use_grounding,
         )
 
     def _handle_row_result(entry_result: Dict, processed_count: int) -> None:
@@ -1111,6 +1139,12 @@ Examples:
                 "--use-batch is incompatible with --search-mode agentic. "
                 "Agentic search requires multi-turn LLM calls which batch API does not support.\n"
                 "Use --search-mode forced --use-batch instead (pre-search + batch)."
+            )
+        if args.pipeline == 'constitution':
+            raise ValueError(
+                "--use-batch is not supported by --pipeline constitution (legacy, single-model, "
+                "synchronous only); the flag would otherwise be silently ignored. "
+                "Use --pipeline indicators --indicators constitution --use-batch instead."
             )
 
     # Logprobs support notice
@@ -1601,7 +1635,10 @@ Examples:
     model_llms: Dict[str, Any] = {}
     verifier_llm_instance: Any = None
     print("Creating LLM instance...")
-    model_llms["model"] = create_llm(_model_identifier, api_keys, use_logprobs=args.logprobs)
+    use_grounding_flag = (search_mode == SearchMode.GEMINI_GROUNDING)
+    model_llms["model"] = create_llm(
+        _model_identifier, api_keys, use_logprobs=args.logprobs, use_grounding=use_grounding_flag
+    )
 
     if args.verify in ('cove', 'both'):
         if args.verifier_model:
@@ -1631,6 +1668,7 @@ Examples:
         cost_tracker=polity_cost_tracker,
         output_path=args.output,
         force_search=(search_mode == SearchMode.FORCED),
+        use_grounding=use_grounding_flag,
     )
 
     # Ensure output directory exists
