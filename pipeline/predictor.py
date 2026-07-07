@@ -104,6 +104,15 @@ class IndicatorPrediction:
     sc_all_grounding_urls: Optional[List[Optional[str]]] = None
 
 
+def _grounding_task_label(indicator: str) -> str:
+    """Task label for shared grounding columns (mirrors jsonl_batch_runner._task_label).
+
+    Combined prompts (single/sequential mode) cover multiple indicators with ONE
+    LLM call, so the grounding result is a per-task property, not per-indicator.
+    """
+    return indicator if indicator in ('constitution', 'elections') else 'indicators'
+
+
 @dataclass
 class PolityPrediction:
     """Complete prediction result for a polity."""
@@ -115,6 +124,15 @@ class PolityPrediction:
     total_tokens: int = 0
     verification_applied: Dict[str, str] = field(default_factory=dict)
     reasoning: bool = True  # Whether reasoning columns should be included in output
+    # Shared grounding metadata for combined prompts (single/sequential mode),
+    # keyed by task label ("indicators", "constitution") -> (queries_str, urls_str).
+    # Values are (None, None) when grounding was enabled but no search occurred —
+    # the columns are still emitted so missing search data reads as NaN, not an
+    # absent column.
+    search_metadata: Dict[str, tuple] = field(default_factory=dict)
+    # Whether Gemini native grounding was enabled for this prediction (controls
+    # whether {indicator}_search_queries/_urls_used columns are always emitted).
+    use_grounding: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for DataFrame row."""
@@ -194,11 +212,18 @@ class PolityPrediction:
                     result['constitution_year'] = ind_pred.constitution_year
                     result['constitution_document_types'] = ind_pred.document_types
 
-                # Grounding metadata for no-SC runs.
-                if ind_pred.grounding_queries:
+                # Grounding metadata for no-SC runs. Always emit when grounding is
+                # enabled, even if no search occurred (None -> NaN, not a missing column).
+                if self.use_grounding:
                     result[f'{ind_name}_search_queries'] = ind_pred.grounding_queries
-                if ind_pred.grounding_urls:
                     result[f'{ind_name}_urls_used'] = ind_pred.grounding_urls
+
+        # Shared grounding metadata for combined prompts (single/sequential mode).
+        # Always emit the columns (None -> NaN) so missing search data doesn't
+        # read as an absent column.
+        for task_label, (q, u) in self.search_metadata.items():
+            result[f'{task_label}_search_queries'] = q
+            result[f'{task_label}_urls_used'] = u
 
         return result
 
@@ -342,6 +367,7 @@ class Predictor:
         total_cost = 0.0
         total_tokens = 0
         verification_applied = {}
+        search_metadata: Dict[str, tuple] = {}
 
         # Process each prompt
         for prompt in prompts:
@@ -442,9 +468,18 @@ class Predictor:
                 sc_cost_per_indicator = prompt_sc_cost / num_indicators if num_indicators else 0.0
                 sc_tokens_per_indicator = prompt_sc_tokens // num_indicators if num_indicators else 0
 
-                # For multiple mode, grounding is per-indicator; for single/sequential
-                # it's shared across indicators (only emit for multiple mode).
+                # For multiple mode (one indicator per prompt), grounding is
+                # per-indicator. For single/sequential mode (>1 indicator sharing
+                # this one call), the same grounding result is shared — record it
+                # once per task label instead of duplicating it under every
+                # indicator's own column.
                 _is_multiple = len(prompt.indicators) == 1
+                if not _is_multiple and self.config.use_grounding:
+                    # Always record the task label, even as (None, None) when no
+                    # search occurred, so the column is emitted with missing data
+                    # rather than being absent entirely.
+                    for _label in {_grounding_task_label(ind) for ind in prompt.indicators}:
+                        search_metadata[_label] = (_init_g_queries, _init_g_urls)
 
                 # Process each indicator in the prompt
                 for indicator in prompt.indicators:
@@ -495,7 +530,9 @@ class Predictor:
             total_cost_usd=total_cost,
             total_tokens=total_tokens,
             verification_applied=verification_applied,
-            reasoning=self.config.reasoning
+            reasoning=self.config.reasoning,
+            search_metadata=search_metadata,
+            use_grounding=self.config.use_grounding
         )
 
     def _process_indicator(
