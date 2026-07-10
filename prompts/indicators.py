@@ -5,12 +5,14 @@ Political Indicators Prompt Templates (Leader-Level)
 Current indicator schema (aligned with single_builder.py):
 - Sovereign         (0/1)
 - Federalism        (0/1)
-- Checks            (0-9, multi-select; formerly checks_actors)
+- Checks            (nine binary sub-indicators, 0/1 each: checks_local, checks_military,
+                     checks_clergy, checks_aristocracy, checks_bourgeoisie, checks_bureaucracy,
+                     checks_judiciary, checks_assembly, checks_council)
 - Collegiality      (0/1)
 - Petition          (0/1)
 - Assembly          (0/1/2/3)
-- Entry             (0-10, fine-grained)
-- Exit              (0-15, fine-grained)
+- Entry             (0-10 or 99=unknown, fine-grained)
+- Exit              (0-14 or 99=unknown, fine-grained)
 - Symbolism         (0/1/2/3, non-monotonic; formerly symbolic_power)
 - Elections         (0/1/2, downstream — depends on Assembly = 2)
 
@@ -144,7 +146,7 @@ To the extent that executive power in a polity is beholden to another polity, we
 - Sovereign (1): Independent domestic governance, no subordination to foreign power; includes city-states, nation-states, empires, tributary states with primary domestic responsibility
 - Not Sovereign (0): Colony, protectorate, vassal, distant overseas territory not fully incorporated into the metropole""",
 
-        coding_rule_reminder="⚠️ **IMPORTANT:** Focus on the status during THIS LEADER'S REIGN, not the entire polity history. Default to 1 (Sovereign) when evidence is ambiguous — overlordship or loss of domestic control would normally be recorded, so silence indicates the polity governed its own domestic affairs. Be more cautious for premodern and non-Western polities where semi-sovereign status may go unrecorded.",
+        coding_rule_reminder="⚠️ **IMPORTANT:** Focus on the status during THIS LEADER'S TENURE, not the entire polity history. Default to 1 (Sovereign) when evidence is ambiguous — overlordship or loss of domestic control would normally be recorded, so silence indicates the polity governed its own domestic affairs. Be more cautious for premodern and non-Western polities where semi-sovereign status may go unrecorded.",
 
         compact_definition=(
             "Whether the polity conducts domestic affairs without foreign subordination: "
@@ -195,7 +197,7 @@ Federalism refers to a **division of sovereignty between central and local units
 - Federal (1): Division of sovereignty between central and local units; local units have protected powers; includes confederations, leagues, composite monarchies
 - Non-Federal (0): Unitary state; local units derive authority from the center with no protected autonomy""",
 
-        coding_rule_reminder="⚠️ **IMPORTANT:** Focus on the territorial structure during THIS LEADER'S REIGN. Code de facto functioning, not formal arrangements.",
+        coding_rule_reminder="⚠️ **IMPORTANT:** Focus on the territorial structure during THIS LEADER'S TENURE. Code de facto functioning, not formal arrangements.",
 
         compact_definition=(
             "Whether sovereignty is divided between central and local units: "
@@ -214,7 +216,7 @@ Federalism refers to a **division of sovereignty between central and local units
     # "None" is the case where all nine answers are 0.
     #
     # Shared framing: an effective check is an independent body with the de facto
-    # capacity to resist executive action during THIS leader's reign; code actual
+    # capacity to resist executive action during THIS leader's tenure; code actual
     # capacity, not de jure standing; a body controlled by the executive counts as 0;
     # media, civil society, and ordinary citizens are NOT counted.
     # =========================================================================
@@ -229,7 +231,7 @@ Federalism refers to a **division of sovereignty between central and local units
         definition="""
 ## Definition of Checks: Local / Constituent Units
 
-Do local or constituent territorial/kin-based units provide an effective check on the executive during THIS leader's reign?
+Do local or constituent territorial/kin-based units provide an effective check on the executive during THIS leader's tenure?
 
 An effective check means the unit is **independent** of the executive and has the **de facto capacity** to resist or constrain executive action — not merely formal/de jure standing. A body that exists on paper but is controlled by the executive does NOT count. Media, civil society organizations, and ordinary citizens are NOT counted.
 
@@ -237,7 +239,7 @@ An effective check means the unit is **independent** of the executive and has th
 
 ## Categories
 
-- **0 = No.** Such units do not exist during the reign, or exist but cannot effectively resist the executive.
+- **0 = No.** Such units do not exist during the tenure, or exist but cannot effectively resist the executive.
 - **1 = Yes.** Such units are independent and can, at least on occasion, effectively resist the executive.
 
 ## Analysis Process
@@ -256,7 +258,7 @@ An effective check means the unit is **independent** of the executive and has th
 Examples: regional governments, tribes, clans, ethnic governance units.""",
 
         coding_rule_reminder=(
-            "⚠️ **IMPORTANT:** Code based on de facto capacity to resist the executive during THIS LEADER'S REIGN. "
+            "⚠️ **IMPORTANT:** Code based on de facto capacity to resist the executive during THIS LEADER'S TENURE. "
             "A body that exists only on paper or is controlled by the executive counts as 0. "
             "Media, civil society, and ordinary citizens are NOT counted."
         ),
@@ -279,7 +281,7 @@ Examples: regional governments, tribes, clans, ethnic governance units.""",
         definition="""
 ## Definition of Checks: Military
 
-Do the armed forces or a warrior estate provide an effective check on the executive during THIS leader's reign?
+Do the armed forces or a warrior estate provide an effective check on the executive during THIS leader's tenure?
 
 An effective check means the body is **independent** of the executive and has the **de facto capacity** to resist or constrain executive action — not merely formal/de jure standing. A body that exists on paper but is controlled by the executive does NOT count. Media, civil society organizations, and ordinary citizens are NOT counted.
 
@@ -306,7 +308,7 @@ An effective check means the body is **independent** of the executive and has th
 Examples: officers, military branches, warrior castes (e.g., Samurai).""",
 
         coding_rule_reminder=(
-            "⚠️ **IMPORTANT:** Code based on de facto capacity to resist the executive during THIS LEADER'S REIGN. "
+            "⚠️ **IMPORTANT:** Code based on de facto capacity to resist the executive during THIS LEADER'S TENURE. "
             "A body that exists only on paper or is controlled by the executive counts as 0. "
             "Media, civil society, and ordinary citizens are NOT counted."
         ),
@@ -329,7 +331,7 @@ Examples: officers, military branches, warrior castes (e.g., Samurai).""",
         definition="""
 ## Definition of Checks: Clergy
 
-Do religious authorities provide an effective check on the executive during THIS leader's reign?
+Do religious authorities provide an effective check on the executive during THIS leader's tenure?
 
 An effective check means the body is **independent** of the executive and has the **de facto capacity** to resist or constrain executive action — not merely formal/de jure standing. A body that exists on paper but is controlled by the executive does NOT count. Media, civil society organizations, and ordinary citizens are NOT counted.
 
@@ -358,7 +360,7 @@ Clergy power derives from their role as arbiters of a widely espoused religion o
 Examples: established church, priesthood, religious caste (any religion or denomination).""",
 
         coding_rule_reminder=(
-            "⚠️ **IMPORTANT:** Code based on de facto capacity to resist the executive during THIS LEADER'S REIGN. "
+            "⚠️ **IMPORTANT:** Code based on de facto capacity to resist the executive during THIS LEADER'S TENURE. "
             "A body that exists only on paper or is controlled by the executive counts as 0. "
             "Media, civil society, and ordinary citizens are NOT counted."
         ),
@@ -381,7 +383,7 @@ Examples: established church, priesthood, religious caste (any religion or denom
         definition="""
 ## Definition of Checks: Aristocracy
 
-Does a hereditary or titled upper stratum provide an effective check on the executive during THIS leader's reign?
+Does a hereditary or titled upper stratum provide an effective check on the executive during THIS leader's tenure?
 
 An effective check means the body is **independent** of the executive and has the **de facto capacity** to resist or constrain executive action — not merely formal/de jure standing. A body that exists on paper but is controlled by the executive does NOT count. Media, civil society organizations, and ordinary citizens are NOT counted.
 
@@ -408,7 +410,7 @@ An effective check means the body is **independent** of the executive and has th
 Examples: landed nobility, hereditary elite, titled class, patriciate, upper caste.""",
 
         coding_rule_reminder=(
-            "⚠️ **IMPORTANT:** Code based on de facto capacity to resist the executive during THIS LEADER'S REIGN. "
+            "⚠️ **IMPORTANT:** Code based on de facto capacity to resist the executive during THIS LEADER'S TENURE. "
             "A body that exists only on paper or is controlled by the executive counts as 0. "
             "Media, civil society, and ordinary citizens are NOT counted."
         ),
@@ -431,7 +433,7 @@ Examples: landed nobility, hereditary elite, titled class, patriciate, upper cas
         definition="""
 ## Definition of Checks: Bourgeoisie
 
-Does an urban commercial or capital-holding class provide an effective check on the executive during THIS leader's reign?
+Does an urban commercial or capital-holding class provide an effective check on the executive during THIS leader's tenure?
 
 An effective check means the body is **independent** of the executive and has the **de facto capacity** to resist or constrain executive action — not merely formal/de jure standing. A body that exists on paper but is controlled by the executive does NOT count. Media, civil society organizations, and ordinary citizens are NOT counted.
 
@@ -458,7 +460,7 @@ An effective check means the body is **independent** of the executive and has th
 Examples: merchants, traders, artisans, financiers, creditors, business/commercial classes.""",
 
         coding_rule_reminder=(
-            "⚠️ **IMPORTANT:** Code based on de facto capacity to resist the executive during THIS LEADER'S REIGN. "
+            "⚠️ **IMPORTANT:** Code based on de facto capacity to resist the executive during THIS LEADER'S TENURE. "
             "A body that exists only on paper or is controlled by the executive counts as 0. "
             "Media, civil society, and ordinary citizens are NOT counted."
         ),
@@ -481,7 +483,7 @@ Examples: merchants, traders, artisans, financiers, creditors, business/commerci
         definition="""
 ## Definition of Checks: Bureaucracy
 
-Does a professional administrative apparatus provide an effective check on the executive during THIS leader's reign?
+Does a professional administrative apparatus provide an effective check on the executive during THIS leader's tenure?
 
 An effective check means the body is **independent** of the executive and has the **de facto capacity** to resist or constrain executive action — not merely formal/de jure standing. A body that exists on paper but is controlled by the executive does NOT count. Media, civil society organizations, and ordinary citizens are NOT counted.
 
@@ -508,7 +510,7 @@ An effective check means the body is **independent** of the executive and has th
 Examples: civil servants, Confucian scholar-officials as top-level advisors and administrators.""",
 
         coding_rule_reminder=(
-            "⚠️ **IMPORTANT:** Code based on de facto capacity to resist the executive during THIS LEADER'S REIGN. "
+            "⚠️ **IMPORTANT:** Code based on de facto capacity to resist the executive during THIS LEADER'S TENURE. "
             "A body that exists only on paper or is controlled by the executive counts as 0. "
             "Media, civil society, and ordinary citizens are NOT counted."
         ),
@@ -531,7 +533,7 @@ Examples: civil servants, Confucian scholar-officials as top-level advisors and 
         definition="""
 ## Definition of Checks: Judiciary
 
-Do independent adjudicative bodies provide an effective check on the executive during THIS leader's reign?
+Do independent adjudicative bodies provide an effective check on the executive during THIS leader's tenure?
 
 An effective check means the body is **independent** of the executive and has the **de facto capacity** to resist or constrain executive action — not merely formal/de jure standing. A body that exists on paper but is controlled by the executive does NOT count. Media, civil society organizations, and ordinary citizens are NOT counted.
 
@@ -558,7 +560,7 @@ An effective check means the body is **independent** of the executive and has th
 Examples: courts of law, tribunals, judicial bodies, legal institutions.""",
 
         coding_rule_reminder=(
-            "⚠️ **IMPORTANT:** Code based on de facto capacity to resist the executive during THIS LEADER'S REIGN. "
+            "⚠️ **IMPORTANT:** Code based on de facto capacity to resist the executive during THIS LEADER'S TENURE. "
             "A body that exists only on paper or is controlled by the executive counts as 0. "
             "Media, civil society, and ordinary citizens are NOT counted."
         ),
@@ -581,7 +583,7 @@ Examples: courts of law, tribunals, judicial bodies, legal institutions.""",
         definition="""
 ## Definition of Checks: Assembly
 
-Does a deliberative representative or popular body provide an effective check on the executive during THIS leader's reign?
+Does a deliberative representative or popular body provide an effective check on the executive during THIS leader's tenure?
 
 An effective check means the body is **independent** of the executive and has the **de facto capacity** to resist or constrain executive action — not merely formal/de jure standing. A body that exists on paper but is controlled by the executive does NOT count. Media, civil society organizations, and ordinary citizens are NOT counted.
 
@@ -608,7 +610,7 @@ An effective check means the body is **independent** of the executive and has th
 Examples: popular assembly, legislature, parliament.""",
 
         coding_rule_reminder=(
-            "⚠️ **IMPORTANT:** Code based on de facto capacity to resist the executive during THIS LEADER'S REIGN. "
+            "⚠️ **IMPORTANT:** Code based on de facto capacity to resist the executive during THIS LEADER'S TENURE. "
             "A body that exists only on paper or is controlled by the executive counts as 0. "
             "Media, civil society, and ordinary citizens are NOT counted."
         ),
@@ -631,7 +633,7 @@ Examples: popular assembly, legislature, parliament.""",
         definition="""
 ## Definition of Checks: Advisory Council
 
-Does an institutionalized elite council adjacent to the executive provide an effective check on the executive during THIS leader's reign?
+Does an institutionalized elite council adjacent to the executive provide an effective check on the executive during THIS leader's tenure?
 
 An effective check means the body is **independent** of the executive and has the **de facto capacity** to resist or constrain executive action — not merely formal/de jure standing. A body that exists on paper but is controlled by the executive does NOT count. Media, civil society organizations, and ordinary citizens are NOT counted.
 
@@ -658,7 +660,7 @@ An effective check means the body is **independent** of the executive and has th
 Examples: royal council, council of state, regency council, privy council, council of elders.""",
 
         coding_rule_reminder=(
-            "⚠️ **IMPORTANT:** Code based on de facto capacity to resist the executive during THIS LEADER'S REIGN. "
+            "⚠️ **IMPORTANT:** Code based on de facto capacity to resist the executive during THIS LEADER'S TENURE. "
             "A body that exists only on paper or is controlled by the executive counts as 0. "
             "Media, civil society, and ordinary citizens are NOT counted."
         ),
@@ -716,7 +718,7 @@ If a body is formally collegial but actually dominated by a single actor → Cod
 
 **CRITICAL:** Code based on de facto (actual) power, not de jure (formal) arrangements.""",
 
-        coding_rule_reminder="⚠️ **IMPORTANT:** Focus on ACTUAL decision-making practice during THIS LEADER'S REIGN. Default to 0 when evidence of genuine power-sharing is absent.",
+        coding_rule_reminder="⚠️ **IMPORTANT:** Focus on ACTUAL decision-making practice during THIS LEADER'S TENURE. Default to 0 when evidence of genuine power-sharing is absent.",
 
         compact_definition=(
             "Whether decisionmaking power is shared among co-equals at the apex (de facto, not de jure): "
@@ -759,7 +761,7 @@ A petition is a formal process by which a citizen or subject may lodge a complai
 - 0 (No): Use of petition is extremely rare and probably ineffective, or there is no record of its existence.
 - 1 (Yes): Petitions are a fairly regular feature of political life — citizens or subjects regularly lodge complaints or requests with high officials.""",
 
-        coding_rule_reminder="⚠️ **IMPORTANT:** Focus on whether petitioning was actually practiced and effective during THIS LEADER'S REIGN. Code based on de facto use, not formal existence of mechanisms.",
+        coding_rule_reminder="⚠️ **IMPORTANT:** Focus on whether petitioning was actually practiced and effective during THIS LEADER'S TENURE. Code based on de facto use, not formal existence of mechanisms.",
 
         compact_definition=(
             "Whether petitioning was a regularized feature of governance: "
@@ -808,7 +810,7 @@ An assembly is a body designed to govern (directly), to select leaders, or to as
 
 - Code based on **de facto** (actual) practice, not de jure (formal) arrangements
 - A body that nominally exists but never meets or has no stable membership → Type 0
-- Focus on the **highest type** of assembly that existed and actually functioned during THIS LEADER'S REIGN
+- Focus on the **highest type** of assembly that existed and actually functioned during THIS LEADER'S TENURE
 - **Default to Type 0 when evidence is absent.** Regional or civilizational generalizations alone are NOT sufficient.
 
 ## Analysis Process
@@ -830,7 +832,7 @@ Types:
 **Code based on de facto functioning, not formal structures.**""",
 
         coding_rule_reminder=(
-            "⚠️ **IMPORTANT:** Focus on the HIGHEST type of assembly that actually functioned during THIS LEADER'S REIGN. "
+            "⚠️ **IMPORTANT:** Focus on the HIGHEST type of assembly that actually functioned during THIS LEADER'S TENURE. "
             "Code de facto, not de jure. Default to Type 0 when evidence is absent — do NOT infer a council from regional "
             "or civilizational patterns alone."
         ),
@@ -1026,7 +1028,7 @@ The power of the executive is to some extent reflected in the trappings of the o
 
 **Note:** This scale is non-monotonic — code 3 (Ceremonial) does NOT mean most powerful.""",
 
-        coding_rule_reminder="⚠️ **IMPORTANT:** This scale is non-monotonic with respect to leader power. Focus on the trappings during THIS LEADER'S REIGN.",
+        coding_rule_reminder="⚠️ **IMPORTANT:** This scale is non-monotonic with respect to leader power. Focus on the trappings during THIS LEADER'S TENURE.",
 
         compact_definition=(
             "Trappings of executive office (non-monotonic with leader power; excludes purely ceremonial leaders): "
@@ -1096,7 +1098,7 @@ This indicator codes whether members of an existing **Legislature (assembly = 2)
 - 1: Elections exist — most members elected by defined rules, NOT organized by factions/parties
 - 2: Competitive elections — contested by organized factions or parties""",
 
-        coding_rule_reminder="⚠️ **IMPORTANT:** This indicator only applies when assembly = 2 (Legislature). Focus on the selection method for assembly members during THIS LEADER'S REIGN.",
+        coding_rule_reminder="⚠️ **IMPORTANT:** This indicator only applies when assembly = 2 (Legislature). Focus on the selection method for assembly members during THIS LEADER'S TENURE.",
 
         compact_definition=(
             "Whether Legislature (assembly = 2) members are elected (not applicable for assembly ≠ 2): "

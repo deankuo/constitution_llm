@@ -112,16 +112,24 @@ def _create_prompt_builder(
     reasoning: bool = True,
     sequence: Optional[List[str]] = None,
     random_sequence: bool = False,
+    prompt_version: str = 'v1',
 ) -> BasePromptBuilder:
     """Create the appropriate prompt builder for the given mode."""
     if mode == 'single':
-        return SinglePromptBuilder(indicators=indicators, reasoning=reasoning)
+        from prompts.single_builder import SinglePromptBuilderV2, SinglePromptBuilderV3
+        builder_cls = {
+            'v1': SinglePromptBuilder,
+            'v2': SinglePromptBuilderV2,
+            'v3': SinglePromptBuilderV3,
+        }.get(prompt_version, SinglePromptBuilder)
+        return builder_cls(indicators=indicators, reasoning=reasoning)
     elif mode == 'sequential':
         return SequentialPromptBuilder(
             indicators=indicators,
             sequence=sequence,
             random_order=random_sequence,
             reasoning=reasoning,
+            prompt_version=prompt_version,
         )
     else:  # 'multiple' (default)
         return MultiplePromptBuilder(indicators=indicators, reasoning=reasoning)
@@ -162,6 +170,7 @@ class SearchPredictor:
         sequence: Optional[List[str]] = None,
         random_sequence: bool = False,
         force_search: bool = False,
+        prompt_version: str = 'v1',
     ):
         """
         Args:
@@ -175,6 +184,7 @@ class SearchPredictor:
             sequence:        Explicit order for sequential mode
             random_sequence: Randomize order in sequential mode
             force_search:    If True, force the LLM to use web search (tool_choice=required)
+            prompt_version:  Single/sequential prompt variant: 'v1', 'v2', or 'v3'
         """
         self.model = model
         self.api_keys = api_keys
@@ -200,6 +210,7 @@ class SearchPredictor:
             reasoning=reasoning,
             sequence=sequence,
             random_sequence=random_sequence,
+            prompt_version=prompt_version,
         )
 
     # ------------------------------------------------------------------

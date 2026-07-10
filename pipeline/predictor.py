@@ -58,6 +58,8 @@ class PredictionConfig:
     # Sequential mode parameters
     sequence: Optional[List[str]] = None  # Specific order for sequential mode
     random_sequence: bool = False  # Randomize order in sequential mode
+    # Single/sequential prompt variant: 'v1' (full), 'v2' (annotator persona), 'v3' (compact)
+    prompt_version: str = 'v1'
     # Reasoning control
     reasoning: bool = True  # Include reasoning for non-constitution indicators
     # Uncertainty quantification (gemini-2.5-* models only)
@@ -290,15 +292,23 @@ class Predictor:
     def _create_prompt_builder(self) -> BasePromptBuilder:
         """Create appropriate prompt builder based on config."""
         if self.config.mode == PromptMode.SINGLE:
-            return SinglePromptBuilder(indicators=self.config.indicators, reasoning=self.config.reasoning)
+            from prompts.single_builder import SinglePromptBuilderV2, SinglePromptBuilderV3
+            builder_cls = {
+                'v1': SinglePromptBuilder,
+                'v2': SinglePromptBuilderV2,
+                'v3': SinglePromptBuilderV3,
+            }.get(self.config.prompt_version, SinglePromptBuilder)
+            return builder_cls(indicators=self.config.indicators, reasoning=self.config.reasoning)
         elif self.config.mode == PromptMode.SEQUENTIAL:
             return SequentialPromptBuilder(
                 indicators=self.config.indicators,
                 sequence=self.config.sequence,
                 random_order=self.config.random_sequence,
-                reasoning=self.config.reasoning
+                reasoning=self.config.reasoning,
+                prompt_version=self.config.prompt_version,
             )
         else:
+            # multiple mode uses the detailed per-indicator prompts; no versions
             return MultiplePromptBuilder(indicators=self.config.indicators, reasoning=self.config.reasoning)
 
     def _create_verifiers(self) -> Dict[str, BaseVerification]:

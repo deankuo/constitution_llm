@@ -1022,9 +1022,9 @@ Examples:
                        help='Prompt mode for reprocessing (indicators pipeline only): single, multiple, or sequential (default: single)')
     parser.add_argument('--model', default='gemini-3.1-pro-preview', help='Model to use (default: gemini-3.1-pro-preview)')
     parser.add_argument('--verify', choices=['none', 'self_consistency', 'cove', 'both'],
-                       default='self_consistency', help='Verification method (default: self_consistency)')
-    parser.add_argument('--n-samples', type=int, default=2,
-                       help='Additional SC samples when --verify self_consistency (default: 2)')
+                       default='none', help='Verification method (default: none)')
+    parser.add_argument('--n-samples', type=int, default=0,
+                       help='Additional SC samples when --verify self_consistency (default: 0 = no SC)')
     parser.add_argument('--temperature', type=float, default=0.0, help='Temperature (default: 0.0)')
     parser.add_argument('--max-tokens', type=int, default=DEFAULT_MAX_TOKENS, help=f'Max tokens (default: {DEFAULT_MAX_TOKENS})')
     parser.add_argument('--top-p', type=float, default=0.95, help='Top-p sampling (default: 0.95)')

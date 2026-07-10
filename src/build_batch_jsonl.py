@@ -94,6 +94,7 @@ def _make_request_line(
     max_tokens: int,
     n_samples: int,
     use_grounding: bool = False,
+    reasoning: bool = True,
 ) -> dict:
     """One JSONL line in Gemini's file-upload batch format: {"key", "request", "metadata"}.
 
@@ -137,10 +138,13 @@ def _make_request_line(
     else:
         generation_config["response_mime_type"] = "application/json"
     request_body["generation_config"] = generation_config
+    # The runner reads "reasoning" from metadata to decide whether to emit
+    # {indicator}_reasoning columns; when the prompt omits reasoning fields,
+    # the output must omit the columns too (not write empty ones).
     return {
         "key": custom_id,
         "request": request_body,
-        "metadata": {"n_samples": str(n_samples)},
+        "metadata": {"n_samples": str(n_samples), "reasoning": str(reasoning).lower()},
     }
 
 
@@ -261,7 +265,7 @@ def build_constitution_requests(
         for sc_idx, temp in enumerate(all_temps):
             custom_id = f"{row_idx}|constitution|{sc_idx}"
             req = _make_request_line(custom_id, sys_p, usr_p, temp, max_tokens, n_samples,
-                                     use_grounding=use_grounding)
+                                     use_grounding=use_grounding, reasoning=reasoning)
             if sc_idx == 0:
                 req["metadata"]["row_data"] = json.dumps(
                     row.to_dict(), ensure_ascii=False, default=str
@@ -340,7 +344,7 @@ def build_indicator_requests(
             custom_id = f"{row_idx}|single|{sc_idx}"
             req = _make_request_line(
                 custom_id, prompt.system_prompt, usr_p, temp, max_tokens, n_samples,
-                use_grounding=use_grounding,
+                use_grounding=use_grounding, reasoning=reasoning,
             )
             req["metadata"]["indicators"] = indicators_json
             if sc_idx == 0:
@@ -439,7 +443,7 @@ def build_elections_requests(
         for sc_idx, temp in enumerate(all_temps):
             custom_id = f"{row_idx}|elections|{sc_idx}"
             req = _make_request_line(custom_id, sys_tmpl, usr_p, temp, max_tokens, n_samples,
-                                     use_grounding=use_grounding)
+                                     use_grounding=use_grounding, reasoning=reasoning)
             if sc_idx == 0:
                 req["metadata"]["row_data"] = json.dumps(
                     row.to_dict(), ensure_ascii=False, default=str
@@ -484,10 +488,10 @@ def main():
         help="Indicators to include (task=indicators only).",
     )
     parser.add_argument(
-        "--n-samples", type=int, default=2,
+        "--n-samples", type=int, default=0,
         help=(
             "Additional SC samples per (row, indicator). "
-            "0 = no SC (single call). "
+            "Default 0 = no SC (single call). "
             "2 = 1 initial + 2 SC = 3 total votes. "
             "Matches --n-samples in main.py."
         ),

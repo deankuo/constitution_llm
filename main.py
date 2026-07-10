@@ -844,29 +844,36 @@ Examples:
 
   # --- INDICATORS pipeline (main, leader level) ---
 
-  # Predict all indicators (default: single mode)
-  python main.py --pipeline indicators --indicators constitution sovereign federalism checks collegiality petition assembly entry exit symbolism
+  # Predict all non-constitution indicators (default: single mode, no verification)
+  python main.py --pipeline indicators --indicators sovereign federalism checks_local checks_military checks_clergy checks_aristocracy checks_bourgeoisie checks_bureaucracy checks_judiciary checks_assembly checks_council collegiality petition assembly entry exit symbolism
+
+  # Constitution runs as its own task (multiple mode)
+  python main.py --pipeline indicators --mode multiple --indicators constitution
+
+  # Prompt persona variants (single/sequential mode only)
+  python main.py --pipeline indicators --indicators sovereign assembly --prompt-version v2 --test 10
 
   # With agentic search
-  python main.py --pipeline indicators --indicators sovereign assembly checks --search-mode agentic --test 10
+  python main.py --pipeline indicators --indicators sovereign assembly --search-mode agentic --test 10
 
-  # With forced search
-  python main.py --pipeline indicators --indicators sovereign assembly checks --search-mode forced --test 10
+  # With forced search (Wikipedia → DuckDuckGo → Serper)
+  python main.py --pipeline indicators --indicators sovereign assembly --search-mode forced --test 10
 
-  # With Gemini Batch API (50% cost savings, no search)
-  python main.py --pipeline indicators --indicators sovereign assembly checks --models gemini-3.1-pro-preview --use-batch --test 20
+  # With self-consistency verification (3 total votes) on assembly
+  python main.py --pipeline indicators --indicators assembly --verify self_consistency --n-samples 2 --verify-indicators assembly
 
-  # With self-consistency verification on assembly
-  python main.py --pipeline indicators --indicators assembly --verify self_consistency --verify-indicators assembly
+  # Sequential mode: single prompt with shuffled section order
+  python main.py --pipeline indicators --mode sequential --indicators sovereign federalism collegiality assembly entry exit symbolism --random-sequence
 
-  # Multiple prompt mode
-  python main.py --pipeline indicators --mode multiple --indicators sovereign federalism checks collegiality petition assembly entry exit symbolism
-
-  # Sequential mode with a user-defined indicator order
-  python main.py --pipeline indicators --mode sequential --indicators sovereign federalism checks collegiality assembly entry exit symbolism --sequence assembly sovereign checks collegiality federalism entry exit symbolism
+  # Sequential mode with a user-defined section order
+  python main.py --pipeline indicators --mode sequential --indicators sovereign assembly collegiality --sequence assembly sovereign collegiality
 
   # CoVe verification with a Bedrock verifier model
-  python main.py --pipeline indicators --indicators constitution --verify cove --verify-indicators constitution --verifier-model us.anthropic.claude-sonnet-4-5-20250929-v1:0
+  python main.py --pipeline indicators --mode multiple --indicators constitution --verify cove --verify-indicators constitution --verifier-model us.anthropic.claude-sonnet-4-5-20250929-v1:0
+
+  # NOTE: Gemini Batch API runs (full dataset, 50% cost savings) use the standalone flow:
+  #   python src/build_batch_jsonl.py --task indicators --input data/plt_leaders_data.csv --output data/temp/batch.jsonl
+  #   python pipeline/jsonl_batch_runner.py --input data/temp/batch.jsonl --dataset data/plt_leaders_data.csv --output data/results/exp001.csv
         """
     )
 
@@ -916,16 +923,6 @@ Examples:
             '                      Grounding metadata stored per indicator / per SC slot.'
         )
     )
-    parser.add_argument(
-        '--use-batch',
-        action='store_true',
-        help=(
-            'Use Gemini Batch API for main predictions (50%% cost savings).\n'
-            'Only works with Gemini models. Verification runs synchronously after batch.\n'
-            'Compatible with --search-mode forced and --search-mode gemini_grounding.'
-        )
-    )
-
     # API configuration
     parser.add_argument(
         '--api-key', '-k',
@@ -1011,8 +1008,8 @@ Examples:
     parser.add_argument(
         '--verify',
         choices=['none', 'self_consistency', 'cove', 'both'],
-        default='self_consistency',
-        help='Verification method to use (default: self_consistency)'
+        default='none',
+        help='Verification method to use (default: none)'
     )
     parser.add_argument(
         '--verify-indicators',
@@ -1027,8 +1024,11 @@ Examples:
     parser.add_argument(
         '--n-samples',
         type=int,
-        default=2,
-        help='Number of samples for self-consistency'
+        default=0,
+        help=(
+            'Number of ADDITIONAL self-consistency samples (default: 0 = single call, no SC). '
+            'Only used with --verify self_consistency. Example: --n-samples 2 → 3 total votes.'
+        )
     )
     parser.add_argument(
         '--sc-temperatures',
@@ -1063,6 +1063,17 @@ Examples:
         '--random-sequence',
         action='store_true',
         help='Randomize indicator order in sequential mode'
+    )
+    parser.add_argument(
+        '--prompt-version',
+        choices=['v1', 'v2', 'v3'],
+        default='v1',
+        help=(
+            'Single/sequential prompt variant (default: v1; ignored in multiple mode).\n'
+            '  v1 — political scientist framing, full definitions.\n'
+            '  v2 — expert annotator framing with step-by-step instructions.\n'
+            '  v3 — compact/minimal token-efficient framing.'
+        )
     )
     parser.add_argument(
         '--reasoning',
@@ -1125,28 +1136,6 @@ Examples:
                 "Gemini grounding is a Gemini-specific feature."
             )
 
-    # Validate batch configuration
-    if args.use_batch:
-        model_arg_check = args.models[0]
-        model_id_check = model_arg_check.split('=', 1)[-1] if '=' in model_arg_check else model_arg_check
-        if not any(model_id_check.startswith(prefix) for prefix in GEMINI_MODELS):
-            raise ValueError(
-                f"--use-batch is only supported with Gemini models, got '{model_id_check}'. "
-                "Batch API is a Gemini-specific feature."
-            )
-        if search_mode == SearchMode.AGENTIC:
-            raise ValueError(
-                "--use-batch is incompatible with --search-mode agentic. "
-                "Agentic search requires multi-turn LLM calls which batch API does not support.\n"
-                "Use --search-mode forced --use-batch instead (pre-search + batch)."
-            )
-        if args.pipeline == 'constitution':
-            raise ValueError(
-                "--use-batch is not supported by --pipeline constitution (legacy, single-model, "
-                "synchronous only); the flag would otherwise be silently ignored. "
-                "Use --pipeline indicators --indicators constitution --use-batch instead."
-            )
-
     # Logprobs support notice
     if args.logprobs:
         model_arg_for_check = args.models[0]
@@ -1160,8 +1149,6 @@ Examples:
         print("Pipeline: INDICATORS (modular, all indicators supported)")
         print(f"Input:    {args.input}")
         print(f"Search:   {search_mode.value}")
-        if args.use_batch:
-            print("Batch:    Gemini Batch API (50% cost savings)")
 
         # Validate indicator names early to catch typos before any API calls.
         _valid_set = set(ALL_INDICATORS)
@@ -1170,6 +1157,21 @@ Examples:
             parser.error(
                 f"Unknown indicator(s): {_bad}. Valid options: {ALL_INDICATORS}"
             )
+
+        # constitution has its own dedicated prompt and cannot be part of the
+        # combined single/sequential prompt (it would be silently skipped).
+        if args.mode in ('single', 'sequential') and 'constitution' in args.indicators:
+            parser.error(
+                "'constitution' is not supported in single/sequential mode — it uses its own "
+                "dedicated prompt (prompts/constitution.py). Run it with --mode multiple, or "
+                "as a separate batch task: src/build_batch_jsonl.py --task constitution."
+            )
+
+        # Task label used to prefix row-level search-metadata columns so that
+        # outputs from the constitution / indicators / elections tasks can be
+        # merged into one dataset without column collisions (matches the
+        # naming convention of pipeline/jsonl_batch_runner.py).
+        search_task_label = 'constitution' if args.indicators == ['constitution'] else 'indicators'
 
         # When --verify is set but --verify-indicators is omitted, verify all
         # predicted indicators rather than silently doing nothing.
@@ -1203,6 +1205,7 @@ Examples:
                 sequence=args.sequence,
                 random_sequence=args.random_sequence,
                 force_search=False,
+                prompt_version=args.prompt_version,
             )
 
             results = []
@@ -1216,6 +1219,11 @@ Examples:
                 pred = search_predictor.predict(polity, name, start_year, end_year)
                 result_dict = row.to_dict()
                 result_dict.update(pred.to_dict())
+                # Prefix row-level search columns by task so merged task outputs
+                # (constitution / indicators / elections) never collide.
+                for _col in ('search_queries', 'urls_used', 'web_information'):
+                    if _col in result_dict:
+                        result_dict[f'{search_task_label}_{_col}'] = result_dict.pop(_col)
                 results.append(result_dict)
                 time.sleep(args.delay)
 
@@ -1245,270 +1253,183 @@ Examples:
             return
 
         # ── Search mode: forced ───────────────────────────────────────────
-        # Two sub-paths: forced + batch  OR  forced + synchronous
+        # Tiered pre-search (Wikipedia → DuckDuckGo → Serper) injected into the
+        # prompt, then synchronous prediction. For batch runs, use the standalone
+        # flow instead: src/build_batch_jsonl.py --search-mode pre_search followed
+        # by pipeline/jsonl_batch_runner.py.
         if search_mode == SearchMode.FORCED:
-            if args.use_batch:
-                # Pre-search + Gemini Batch API (SC embedded in batch)
-                from pipeline.pre_search import PreSearcher
-                from pipeline.jsonl_batch_runner import run_inline_batch
+            from pipeline.pre_search import PreSearcher
+            from prompts.base_builder import PromptOutput
 
-                config = PredictionConfig(
-                    mode=PromptMode.MULTIPLE,  # batch requires multiple mode (one indicator per prompt)
-                    indicators=args.indicators,
-                    verify=VerificationType.NONE,  # SC handled inside batch via n_samples
-                    verify_indicators=[],
-                    model=model_identifier,
-                    verifier_model=args.verifier_model,
-                    temperature=args.temperature,
-                    max_tokens=args.max_tokens,
-                    top_p=args.top_p,
-                    sc_n_samples=0,
-                    sc_temperatures=args.sc_temperatures,
-                    sequence=args.sequence,
-                    random_sequence=args.random_sequence,
-                    reasoning=args.reasoning,
-                    use_logprobs=args.logprobs,
-                )
-                predictor = Predictor(config, api_keys)
+            config = PredictionConfig(
+                mode=PromptMode(args.mode),
+                indicators=args.indicators,
+                verify=VerificationType(args.verify),
+                verify_indicators=_verify_indicators,
+                model=model_identifier,
+                verifier_model=args.verifier_model,
+                temperature=args.temperature,
+                max_tokens=args.max_tokens,
+                top_p=args.top_p,
+                sc_n_samples=args.n_samples,
+                sc_temperatures=args.sc_temperatures,
+                sequence=args.sequence,
+                random_sequence=args.random_sequence,
+                reasoning=args.reasoning,
+                use_logprobs=args.logprobs,
+                prompt_version=args.prompt_version,
+            )
+            predictor = Predictor(config, api_keys)
 
-                df = load_polity_data(args.input)
-                if args.test:
-                    df = _parse_test_argument(args.test, df)
+            df = load_polity_data(args.input)
+            if args.test:
+                df = _parse_test_argument(args.test, df)
 
-                # Phase 1: Pre-search and enrich prompts via monkey-patch
-                print("\n[Pre-Search] Running deterministic search for all rows...")
-                pre_searcher = PreSearcher(serper_api_key=api_keys.get('serper', ''))
-                original_build = predictor.prompt_builder.build
+            pre_searcher = PreSearcher(serper_api_key=api_keys.get('serper', ''))
 
-                def _build_with_search(polity, name, start_year, end_year):
-                    search_result = pre_searcher.search(polity, name, start_year, end_year)
-                    prompts = original_build(polity, name, start_year, end_year)
-                    enriched = []
-                    for p in prompts:
-                        enriched_user = pre_searcher.enrich_prompt(p.user_prompt, search_result)
-                        from prompts.base_builder import PromptOutput
-                        enriched.append(PromptOutput(
-                            system_prompt=p.system_prompt,
-                            user_prompt=enriched_user,
-                            indicators=p.indicators,
-                            metadata={**p.metadata, 'search_queries': search_result.search_queries,
-                                      'urls_used': search_result.urls_used,
-                                      'sources_used': search_result.sources_used,
-                                      'search_context': search_result.context},
-                        ))
-                    return enriched
+            # Track last search result via closure for metadata extraction
+            _last_search = [None]
+            original_build = predictor.prompt_builder.build
 
-                predictor.prompt_builder.build = _build_with_search
+            def _build_with_search_sync(polity, name, start_year, end_year):
+                search_result = pre_searcher.search(polity, name, start_year, end_year)
+                _last_search[0] = search_result
+                prompts = original_build(polity, name, start_year, end_year)
+                enriched = []
+                for p in prompts:
+                    enriched_user = pre_searcher.enrich_prompt(p.user_prompt, search_result)
+                    enriched.append(PromptOutput(
+                        system_prompt=p.system_prompt,
+                        user_prompt=enriched_user,
+                        indicators=p.indicators,
+                        metadata={**p.metadata,
+                                  'search_queries': search_result.search_queries,
+                                  'urls_used': search_result.urls_used,
+                                  'sources_used': search_result.sources_used,
+                                  'search_context': search_result.context},
+                    ))
+                return enriched
 
-                # Phase 2: Run batch (SC embedded via n_samples)
-                results_df = run_inline_batch(
-                    df=df,
-                    indicators=args.indicators,
-                    model=model_identifier,
-                    api_key=api_keys.get('gemini', ''),
+            predictor.prompt_builder.build = _build_with_search_sync
+
+            is_single_or_seq = args.mode in ('single', 'sequential')
+
+            results = []
+            for idx in tqdm(range(len(df)), desc="Processing (forced search)"):
+                row = df.iloc[idx]
+                polity = str(row.get(COL_TERRITORY_NAME, "Unknown"))
+                name = str(row.get(COL_LEADER_NAME, "Unknown"))
+                start_year = int(row[COL_START_YEAR])
+                end_year = None if pd.isna(row[COL_END_YEAR]) else int(row[COL_END_YEAR])
+
+                prediction = predictor.predict(polity, name, start_year, end_year)
+                result_dict = row.to_dict()
+                result_dict.update(prediction.to_dict())
+
+                # Add search metadata from the tiered pre-search, prefixed by task
+                # so merged task outputs never collide.
+                sr = _last_search[0]
+                if sr:
+                    if sr.search_queries:
+                        result_dict[f'{search_task_label}_search_queries'] = ' | '.join(sr.search_queries)
+                    if sr.urls_used:
+                        result_dict[f'{search_task_label}_urls_used'] = ' | '.join(sr.urls_used)
+                    if is_single_or_seq and sr.context:
+                        result_dict[f'{search_task_label}_web_information'] = sr.context
+
+                results.append(result_dict)
+                time.sleep(args.delay)
+
+            results_df = pd.DataFrame(results)
+            os.makedirs(os.path.dirname(args.output) or '.', exist_ok=True)
+
+            # Save CSV
+            results_df.to_csv(args.output, index=False)
+
+            # Save JSON (includes web_information for single/sequential mode)
+            json_path = args.output.replace('.csv', '.json')
+            records = results_df.to_dict(orient='records')
+            with open(json_path, 'w', encoding='utf-8') as f:
+                json.dump(records, f, ensure_ascii=False, indent=2, default=str)
+
+            # Save cost report
+            logs_dir = Path('data/logs')
+            logs_dir.mkdir(parents=True, exist_ok=True)
+            cost_path = logs_dir / f'{Path(args.output).stem}_costs.json'
+            predictor.cost_tracker.save_report(str(cost_path))
+
+            print(f"\nResults saved to: {args.output}")
+            print(f"JSON saved to: {json_path}")
+            predictor.cost_tracker.print_summary()
+            if not args.test:
+                log_experiment(
+                    output_path=args.output, pipeline='indicators',
+                    prompt_style=args.mode, model=model_identifier,
+                    indicators=args.indicators, verify=args.verify,
+                    search_mode=args.search_mode, total_entries=len(df),
+                    cost_summary=predictor.cost_tracker.get_summary(),
                     n_samples=args.n_samples,
-                    output_path=args.output,
-                    prompt_builder=predictor.prompt_builder,
-                    sc_temperatures=args.sc_temperatures,
-                    max_tokens=args.max_tokens,
-                    reasoning=args.reasoning,
                 )
-                if not args.test:
-                    log_experiment(
-                        output_path=args.output, pipeline='indicators',
-                        prompt_style=args.mode, model=model_identifier,
-                        indicators=args.indicators, verify=args.verify,
-                        search_mode=args.search_mode, total_entries=len(df),
-                        cost_summary={}, n_samples=args.n_samples,
-                    )
-                print("\nLeader-level pipeline (forced search + batch) completed successfully!")
-                return
-
-            else:
-                # Forced search without batch: use PreSearcher (tiered) + regular Predictor
-                # Same tiered search as batch path: Wikipedia → DuckDuckGo → Serper
-                from pipeline.pre_search import PreSearcher
-                from prompts.base_builder import PromptOutput
-
-                config = PredictionConfig(
-                    mode=PromptMode(args.mode),
-                    indicators=args.indicators,
-                    verify=VerificationType(args.verify),
-                    verify_indicators=_verify_indicators,
-                    model=model_identifier,
-                    verifier_model=args.verifier_model,
-                    temperature=args.temperature,
-                    max_tokens=args.max_tokens,
-                    top_p=args.top_p,
-                    sc_n_samples=args.n_samples,
-                    sc_temperatures=args.sc_temperatures,
-                    sequence=args.sequence,
-                    random_sequence=args.random_sequence,
-                    reasoning=args.reasoning,
-                    use_logprobs=args.logprobs,
-                )
-                predictor = Predictor(config, api_keys)
-
-                df = load_polity_data(args.input)
-                if args.test:
-                    df = _parse_test_argument(args.test, df)
-
-                pre_searcher = PreSearcher(serper_api_key=api_keys.get('serper', ''))
-
-                # Track last search result via closure for metadata extraction
-                _last_search = [None]
-                original_build = predictor.prompt_builder.build
-
-                def _build_with_search_sync(polity, name, start_year, end_year):
-                    search_result = pre_searcher.search(polity, name, start_year, end_year)
-                    _last_search[0] = search_result
-                    prompts = original_build(polity, name, start_year, end_year)
-                    enriched = []
-                    for p in prompts:
-                        enriched_user = pre_searcher.enrich_prompt(p.user_prompt, search_result)
-                        enriched.append(PromptOutput(
-                            system_prompt=p.system_prompt,
-                            user_prompt=enriched_user,
-                            indicators=p.indicators,
-                            metadata={**p.metadata,
-                                      'search_queries': search_result.search_queries,
-                                      'urls_used': search_result.urls_used,
-                                      'sources_used': search_result.sources_used,
-                                      'search_context': search_result.context},
-                        ))
-                    return enriched
-
-                predictor.prompt_builder.build = _build_with_search_sync
-
-                is_single_or_seq = args.mode in ('single', 'sequential')
-
-                results = []
-                for idx in tqdm(range(len(df)), desc="Processing (forced search)"):
-                    row = df.iloc[idx]
-                    polity = str(row.get(COL_TERRITORY_NAME, "Unknown"))
-                    name = str(row.get(COL_LEADER_NAME, "Unknown"))
-                    start_year = int(row[COL_START_YEAR])
-                    end_year = None if pd.isna(row[COL_END_YEAR]) else int(row[COL_END_YEAR])
-
-                    prediction = predictor.predict(polity, name, start_year, end_year)
-                    result_dict = row.to_dict()
-                    result_dict.update(prediction.to_dict())
-
-                    # Add search metadata from the tiered pre-search
-                    sr = _last_search[0]
-                    if sr:
-                        if sr.search_queries:
-                            result_dict['search_queries'] = ' | '.join(sr.search_queries)
-                        if sr.urls_used:
-                            result_dict['urls_used'] = ' | '.join(sr.urls_used)
-                        if is_single_or_seq and sr.context:
-                            result_dict['web_information'] = sr.context
-
-                    results.append(result_dict)
-                    time.sleep(args.delay)
-
-                results_df = pd.DataFrame(results)
-                os.makedirs(os.path.dirname(args.output) or '.', exist_ok=True)
-
-                # Save CSV
-                results_df.to_csv(args.output, index=False)
-
-                # Save JSON (includes web_information for single/sequential mode)
-                json_path = args.output.replace('.csv', '.json')
-                records = results_df.to_dict(orient='records')
-                with open(json_path, 'w', encoding='utf-8') as f:
-                    json.dump(records, f, ensure_ascii=False, indent=2, default=str)
-
-                # Save cost report
-                logs_dir = Path('data/logs')
-                logs_dir.mkdir(parents=True, exist_ok=True)
-                cost_path = logs_dir / f'{Path(args.output).stem}_costs.json'
-                predictor.cost_tracker.save_report(str(cost_path))
-
-                print(f"\nResults saved to: {args.output}")
-                print(f"JSON saved to: {json_path}")
-                predictor.cost_tracker.print_summary()
-                if not args.test:
-                    log_experiment(
-                        output_path=args.output, pipeline='indicators',
-                        prompt_style=args.mode, model=model_identifier,
-                        indicators=args.indicators, verify=args.verify,
-                        search_mode=args.search_mode, total_entries=len(df),
-                        cost_summary=predictor.cost_tracker.get_summary(),
-                        n_samples=args.n_samples,
-                    )
-                print("\nLeader-level pipeline (forced search) completed successfully!")
-                return
+            print("\nLeader-level pipeline (forced search) completed successfully!")
+            return
 
         # ── Search mode: gemini_grounding ─────────────────────────────────
         # Gemini native Google Search grounding; grounding metadata stored per
-        # indicator / per SC slot.  Batch path: tools config embedded at build
-        # time and auto-detected by the runner.  Sync path: use_grounding=True
-        # on PredictionConfig so GeminiLLM always adds the search tool.
+        # indicator / per SC slot.  use_grounding=True on PredictionConfig so
+        # GeminiLLM always adds the search tool.  For batch runs, use the
+        # standalone flow: src/build_batch_jsonl.py --search-mode gemini_grounding
+        # followed by pipeline/jsonl_batch_runner.py.
         if search_mode == SearchMode.GEMINI_GROUNDING:
             df = load_polity_data(args.input)
             if args.test:
                 df = _parse_test_argument(args.test, df)
 
-            if args.use_batch:
-                from pipeline.jsonl_batch_runner import run_inline_batch
-                results_df = run_inline_batch(
-                    df=df,
-                    indicators=args.indicators,
-                    model=model_identifier,
-                    api_key=api_keys.get('gemini', ''),
+            config = PredictionConfig(
+                mode=PromptMode(args.mode),
+                indicators=args.indicators,
+                verify=VerificationType(args.verify),
+                verify_indicators=_verify_indicators,
+                model=model_identifier,
+                verifier_model=args.verifier_model,
+                temperature=args.temperature,
+                max_tokens=args.max_tokens,
+                top_p=args.top_p,
+                sc_n_samples=args.n_samples,
+                sc_temperatures=args.sc_temperatures,
+                sequence=args.sequence,
+                random_sequence=args.random_sequence,
+                reasoning=args.reasoning,
+                use_logprobs=args.logprobs,
+                use_grounding=True,
+                prompt_version=args.prompt_version,
+            )
+            predictor = Predictor(config, api_keys)
+            batch_config = BatchConfig(
+                checkpoint_interval=args.checkpoint_interval,
+                delay_between_calls=args.delay,
+                max_retries=args.max_retries,
+                retry_delay=args.retry_delay,
+                max_workers=args.parallel_rows,
+            )
+            runner = BatchRunner(predictor=predictor, config=batch_config, output_path=args.output)
+            results_df = runner.run(df)
+            predictor.cost_tracker.print_summary()
+            if not args.test:
+                log_experiment(
+                    output_path=args.output, pipeline='indicators',
+                    prompt_style=args.mode, model=model_identifier,
+                    indicators=args.indicators, verify=args.verify,
+                    search_mode=args.search_mode, total_entries=len(df),
+                    cost_summary=predictor.cost_tracker.get_summary(),
                     n_samples=args.n_samples,
-                    output_path=args.output,
-                    sc_temperatures=args.sc_temperatures,
-                    max_tokens=args.max_tokens,
-                    reasoning=args.reasoning,
-                    use_grounding=True,
                 )
-                print("\n[INFO] Cost tracking not available in Gemini Batch API mode.")
-            else:
-                config = PredictionConfig(
-                    mode=PromptMode(args.mode),
-                    indicators=args.indicators,
-                    verify=VerificationType(args.verify),
-                    verify_indicators=_verify_indicators,
-                    model=model_identifier,
-                    verifier_model=args.verifier_model,
-                    temperature=args.temperature,
-                    max_tokens=args.max_tokens,
-                    top_p=args.top_p,
-                    sc_n_samples=args.n_samples,
-                    sc_temperatures=args.sc_temperatures,
-                    sequence=args.sequence,
-                    random_sequence=args.random_sequence,
-                    reasoning=args.reasoning,
-                    use_logprobs=args.logprobs,
-                    use_grounding=True,
-                )
-                predictor = Predictor(config, api_keys)
-                batch_config = BatchConfig(
-                    checkpoint_interval=args.checkpoint_interval,
-                    delay_between_calls=args.delay,
-                    max_retries=args.max_retries,
-                    retry_delay=args.retry_delay,
-                    max_workers=args.parallel_rows,
-                )
-                runner = BatchRunner(predictor=predictor, config=batch_config, output_path=args.output)
-                results_df = runner.run(df)
-                predictor.cost_tracker.print_summary()
-                if not args.test:
-                    log_experiment(
-                        output_path=args.output, pipeline='indicators',
-                        prompt_style=args.mode, model=model_identifier,
-                        indicators=args.indicators, verify=args.verify,
-                        search_mode=args.search_mode, total_entries=len(df),
-                        cost_summary=predictor.cost_tracker.get_summary(),
-                        n_samples=args.n_samples,
-                    )
             print("\nLeader-level pipeline (Gemini grounding) completed successfully!")
             return
 
         # ── Search mode: none (default) ───────────────────────────────────
-        # Two sub-paths: batch (Gemini Batch API) OR synchronous (BatchRunner)
+        # Synchronous prediction via BatchRunner. For Gemini Batch API runs
+        # (50% cost savings on the full dataset), use the standalone flow:
+        # src/build_batch_jsonl.py followed by pipeline/jsonl_batch_runner.py.
 
         # Create prediction config
         config = PredictionConfig(
@@ -1527,6 +1448,7 @@ Examples:
             random_sequence=args.random_sequence,
             reasoning=args.reasoning,
             use_logprobs=args.logprobs,
+            prompt_version=args.prompt_version,
         )
 
         # Create predictor
@@ -1548,34 +1470,14 @@ Examples:
         if args.test:
             df = _parse_test_argument(args.test, df)
 
-        if args.use_batch:
-            # Gemini Batch API path (no search); SC embedded in batch via n_samples
-            from pipeline.jsonl_batch_runner import run_inline_batch
-            results_df = run_inline_batch(
-                df=df,
-                indicators=args.indicators,
-                model=model_identifier,
-                api_key=api_keys.get('gemini', ''),
-                n_samples=args.n_samples,
-                output_path=args.output,
-                sc_temperatures=args.sc_temperatures,
-                max_tokens=args.max_tokens,
-                reasoning=args.reasoning,
-            )
-        else:
-            # Standard synchronous BatchRunner
-            runner = BatchRunner(
-                predictor=predictor,
-                config=batch_config,
-                output_path=args.output
-            )
-            results_df = runner.run(df)
+        runner = BatchRunner(
+            predictor=predictor,
+            config=batch_config,
+            output_path=args.output
+        )
+        results_df = runner.run(df)
 
-        # Print cost summary (batch mode bypasses predictor so tracker shows $0)
-        if args.use_batch:
-            print("\n[INFO] Cost tracking not available in Gemini Batch API mode.")
-        else:
-            predictor.cost_tracker.print_summary()
+        predictor.cost_tracker.print_summary()
 
         if not args.test:
             log_experiment(

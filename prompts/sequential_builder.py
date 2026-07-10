@@ -1,55 +1,68 @@
 """
 Sequential Prompt Builder
 
-This module provides a prompt builder that combines all indicators
-sequentially in a single prompt. The order of indicators can be
-specified by the user or randomized.
+Builds ONE combined prompt (same format as single mode) in which the indicator
+sections appear in a controllable order. Use it to test order effects within
+the single prompt:
 
-This approach differs from:
-- SinglePromptBuilder: Merges indicators into unified prompt
-- MultiplePromptBuilder: Separate LLM calls per indicator
-- SequentialPromptBuilder: One LLM call with N sequential sections
+- SinglePromptBuilder:     all indicators in one prompt, fixed default order
+- MultiplePromptBuilder:   separate LLM call per indicator
+- SequentialPromptBuilder: single-mode prompt with user-defined or shuffled
+                           section order (this module)
 
-The key feature is that each indicator maintains its EXACT original prompt
-structure from indicators.py and constitution.py.
+The prompt content is identical to the selected single-prompt version
+(v1/v2/v3 from single_builder.py) — only the ORDER of the indicator sections
+differs. This isolates section order as the experimental variable.
+
+NOTE: constitution is NOT supported here. It uses its own dedicated prompt
+(prompts/constitution.py) and runs as a separate task (--mode multiple or the
+batch constitution task).
 """
 
 import random
 from typing import List, Optional
 
 from prompts.base_builder import BasePromptBuilder, PromptOutput
-from prompts.constitution import get_prompt as get_constitution_prompt
-from prompts.indicators import get_prompt as get_indicator_prompt, INDICATOR_CONFIGS
+from prompts.single_builder import (
+    SinglePromptBuilder,
+    SinglePromptBuilderV2,
+    SinglePromptBuilderV3,
+    get_all_indicators as _single_default_indicators,
+)
+
+_BUILDER_CLS = {
+    "v1": SinglePromptBuilder,
+    "v2": SinglePromptBuilderV2,
+    "v3": SinglePromptBuilderV3,
+}
 
 
 class SequentialPromptBuilder(BasePromptBuilder):
     """
-    Combines all indicator prompts sequentially in a single prompt.
-
-    This builder creates one comprehensive prompt by placing all indicator
-    sections in sequence. Each indicator uses its exact original prompt from
-    indicators.py or constitution.py.
+    Single-mode prompt with a controllable indicator section order.
 
     The order can be:
-    - User-specified via sequence parameter
-    - Randomized via random_order parameter
-    - Default order (constitution first, then others in standard order)
+    - User-specified via the ``sequence`` parameter
+    - Randomized via ``random_order=True`` (shuffled once at construction, so
+      every row in a run sees the same order — comparable across rows)
+    - Default single-mode order otherwise
 
     Example:
         # User-specified order
         builder = SequentialPromptBuilder(
-            indicators=['constitution', 'assembly', 'collegiality'],
-            sequence=['assembly', 'constitution', 'collegiality']
+            indicators=['sovereign', 'assembly', 'collegiality'],
+            sequence=['assembly', 'sovereign', 'collegiality']
         )
 
-        # Random order
+        # Random order, token-efficient v3 prompt
         builder = SequentialPromptBuilder(
-            indicators=['constitution', 'sovereign', 'assembly'],
-            random_order=True
+            indicators=['sovereign', 'assembly'],
+            random_order=True,
+            prompt_version='v3'
         )
 
-        prompts = builder.build("Roman Republic", -509, -27)
-        # Returns single PromptOutput covering all 3 indicators in specified order
+        prompts = builder.build("Roman Republic", "Julius Caesar", -49, -44)
+        # Returns a single PromptOutput covering all indicators in the chosen order
     """
 
     def __init__(
@@ -57,60 +70,71 @@ class SequentialPromptBuilder(BasePromptBuilder):
         indicators: Optional[List[str]] = None,
         sequence: Optional[List[str]] = None,
         random_order: bool = False,
-        reasoning: bool = True
+        reasoning: bool = True,
+        prompt_version: str = "v1",
     ):
         """
-        Initialize the sequential prompt builder.
-
         Args:
-            indicators: List of indicators to include. If None, uses all 7 indicators.
-            sequence: Specific order of indicators. If provided, must include all indicators.
-            random_order: If True, randomize the order of indicators.
-            reasoning: Whether to include reasoning for non-constitution indicators (default True).
+            indicators: Indicators to include. Defaults to all single-mode indicators.
+            sequence: Explicit section order; must contain exactly the same indicators.
+            random_order: Shuffle the section order (once, at construction).
+            reasoning: Include per-indicator reasoning fields (default True).
+            prompt_version: Which single-prompt variant to use: 'v1', 'v2', or 'v3'.
 
         Raises:
-            ValueError: If sequence doesn't match indicators or contains invalid indicators.
+            ValueError: If constitution is requested, sequence mismatches indicators,
+                        both sequence and random_order are given, or prompt_version
+                        is unknown.
         """
-        # Default to all indicators if not specified
         if indicators is None:
-            indicators = ['constitution', 'sovereign', 'federalism',
-                          'checks_local', 'checks_military', 'checks_clergy', 'checks_aristocracy',
-                          'checks_bourgeoisie', 'checks_bureaucracy', 'checks_judiciary',
-                          'checks_assembly', 'checks_council',
-                          'collegiality', 'petition', 'assembly', 'entry', 'exit', 'symbolism']
+            indicators = _single_default_indicators()
+
+        if "constitution" in indicators:
+            raise ValueError(
+                "constitution is not supported in sequential mode: it uses its own "
+                "dedicated prompt (prompts/constitution.py). Run it as a separate "
+                "task instead (e.g. --indicators constitution --mode multiple, or "
+                "the batch constitution task)."
+            )
 
         super().__init__(indicators, reasoning)
 
-        # Validate and set sequence
         if sequence is not None and random_order:
             raise ValueError("Cannot specify both 'sequence' and 'random_order=True'")
 
+        if prompt_version not in _BUILDER_CLS:
+            raise ValueError(
+                f"Unknown prompt_version: {prompt_version!r}. "
+                f"Must be one of {sorted(_BUILDER_CLS)}."
+            )
+        self.prompt_version = prompt_version
+
         if sequence is not None:
-            # Validate that sequence contains exactly the same indicators
             if set(sequence) != set(self.indicators):
                 raise ValueError(
-                    f"Sequence {sequence} must contain exactly the same indicators as {self.indicators}"
+                    f"Sequence {sequence} must contain exactly the same indicators "
+                    f"as {self.indicators}"
                 )
-            self.sequence = sequence
+            self.sequence = list(sequence)
         elif random_order:
             self.sequence = self.indicators.copy()
             random.shuffle(self.sequence)
         else:
-            # Default order: constitution first, then others
             self.sequence = self._default_order()
 
-    def _default_order(self) -> List[str]:
-        """
-        Get default ordering for indicators.
+        # The inner single-prompt builder renders sections in list order, so the
+        # sequential prompt is exactly the single prompt with reordered sections.
+        self._inner = _BUILDER_CLS[prompt_version](
+            indicators=self.sequence, reasoning=reasoning
+        )
 
-        Returns constitution first, then others in standard order.
-        """
-        default = ['constitution', 'sovereign', 'federalism',
-                   'checks_local', 'checks_military', 'checks_clergy', 'checks_aristocracy',
-                   'checks_bourgeoisie', 'checks_bureaucracy', 'checks_judiciary',
-                   'checks_assembly', 'checks_council',
-                   'collegiality', 'petition', 'assembly', 'entry', 'exit', 'symbolism']
-        return [ind for ind in default if ind in self.indicators]
+    def _default_order(self) -> List[str]:
+        """Default ordering: single-mode default order filtered to selected indicators."""
+        default = _single_default_indicators()
+        ordered = [ind for ind in default if ind in self.indicators]
+        # Preserve any indicators not covered by the default list (defensive)
+        ordered += [ind for ind in self.indicators if ind not in ordered]
+        return ordered
 
     def build(
         self,
@@ -120,204 +144,26 @@ class SequentialPromptBuilder(BasePromptBuilder):
         end_year: Optional[int]
     ) -> List[PromptOutput]:
         """
-        Build a single sequential prompt with all indicators.
-
-        Args:
-            polity: Name of the polity
-            name: Name of the leader
-            start_year: Start year of the leader's tenure
-            end_year: End year of the leader's tenure (None if unknown/unavailable)
+        Build a single combined prompt with sections in ``self.sequence`` order.
 
         Returns:
-            List containing a single PromptOutput with all indicators in sequence
+            List containing one PromptOutput covering all indicators.
         """
-        system_prompt = self._build_sequential_system_prompt(self.sequence, polity, name, start_year, end_year)
-        user_prompt = self._build_sequential_user_prompt(self.sequence, polity, name, start_year, end_year)
-
+        inner = self._inner.build(polity, name, start_year, end_year)[0]
         return [PromptOutput(
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            indicators=self.sequence,  # Preserve order in metadata
+            system_prompt=inner.system_prompt,
+            user_prompt=inner.user_prompt,
+            indicators=list(self.sequence),
             metadata={
-                'mode': 'sequential',
-                'sequence': self.sequence,
-                'num_indicators': len(self.sequence)
-            }
+                "mode": "sequential",
+                "version": self.prompt_version,
+                "sequence": list(self.sequence),
+                "num_indicators": len(self.sequence),
+            },
         )]
 
-    def _build_sequential_system_prompt(
-        self,
-        sequence: List[str],
-        polity: str,
-        name: str,
-        start_year: int,
-        end_year: Optional[int]
-    ) -> str:
-        """
-        Build a sequential system prompt by concatenating existing prompts.
-
-        Args:
-            sequence: Ordered list of indicators
-            polity: Polity name
-            name: Leader name
-            start_year: Start year of the leader's tenure
-            end_year: End year of the leader's tenure (None if unknown/unavailable)
-
-        Returns:
-            Combined system prompt with all indicators in sequence
-        """
-        prompt = f"""You are a professional political scientist and historian specializing in comparative politics across different historical periods.
-
-Your task is to analyze the leader "{name}" of "{polity}" ({start_year} to {end_year}) across {len(sequence)} political indicators.
-
-You will analyze each indicator sequentially. Each indicator has its own definition and coding rules provided below.
-
-⚠️ **CRITICAL OUTPUT REQUIREMENT:**
-You MUST provide predictions for ALL {len(sequence)} indicators in a SINGLE JSON object at the end.
-
-═══════════════════════════════════════════════════════════════════════
-
-"""
-
-        # Add each indicator's system prompt in sequence
-        for i, indicator in enumerate(sequence, 1):
-            prompt += f"## INDICATOR {i}/{len(sequence)}: {indicator.upper()}\n\n"
-
-            if indicator == 'constitution':
-                system_prompt, _ = get_constitution_prompt(polity, name, start_year, end_year, reasoning=self.reasoning)
-                prompt += system_prompt
-            else:
-                # Use indicator's system prompt from indicators.py
-                system_prompt, _ = get_indicator_prompt(indicator, polity, name, start_year, end_year, reasoning=self.reasoning)
-                prompt += system_prompt
-
-            prompt += "\n\n═══════════════════════════════════════════════════════════════════════\n\n"
-
-        # Add combined output instructions
-        prompt += self._build_output_instructions(sequence)
-
-        return prompt
-
-    def _build_output_instructions(self, sequence: List[str]) -> str:
-        """
-        Build output format instructions for all indicators.
-
-        Args:
-            sequence: Ordered list of indicators
-
-        Returns:
-            Output format instructions
-        """
-        prompt = f"""## ⚠️ COMBINED OUTPUT FORMAT
-
-You have analyzed {len(sequence)} indicators above. Now provide a SINGLE JSON object containing predictions for ALL indicators.
-
-**Required structure:**
-
-{{"""
-
-        # Add expected fields for each indicator
-        for i, indicator in enumerate(sequence):
-            prompt += "\n  "
-
-            if indicator == 'constitution':
-                prompt += f'"constitution": 0, 1, or 2,\n  '
-                prompt += f'"document_name": "name(s) or N/A (semicolon-separated)",\n  '
-                prompt += f'"document_types": "type integers or N/A (semicolon-separated, same order as document_name)",\n  '
-                prompt += f'"constitution_year": "exact integer year(s) or N/A (semicolon-separated, same order, no circa/c.)",\n  '
-                if self.reasoning:
-                    prompt += f'"constitution_reasoning": "your constitutional analysis",\n  '
-                prompt += f'"constitution_confidence_score": 1-100'
-            else:
-                labels = INDICATOR_CONFIGS[indicator].labels
-                labels_str = " or ".join([f'"{l}"' for l in labels])
-                prompt += f'"{indicator}": {labels_str},\n  '
-                if self.reasoning:
-                    prompt += f'"{indicator}_reasoning": "your {indicator} analysis",\n  '
-                prompt += f'"{indicator}_confidence_score": 1-100'
-
-            if i < len(sequence) - 1:
-                prompt += ','
-
-        prompt += "\n}"
-
-        if not self.reasoning:
-            prompt += "\n**DO NOT include any reasoning or analysis fields for any indicator. Only include prediction and confidence_score fields.**\n"
-
-        prompt += """
-**CRITICAL REQUIREMENTS:**
-- Respond with ONLY a JSON object
-- Do NOT include markdown code fences (```json)
-- Do NOT include any text before or after the JSON
-- Your response must start with { and end with }
-- Include ALL indicators in the single JSON object
-- Use the exact field names shown above
-"""
-
-        return prompt
-
-    def _build_sequential_user_prompt(
-        self,
-        sequence: List[str],
-        polity: str,
-        name: str,
-        start_year: int,
-        end_year: Optional[int]
-    ) -> str:
-        """
-        Build user prompt for sequential analysis.
-
-        Args:
-            sequence: Ordered list of indicators
-            polity: Name of the polity
-            name: Name of the leader
-            start_year: Start year of the leader's tenure
-            end_year: End year of the leader's tenure
-
-        Returns:
-            User prompt text
-        """
-        prompt = f"""Please analyze the following leader's tenure across {len(sequence)} political indicators:
-
-**Polity:** {polity}
-**Leader:** {name}
-**Tenure Period:** {start_year} to {end_year}
-
-You will analyze these indicators in sequence:
-"""
-
-        for i, indicator in enumerate(sequence, 1):
-            prompt += f"{i}. {indicator}\n"
-
-        prompt += f"\n{'='*70}\n\n"
-
-        # Add each indicator's user prompt
-        for i, indicator in enumerate(sequence, 1):
-            prompt += f"### INDICATOR {i}/{len(sequence)}: {indicator.upper()}\n\n"
-
-            if indicator == 'constitution':
-                _, user_prompt = get_constitution_prompt(polity, name, start_year, end_year, reasoning=self.reasoning)
-                prompt += user_prompt
-            else:
-                # Use indicator's user prompt from indicators.py
-                _, user_prompt = get_indicator_prompt(indicator, polity, name, start_year, end_year, reasoning=self.reasoning)
-                prompt += user_prompt
-
-            prompt += f"\n\n{'='*70}\n\n"
-
-        # Final reminder for combined output
-        prompt += f"""## ⚠️ NOW PROVIDE YOUR COMBINED ANALYSIS
-
-You have been asked to analyze {len(sequence)} indicators above.
-
-Provide a SINGLE JSON object with predictions for ALL {len(sequence)} indicators.
-
-Start your response with {{ and end with }}. No markdown, no extra text.
-
-Your JSON object should include all fields for all {len(sequence)} indicators as specified in the output format above.
-"""
-
-        return prompt
-
     def __repr__(self) -> str:
-        return f"SequentialPromptBuilder(indicators={self.indicators}, sequence={self.sequence})"
+        return (
+            f"SequentialPromptBuilder(sequence={self.sequence}, "
+            f"prompt_version={self.prompt_version!r})"
+        )

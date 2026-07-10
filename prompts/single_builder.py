@@ -49,16 +49,10 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
         display_name="Sovereignty",
         labels=["0", "1"],
         summary=(
-            "IMPORTANT: This scale is NON-MONOTONIC with respect to leader power — a higher code does "
-            "NOT mean more actual power. Codes 0-2 rise with the grandeur of the office, but code 3 "
-            "marks largely ceremonial figureheads with little real power. Code the trappings and "
-            "self-presentation of the office, NOT the leader's actual power. (Purely ceremonial heads "
-            "who are not paramount leaders are excluded from the sample.)\n\n"
-            "Symbolic power is reflected in the trappings of office and the presentation of self — "
-            "e.g., a grandly appointed palace; regalia such as scepters, seals, thrones, and special "
-            "garments; an aristocratic court and retinue; performance of spiritual rituals central to "
-            "the polity; powers normally reserved for deities; special forms of address marking the "
-            "ruler's apartness; and protections of the ruler's status such as lèse-majesté.\n\n"
+            "IMPORTANT: When evidence is uncertain, default to 1 (Sovereign) — silence usually means no foreign "
+            "overlord — but be cautious for premodern/non-Western polities where tributary or vassal status may go unrecorded.\n\n"
+            "Sovereignty refers to a polity's ability to conduct its own domestic affairs without foreign interference. "
+            "Code the polity's de facto control over domestic affairs during this leader's tenure; the conduct of foreign affairs is not relevant here.\n\n"
             "Coding:\n"
             "- 0 = Semi-sovereign. Examples: colony, protectorate, distant or overseas territory (not fully incorporated into the metropole).\n"
             "- 1 = Sovereign. Examples: city-states, nation-states, empires, republics, monarchies, tributary states "
@@ -117,7 +111,7 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
     # An aggregate count is derived in post_processing.py (sum of the nine), not asked.
     #
     # Shared framing across all nine: an effective check is an independent body with
-    # the de facto capacity to resist executive action during THIS leader's reign;
+    # the de facto capacity to resist executive action during THIS leader's tenure;
     # code actual capacity, not de jure standing; a body controlled by the executive
     # counts as 0; media, civil society, and ordinary citizens are NOT counted.
     # =========================================================================
@@ -128,14 +122,14 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
         labels=["0", "1"],
         summary=(
             "Do local or constituent territorial/kin-based units provide an effective check on the "
-            "executive during THIS leader's reign?\n\n"
+            "executive during THIS leader's tenure?\n\n"
             "An effective check means the body is independent of the executive and has the de facto "
             "capacity to resist or constrain executive action — not merely formal/de jure standing. "
             "A body that exists on paper but is controlled by the executive does NOT count. "
             "Media, civil society organizations, and ordinary citizens are NOT counted.\n\n"
             "Examples: regional and local governments, tribes, clans, ethnic governance units.\n\n"
             "Coding:\n"
-            "- 0 = No. Such units do not exist during the reign, or exist but cannot effectively resist the executive.\n"
+            "- 0 = No. Such units do not exist during the tenure, or exist but cannot effectively resist the executive.\n"
             "- 1 = Yes. Such units are independent and can, at least on occasion, effectively resist the executive."
         )
     ),
@@ -146,7 +140,7 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
         labels=["0", "1"],
         summary=(
             "Do the armed forces or a warrior estate provide an effective check on the executive "
-            "during THIS leader's reign?\n\n"
+            "during THIS leader's tenure?\n\n"
             "An effective check means the body is independent of the executive and has the de facto "
             "capacity to resist or constrain executive action — not merely formal/de jure standing. "
             "A body that exists on paper but is controlled by the executive does NOT count. "
@@ -163,7 +157,7 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
         display_name="Checks: Clergy",
         labels=["0", "1"],
         summary=(
-            "Do religious authorities provide an effective check on the executive during THIS leader's reign?\n\n"
+            "Do religious authorities provide an effective check on the executive during THIS leader's tenure?\n\n"
             "An effective check means the body is independent of the executive and has the de facto "
             "capacity to resist or constrain executive action — not merely formal/de jure standing. "
             "A body that exists on paper but is controlled by the executive does NOT count. "
@@ -182,7 +176,7 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
         labels=["0", "1"],
         summary=(
             "Does a hereditary or titled upper stratum provide an effective check on the executive "
-            "during THIS leader's reign?\n\n"
+            "during THIS leader's tenure?\n\n"
             "An effective check means the body is independent of the executive and has the de facto "
             "capacity to resist or constrain executive action — not merely formal/de jure standing. "
             "A body that exists on paper but is controlled by the executive does NOT count. "
@@ -200,7 +194,7 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
         labels=["0", "1"],
         summary=(
             "Does an urban commercial or capital-holding class provide an effective check on the "
-            "executive during THIS leader's reign?\n\n"
+            "executive during THIS leader's tenure?\n\n"
             "An effective check means the body is independent of the executive and has the de facto "
             "capacity to resist or constrain executive action — not merely formal/de jure standing. "
             "A body that exists on paper but is controlled by the executive does NOT count. "
@@ -218,7 +212,7 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
         labels=["0", "1"],
         summary=(
             "Does a professional administrative apparatus provide an effective check on the executive "
-            "during THIS leader's reign?\n\n"
+            "during THIS leader's tenure?\n\n"
             "An effective check means the body is independent of the executive and has the de facto "
             "capacity to resist or constrain executive action — not merely formal/de jure standing. "
             "A body that exists on paper but is controlled by the executive does NOT count. "
@@ -236,7 +230,7 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
         labels=["0", "1"],
         summary=(
             "Do independent adjudicative bodies provide an effective check on the executive during "
-            "THIS leader's reign?\n\n"
+            "THIS leader's tenure?\n\n"
             "An effective check means the body is independent of the executive and has the de facto "
             "capacity to resist or constrain executive action — not merely formal/de jure standing. "
             "A body that exists on paper but is controlled by the executive does NOT count. "
@@ -254,7 +248,7 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
         labels=["0", "1"],
         summary=(
             "Does a deliberative representative or popular body provide an effective check on the "
-            "executive during THIS leader's reign?\n\n"
+            "executive during THIS leader's tenure?\n\n"
             "An effective check means the body is independent of the executive and has the de facto "
             "capacity to resist or constrain executive action — not merely formal/de jure standing. "
             "A body that exists on paper but is controlled by the executive does NOT count. "
@@ -272,7 +266,7 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
         labels=["0", "1"],
         summary=(
             "Does an institutionalized elite council adjacent to the executive provide an effective "
-            "check on the executive during THIS leader's reign?\n\n"
+            "check on the executive during THIS leader's tenure?\n\n"
             "An effective check means the body is independent of the executive and has the de facto "
             "capacity to resist or constrain executive action — not merely formal/de jure standing. "
             "A body that exists on paper but is controlled by the executive does NOT count. "
@@ -362,7 +356,7 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
         display_name="Exit",
         labels=["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "99"],
         summary=(
-            "IMPORTANT: Code the manner of entry at the START of this tenure, not later events. If it cannot be determined, use 99 (do NOT guess to avoid it).\n\n"
+            "IMPORTANT: Code the manner of exit at the END of this tenure, not later events. If it cannot be determined, use 99 (do NOT guess to avoid it).\n\n"
             "The circumstances of the executive's departure from office. Code the manner of exit at "
             "the END of this leader's tenure (the departure in {end_year}).\n\n"
             "Coding:\n"

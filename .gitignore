@@ -95,3 +95,10 @@ tacc/*.slurm
 
 # uv
 .venv/
+# LaTeX build artifacts (docs/codebook)
+*.aux
+*.fdb_latexmk
+*.fls
+*.synctex.gz
+docs/codebook/*.out
+docs/codebook/*.log

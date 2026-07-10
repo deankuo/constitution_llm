@@ -2,16 +2,13 @@
 """
 Gemini Batch API runner — single-job, SC-embedded approach.
 
-Two entry points
-----------------
-run_inline_batch(df, ...)
-    Called by main.py when --use-batch is set. Builds requests in memory,
-    submits as ONE Gemini batch job, parses SC, returns enriched DataFrame.
-    No JSONL file needed; no checkpoints.
-
+Entry point
+-----------
 run_from_jsonl(jsonl_path, ...)
-    Standalone use: reads a pre-built JSONL (from src/build_batch_jsonl.py),
-    submits as one job, parses SC, writes CSV + JSON.
+    Reads a pre-built JSONL (from src/build_batch_jsonl.py), submits it as
+    one batch job per chunk, parses SC, writes CSV + JSON. This is the ONLY
+    batch path — main.py runs synchronously; batch runs always go through
+    build_batch_jsonl.py + this runner.
 
 Self-consistency convention — matches main.py / SelfConsistencyConfig
 ----------------------------------------------------------------------
@@ -179,144 +176,6 @@ def _denormalize_pred(pred: Optional[str], indicator: str):
 
 
 # ---------------------------------------------------------------------------
-# Request building (mirrors build_batch_jsonl.py, but in-memory)
-# ---------------------------------------------------------------------------
-
-def _all_temperatures(n_samples: int, sc_temperatures: list[float] = None) -> list[float]:
-    """Return n_samples+1 temperatures: [initial_temp] + sc_temperatures[:n_samples]."""
-    if sc_temperatures is None:
-        sc_temperatures = [1.0] * n_samples
-    return [1.0] + list(sc_temperatures[:n_samples])
-
-
-def _make_req(custom_id: str, system_prompt: str, user_prompt: str,
-              temperature: float, max_tokens: int, n_samples: int,
-              use_grounding: bool = False) -> dict:
-    """Build one request in Gemini's file-upload batch format: {"key", "request", "metadata"}.
-
-    File-upload (not inline) is used because inline requests are capped at 20MB
-    total request size, while file uploads support up to 2GB — see
-    https://ai.google.dev/gemini-api/docs/batch-api.
-
-    IMPORTANT: file-upload JSONL is sent to the raw REST GenerateContentRequest
-    schema with no SDK dict→proto translation (unlike inline src=[...], which
-    the SDK converts). That schema has no "config" field — system_instruction
-    and tools are top-level siblings of "contents"; generation_config holds
-    temperature/max_output_tokens/top_p/response_mime_type. Confirmed empirically:
-    a request body with "config" is rejected with "no such field: 'config'".
-    """
-    generation_config: dict = {
-        "temperature": temperature,
-        "max_output_tokens": max_tokens,
-        "top_p": DEFAULT_TOP_P,
-    }
-    request_body: dict = {
-        "contents": [{"parts": [{"text": user_prompt}], "role": "user"}],
-        "system_instruction": {"parts": [{"text": system_prompt}]},
-    }
-    if use_grounding:
-        request_body["tools"] = [{"google_search": {}}]
-        # Drop response_mime_type so Gemini can append grounding attribution to the response;
-        # JSON is extracted from the text by parse_json_response in the runner.
-    else:
-        generation_config["response_mime_type"] = "application/json"
-    request_body["generation_config"] = generation_config
-    return {
-        "key": custom_id,
-        "request": request_body,
-        "metadata": {"n_samples": str(n_samples)},
-    }
-
-
-def _row_fields(row: pd.Series) -> tuple[str, str, Optional[int], Optional[int]]:
-    polity = str(row.get(COL_TERRITORY_NAME) or "Unknown Polity")
-    name = str(row.get(COL_LEADER_NAME) or "Unknown Leader")
-    raw_start = row.get(COL_START_YEAR)
-    raw_end = row.get(COL_END_YEAR)
-    start_year = int(raw_start) if pd.notna(raw_start) else None
-    end_year = int(raw_end) if pd.notna(raw_end) else None
-    return polity, name, start_year, end_year
-
-
-def _build_requests_in_memory(
-    df: pd.DataFrame,
-    indicators: list[str],
-    n_samples: int,
-    max_tokens: int,
-    sc_temperatures: list[float] = None,
-    prompt_builder=None,
-    reasoning: bool = True,
-    prompt_version: str = "v1",
-    use_grounding: bool = False,
-) -> list[dict]:
-    """Build all batch requests in memory.
-
-    If prompt_builder is provided (e.g. forced search path), it is used as-is.
-      - Single-mode prompts (len(indicators) > 1): custom_id "{row_idx}|single|{sc_idx}",
-        indicators list embedded in metadata["indicators"].
-      - Multiple-mode prompts (len(indicators) == 1): custom_id "{row_idx}|{indicator}|{sc_idx}".
-
-    Standard path (no prompt_builder):
-      - constitution → get_constitution_prompt, custom_id "{row_idx}|constitution|{sc_idx}"
-      - other indicators → SinglePromptBuilder (all indicators in one prompt per row),
-        custom_id "{row_idx}|single|{sc_idx}", metadata["indicators"] set.
-    """
-    all_temps = _all_temperatures(n_samples, sc_temperatures)
-    requests = []
-
-    if prompt_builder is not None:
-        # Custom builder (e.g. forced search path)
-        for row_idx in tqdm(range(len(df)), desc="building requests"):
-            polity, name, start_year, end_year = _row_fields(df.iloc[row_idx])
-            prompts = prompt_builder.build(polity, name, start_year, end_year)
-            for prompt in prompts:
-                if len(prompt.indicators) == 1:
-                    indicator = prompt.indicators[0]
-                    for sc_idx, temp in enumerate(all_temps):
-                        cid = f"{row_idx}|{indicator}|{sc_idx}"
-                        requests.append(_make_req(cid, prompt.system_prompt, prompt.user_prompt, temp, max_tokens, n_samples, use_grounding))
-                else:
-                    indicators_json = json.dumps(prompt.indicators)
-                    for sc_idx, temp in enumerate(all_temps):
-                        cid = f"{row_idx}|single|{sc_idx}"
-                        req = _make_req(cid, prompt.system_prompt, prompt.user_prompt, temp, max_tokens, n_samples, use_grounding)
-                        req["metadata"]["indicators"] = indicators_json
-                        requests.append(req)
-        return requests
-
-    # Standard path: constitution → own prompt; others → SinglePromptBuilder (version selectable)
-    from prompts.constitution import get_prompt as get_constitution_prompt
-
-    constitution_in = "constitution" in indicators
-    other_indicators = [i for i in indicators if i != "constitution"]
-
-    if constitution_in:
-        for row_idx in tqdm(range(len(df)), desc="constitution"):
-            polity, name, start_year, end_year = _row_fields(df.iloc[row_idx])
-            sys_p, usr_p = get_constitution_prompt(polity, name, start_year, end_year, reasoning=reasoning)
-            for sc_idx, temp in enumerate(all_temps):
-                cid = f"{row_idx}|constitution|{sc_idx}"
-                requests.append(_make_req(cid, sys_p, usr_p, temp, max_tokens, n_samples, use_grounding))
-
-    if other_indicators:
-        from prompts.single_builder import SinglePromptBuilder, SinglePromptBuilderV2, SinglePromptBuilderV3
-        _BUILDER_CLS = {"v1": SinglePromptBuilder, "v2": SinglePromptBuilderV2, "v3": SinglePromptBuilderV3}
-        BuilderCls = _BUILDER_CLS.get(prompt_version, SinglePromptBuilder)
-        builder = BuilderCls(indicators=other_indicators, reasoning=reasoning)
-        indicators_json = json.dumps(other_indicators)
-        for row_idx in tqdm(range(len(df)), desc="indicators"):
-            polity, name, start_year, end_year = _row_fields(df.iloc[row_idx])
-            prompt = builder.build(polity, name, start_year, end_year)[0]
-            for sc_idx, temp in enumerate(all_temps):
-                cid = f"{row_idx}|single|{sc_idx}"
-                req = _make_req(cid, prompt.system_prompt, prompt.user_prompt, temp, max_tokens, n_samples, use_grounding)
-                req["metadata"]["indicators"] = indicators_json
-                requests.append(req)
-
-    return requests
-
-
-# ---------------------------------------------------------------------------
 # Gemini submission and polling
 # ---------------------------------------------------------------------------
 
@@ -396,7 +255,7 @@ def _submit_and_wait(
     than inline submission: inline requests are capped at 20MB total request
     size, while file uploads support up to 2GB — see
     https://ai.google.dev/gemini-api/docs/batch-api. Each request must already
-    be in {"key", "request", "metadata"} shape (see _make_req).
+    be in {"key", "request", "metadata"} shape (see src/build_batch_jsonl.py).
 
     The output file is JSONL where each line is either
     {"key", "metadata"?, "response": <GenerateContentResponse>} or
@@ -536,6 +395,7 @@ def _aggregate_and_merge(
     n_samples: int,
     request_metadata: Optional[dict[str, dict]] = None,
     grounding_data: Optional[dict] = None,
+    include_reasoning: bool = True,
 ) -> pd.DataFrame:
     """Parse all responses, aggregate SC votes, merge into df.
 
@@ -543,6 +403,14 @@ def _aggregate_and_merge(
     text is re-used for each indicator extracted from metadata["indicators"].
     validate_indicator_response already handles {indicator}_reasoning /
     {indicator}_confidence keys emitted by SinglePromptBuilder.
+
+    include_reasoning=False (build ran with --reasoning false) omits ALL
+    reasoning columns from the output instead of writing empty ones.
+
+    grounding_data is not None ⇔ grounding was enabled at build time. In that
+    case the {task}_search_queries / {task}_urls_used columns are ALWAYS
+    emitted (None/NaN when Gemini did not search for a row), so missing search
+    data reads as NA rather than as an absent column.
     """
     n_rows = len(df)
 
@@ -638,7 +506,8 @@ def _aggregate_and_merge(
             sc_idx_0 = sc_slot_data.get(0, ("", "", None, {}))
             pred0, reasoning0, confidence0, extra0 = sc_idx_0
             updates[f"{indicator}_prediction"] = _denormalize_pred(pred0, indicator) if pred0 else None
-            updates[f"{indicator}_reasoning"] = reasoning0
+            if include_reasoning:
+                updates[f"{indicator}_reasoning"] = reasoning0
             updates[f"{indicator}_confidence"] = confidence0
             if indicator == "constitution":
                 updates["constitution_document_name"] = extra0.get("document_name")
@@ -654,7 +523,8 @@ def _aggregate_and_merge(
                     pred_str, reasoning, confidence, extra = slot
                     updates[f"{indicator}_SC{slot_n}"] = _denormalize_pred(pred_str, indicator) if pred_str else None
                     if indicator != "constitution":
-                        updates[f"{indicator}_reasoning_SC{slot_n}"] = reasoning
+                        if include_reasoning:
+                            updates[f"{indicator}_reasoning_SC{slot_n}"] = reasoning
                         updates[f"{indicator}_confidence_SC{slot_n}"] = confidence
                     else:
                         updates[f"constitution_document_name_SC{slot_n}"] = extra.get("document_name")
@@ -663,7 +533,8 @@ def _aggregate_and_merge(
                 else:
                     updates[f"{indicator}_SC{slot_n}"] = None
                     if indicator != "constitution":
-                        updates[f"{indicator}_reasoning_SC{slot_n}"] = None
+                        if include_reasoning:
+                            updates[f"{indicator}_reasoning_SC{slot_n}"] = None
                         updates[f"{indicator}_confidence_SC{slot_n}"] = None
                     else:
                         updates[f"constitution_document_name_SC{slot_n}"] = None
@@ -683,6 +554,19 @@ def _aggregate_and_merge(
                 updates[f"{task_label}_search_queries"] = q
             if u:
                 updates[f"{task_label}_urls_used"] = u
+
+        # When grounding is enabled, guarantee the search columns exist for every
+        # row (None when Gemini did not search); real values are filled in by the
+        # grounding_by_task pass below.
+        if grounding_data is not None:
+            if n_samples == 0:
+                updates.setdefault(f"{task_label}_search_queries", None)
+                updates.setdefault(f"{task_label}_urls_used", None)
+            else:
+                for sc_idx in range(0, n_samples + 1):
+                    slot_n = sc_idx + 1
+                    updates.setdefault(f"{task_label}_search_queries_SC{slot_n}", None)
+                    updates.setdefault(f"{task_label}_urls_used_SC{slot_n}", None)
 
     # Grounding metadata — one column pair per (row, task), not per indicator: a
     # "single" call covers multiple indicators with ONE grounding result, so this
@@ -738,115 +622,6 @@ def _aggregate_and_merge(
 
 
 # ---------------------------------------------------------------------------
-# Public entry point — called by main.py
-# ---------------------------------------------------------------------------
-
-def run_inline_batch(
-    df: pd.DataFrame,
-    indicators: list[str],
-    model: str,
-    api_key: str,
-    n_samples: int,
-    output_path: str,
-    prompt_builder=None,
-    sc_temperatures: list[float] = None,
-    max_tokens: int = DEFAULT_MAX_TOKENS,
-    poll_interval: int = 30,
-    reasoning: bool = True,
-    prompt_version: str = "v1",
-    use_grounding: bool = False,
-) -> pd.DataFrame:
-    """Build prompts in memory, submit as one Gemini batch job, aggregate SC.
-
-    Called by main.py when --use-batch is set. Replaces GeminiBatchRunner.
-
-    Args:
-        df:              Input DataFrame (already filtered/sliced by main.py).
-        indicators:      Which indicators to predict.
-        model:           Gemini model identifier.
-        api_key:         GEMINI_API_KEY.
-        n_samples:       Additional SC calls. Total votes = n_samples + 1.
-                         n_samples=0 → single call, no SC columns.
-        output_path:     Path for CSV + JSON output (written here AND returned).
-        prompt_builder:  Optional custom prompt builder (for --search-mode forced).
-                         If None, uses get_constitution_prompt + MultiplePromptBuilder.
-        sc_temperatures: Temperature list for SC samples (default: all 1.0).
-        max_tokens:      Max output tokens per request.
-        poll_interval:   Seconds between batch job status polls.
-
-    Returns:
-        Enriched DataFrame with prediction/reasoning/confidence columns,
-        and optionally _verified/_agreement/_uncertainty columns when n_samples > 0.
-    """
-    df = df.reset_index(drop=True)
-    client = _get_client(api_key)
-
-    # Build requests
-    total_per_group = n_samples + 1
-    all_temps = _all_temperatures(n_samples, sc_temperatures)
-    print(
-        f"\n[Batch] Building requests: {len(indicators)} indicators over {len(df)} rows "
-        f"({total_per_group} SC calls each, temps={all_temps}) ..."
-    )
-    requests = _build_requests_in_memory(
-        df=df,
-        indicators=indicators,
-        n_samples=n_samples,
-        max_tokens=max_tokens,
-        sc_temperatures=sc_temperatures,
-        prompt_builder=prompt_builder,
-        reasoning=reasoning,
-        prompt_version=prompt_version,
-        use_grounding=use_grounding,
-    )
-    print(f"[Batch] Built {len(requests)} requests")
-    if use_grounding:
-        print("[Batch] Google Search grounding enabled — metadata will be stored per indicator/SC slot.")
-
-    # Build metadata lookup for _aggregate_and_merge (needed for single-mode expansion)
-    request_metadata = {r["key"]: r.get("metadata", {}) for r in requests}
-
-    # Chunk requests to stay under Gemini's 2 GB file-upload limit, then submit sequentially
-    chunks = _chunk_requests(requests)
-    display_base = f"const-llm-{Path(output_path).stem}-{int(time.time())}"
-    raw_results: dict[str, str] = {}
-    all_grounding: dict[str, tuple] = {}
-    for i, chunk in enumerate(chunks):
-        chunk_label = f"chunk {i + 1}/{len(chunks)}" if len(chunks) > 1 else "single job"
-        display_name = f"{display_base}-c{i + 1:03d}" if len(chunks) > 1 else display_base
-        size_mb = sum(len(json.dumps(r, ensure_ascii=False).encode()) + 1 for r in chunk) / 1024 / 1024
-        print(f"\n[Batch] Submitting {chunk_label}: {len(chunk)} requests ({size_mb:.1f} MB) ...")
-        chunk_results = _submit_and_wait(client, model, chunk, display_name, poll_interval,
-                                         grounding_data=all_grounding if use_grounding else None)
-        raw_results.update(chunk_results)
-
-    # Report missing rows
-    expected_cids = {r["key"] for r in requests}
-    missing_cids = expected_cids - set(raw_results.keys())
-    empty_cids = {cid for cid, text in raw_results.items() if not text}
-    if missing_cids or empty_cids:
-        print(f"\n[Batch] Missing/failed responses: {len(missing_cids | empty_cids)}")
-        failed_rows = sorted({_parse_custom_id(cid)[0] for cid in missing_cids | empty_cids})
-        print(f"  Failed row indices: {failed_rows[:20]}{'...' if len(failed_rows) > 20 else ''}")
-        print("  Re-run these rows by filtering the input and rebuilding the JSONL.")
-
-    # Aggregate SC and merge
-    result_df = _aggregate_and_merge(raw_results, df, n_samples, request_metadata,
-                                      grounding_data=all_grounding if use_grounding else None)
-
-    # Write outputs
-    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    result_df.to_csv(output_path, index=False)
-    json_path = str(output_path).replace(".csv", ".json")
-    with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(result_df.to_dict(orient="records"), f, ensure_ascii=False, indent=2, default=str)
-    print(f"\n[Batch] Saved: {output_path}")
-    print(f"[Batch] Saved: {json_path}")
-
-    return result_df
-
-
-# ---------------------------------------------------------------------------
 # Standalone entry point — reads pre-built JSONL
 # ---------------------------------------------------------------------------
 
@@ -897,6 +672,12 @@ def run_from_jsonl(
             f"--n-samples {n_samples} does not match n_samples={embedded_n} "
             f"embedded in JSONL. Rebuild or pass the correct --n-samples."
         )
+
+    # Reasoning flag embedded at build time (build_batch_jsonl --reasoning false).
+    # When False, reasoning columns are omitted from the output entirely.
+    include_reasoning = str(first_meta.get("reasoning", "true")).lower() != "false"
+    if not include_reasoning:
+        print("  reasoning=False in JSONL metadata — reasoning columns will be omitted.")
 
     total_per_group = n_samples + 1
     print(f"  {len(all_requests)} total requests ({len(all_requests) // total_per_group} groups × {total_per_group})")
@@ -955,7 +736,8 @@ def run_from_jsonl(
         raw_results.update(chunk_results)
 
     result_df = _aggregate_and_merge(raw_results, df, n_samples, request_metadata,
-                                      grounding_data=all_grounding if use_grounding else None)
+                                      grounding_data=all_grounding if use_grounding else None,
+                                      include_reasoning=include_reasoning)
 
     # Response-level failures (CID missing from results or response text empty)
     expected_cids = {r["key"] for r in all_requests}
@@ -1089,10 +871,10 @@ def main():
     parser.add_argument("--output", "-o", required=True, help="Output CSV path.")
     parser.add_argument("--model", default="gemini-3.1-pro-preview")
     parser.add_argument(
-        "--n-samples", type=int, default=2,
+        "--n-samples", type=int, default=0,
         help=(
             "Additional SC samples. Must match the value used during build. "
-            "n_samples=0 → no SC. n_samples=2 → 3 total votes."
+            "Default 0 → no SC (single call). n_samples=2 → 3 total votes."
         ),
     )
     parser.add_argument("--poll-interval", type=int, default=30)
