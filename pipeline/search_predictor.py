@@ -231,8 +231,8 @@ class SearchPredictor:
         Args:
             polity:     Name of the polity
             name:       Leader name
-            start_year: Start year of reign
-            end_year:   End year of reign (None if unknown)
+            start_year: Start year of tenure
+            end_year:   End year of tenure (None if unknown)
 
         Returns:
             SearchPolityPrediction with per-indicator results including URLs

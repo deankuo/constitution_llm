@@ -823,7 +823,7 @@ def main():
             '\n'
             'Two pipelines:\n'
             '  indicators   -- Main pipeline. Predicts any combination of indicators at the\n'
-            '                  leader level (one row per leader reign).\n'
+            '                  leader level (one row per leader tenure).\n'
             '                  Input: plt_leaders_data.csv\n'
             '                  Supports single / multiple / sequential prompt modes,\n'
             '                  self-consistency, and Chain-of-Verification (CoVe).\n'

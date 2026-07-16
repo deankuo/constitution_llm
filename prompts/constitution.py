@@ -158,7 +158,7 @@ USER_PROMPT_TEMPLATE_V0 = """Please classify the written legal documents for the
 
 **Polity:** {polity}
 **Leader:** {name}
-**Tenure Period:** {reign_period}
+**Tenure Period:** {tenure_period}
 
 ## Analysis Instructions
 

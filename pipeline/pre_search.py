@@ -335,9 +335,9 @@ class PreSearcher:
             if start_year is not None and end_year is not None:
                 base_query = f"{name_part} of {polity} during {start_year}-{end_year}"
             elif start_year is not None:
-                base_query = f"{name_part} of {polity} reign started in {start_year}"
+                base_query = f"{name_part} of {polity} tenure started in {start_year}"
             elif end_year is not None:
-                base_query = f"{name_part} of {polity} reign ended in {end_year}"
+                base_query = f"{name_part} of {polity} tenure ended in {end_year}"
             else:
                 base_query = f"{name_part} of {polity}"
         else:

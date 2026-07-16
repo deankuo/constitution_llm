@@ -111,8 +111,8 @@ class ChainOfVerification(BaseVerification):
             valid_labels: List of valid label values
             polity: Name of the polity (for question generation)
             name: Name of the leader (for question generation)
-            start_year: Start year of the leader's reign
-            end_year: End year of the leader's reign
+            start_year: Start year of the leader's tenure
+            end_year: End year of the leader's tenure
             initial_prediction: Optional initial prediction to verify
             initial_reasoning: Optional initial reasoning to verify
 
@@ -263,7 +263,7 @@ class ChainOfVerification(BaseVerification):
             period = f"{start_year}-{end_year}"
             questions = [
                 f"What do historical sources say about {indicator} for {name} of {polity} during {period}?",
-                f"What evidence exists regarding {indicator} status during {name}'s reign of {polity} ({period})?"
+                f"What evidence exists regarding {indicator} status during {name}'s tenure in {polity} ({period})?"
             ]
 
         return questions

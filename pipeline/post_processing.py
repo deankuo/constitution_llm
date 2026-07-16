@@ -153,7 +153,7 @@ Determine the elections category:
 - 1: Members ARE elected through defined rules, but elections are NOT organized by factions/parties
 - 2: Members ARE elected AND elections are contested by organized factions or parties
 
-**IMPORTANT:** Focus on the SELECTION METHOD for assembly members during THIS LEADER'S REIGN.
+**IMPORTANT:** Focus on the SELECTION METHOD for assembly members during THIS LEADER'S TENURE.
 
 Respond with a single JSON object:
 {{"elections": "0, 1, or 2", "reasoning": "your analysis", "confidence_score": 1-100}}

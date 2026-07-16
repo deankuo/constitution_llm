@@ -764,13 +764,41 @@ def run_from_jsonl(
         except Exception:
             pass
 
+    # Rows actually covered by this JSONL. Null-checking is restricted to these:
+    # a subset build (elections gating, sanity_check re-runs, --test) must not
+    # flag rows that were never requested in this batch as failures.
+    requested_rows: set[int] = set()
+    for r in all_requests:
+        try:
+            requested_rows.add(_parse_custom_id(r["key"])[0])
+        except Exception:
+            pass
+
+    # Elections pass-through: the build filters to assembly_prediction == 2, so
+    # non-requested rows with assembly != 2 get elections_prediction = "0" with
+    # no LLM call (same convention as pipeline/post_processing.py).
+    if "elections" in requested_indicators and "assembly_prediction" in result_df.columns:
+        if "elections_prediction" not in result_df.columns:
+            result_df["elections_prediction"] = None
+        _assembly_num = pd.to_numeric(result_df["assembly_prediction"], errors="coerce")
+        _passthrough = (
+            result_df["elections_prediction"].isnull()
+            & (_assembly_num != 2)
+            & ~result_df.index.isin(list(requested_rows))
+        )
+        result_df.loc[_passthrough, "elections_prediction"] = "0"
+        if _passthrough.any():
+            print(f"  Elections pass-through (assembly != 2): {int(_passthrough.sum())} rows set to 0")
+
     pred_cols = [
         f"{ind}_prediction" for ind in requested_indicators
         if f"{ind}_prediction" in result_df.columns
     ]
     null_row_idxs: set[int] = set()
     if pred_cols:
-        null_row_idxs = set(result_df.index[result_df[pred_cols].isnull().any(axis=1)].tolist())
+        null_row_idxs = set(
+            result_df.index[result_df[pred_cols].isnull().any(axis=1)].tolist()
+        ) & requested_rows
 
     all_failed_rows = sorted(null_row_idxs | set(response_failed_rows))
     retry_path = None

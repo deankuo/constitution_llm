@@ -7,12 +7,14 @@ Efficient (fewer API calls) but may cause cross-indicator contamination.
 Indicators:
 - sovereign (0/1)
 - federalism (0/1)
-- checks (0-9, multi-select) — output as JSON array of selected values
+- checks_local / checks_military / checks_clergy / checks_aristocracy /
+  checks_bourgeoisie / checks_bureaucracy / checks_judiciary /
+  checks_assembly / checks_council (0/1 each, nine independent binaries)
 - collegiality (0/1)
 - petition (0/1)
 - assembly (0/1/2/3)
-- entry (0-10) — fine-grained, 11 categories
-- exit (0-15) — fine-grained, 16 categories
+- entry (0-10, 99) — fine-grained, 12 categories
+- exit (0-14, 99) — fine-grained, 16 categories
 - symbolism (0/1/2/3, non-monotonic)
 
 NOTE: elections is a downstream indicator derived via post_processing.py.
@@ -392,6 +394,11 @@ INDICATOR_CONFIGS: Dict[str, IndicatorConfig] = {
             "marks largely ceremonial figureheads with little real power. Code the trappings and "
             "self-presentation of the office, NOT the leader's actual power. (Purely ceremonial heads "
             "who are not paramount leaders are excluded from the sample.)\n\n"
+            "Symbolic power is reflected in the trappings of office and the presentation of self — "
+            "e.g., a grandly appointed palace; regalia such as scepters, seals, thrones, and special "
+            "garments; an aristocratic court and retinue; performance of spiritual rituals central to "
+            "the polity; powers normally reserved for deities; special forms of address marking the "
+            "ruler's apartness; and protections of the ruler's status such as lèse-majesté.\n\n"
             "Coding:\n"
             "- 0 = Plain. The trappings of the office are plain and simple. Little distinguishes the personage "
             "of the ruler from others in the realm. Example: British prime minister (10 Downing Street).\n"
@@ -541,7 +548,7 @@ class SinglePromptBuilder:
             "**Core rule:** Code de facto (actual) practice, not de jure (formal) arrangements. "
             "Focus on THIS specific leader's tenure.\n"
             "When evidence is uncertain, apply the indicator-appropriate default:\n"
-            "- Institutional-presence indicators (federalism, checks, collegiality, petition, assembly): default to 0 / None / No — if such an institution existed, the historical record would usually mention it, so silence indicates absence.\n"
+            "- Institutional-presence indicators (federalism, checks, collegiality, petition, legislative election): default to 0 / None / No — if such an institution existed, the historical record would usually mention it, so silence indicates absence.\n"
             "- Sovereignty: default to 1 / Sovereign — overlordship or loss of domestic control would normally be recorded, so silence indicates the polity governed its own domestic affairs. (Be more cautious for premodern and non-Western polities, where semi-sovereign status may go unrecorded.)\n"
             "- Assembly is ordinal (0<1<2<3): when choosing among present-but-ambiguous levels, prefer the lower level.\n"
             "- Nominal indicators (entry, exit) and the non-monotonic symbolism scale: do NOT default to a lower label. If the evidence genuinely does not support any category, output \"N/A\" (entry/exit only) or your best estimate, and lower the confidence_score rather than forcing a code.\n\n"
@@ -632,7 +639,7 @@ class SinglePromptBuilderV2:
             "1. Always code actual (de facto) behavior, never formal (de jure) arrangements.\n"
             "2. Evaluate conditions as they existed during THIS leader's specific tenure.\n"
             "3. When evidence is uncertain, apply the indicator-appropriate default:\n"
-            "   - Institutional-presence indicators (federalism, checks, collegiality, petition, assembly): default to 0 / None / No — if such an institution existed, the historical record would usually mention it, so silence indicates absence.\n"
+            "   - Institutional-presence indicators (federalism, checks, collegiality, petition, legislative election): default to 0 / None / No — if such an institution existed, the historical record would usually mention it, so silence indicates absence.\n"
             "   - Sovereignty: default to 1 / Sovereign — silence indicates the polity governed its own domestic affairs. (Be more cautious for premodern and non-Western polities.)\n"
             "   - Assembly is ordinal (0<1<2<3): when choosing among present-but-ambiguous levels, prefer the lower level.\n"
             "   - Nominal indicators (entry, exit) and the non-monotonic symbolism scale: do NOT default to a lower label — lower the confidence_score instead.\n"
@@ -730,7 +737,7 @@ class SinglePromptBuilderV3:
             "You are a political historian classifying executive constraints for historical leaders. "
             "Code based on de facto (actual) practice, not de jure arrangements. "
             "Focus on this specific leader's tenure. When uncertain: for institutional-presence indicators "
-            "(federalism, checks, collegiality, petition, assembly) default to 0; "
+            "(federalism, checks, collegiality, petition, legislative election) default to 0; "
             "for sovereignty default to 1; "
             "for assembly prefer the lower ordinal level when ambiguous; "
             "for nominal (entry, exit) or non-monotonic (symbolism) indicators, lower the confidence_score — "
