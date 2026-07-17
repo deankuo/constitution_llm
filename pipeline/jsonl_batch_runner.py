@@ -175,6 +175,16 @@ def _denormalize_pred(pred: Optional[str], indicator: str):
     return pred
 
 
+def _ids_equal(a, b) -> bool:
+    """Compare two id values across CSV round-trip dtype changes (123 vs '123' vs 123.0)."""
+    if str(a) == str(b):
+        return True
+    try:
+        return float(a) == float(b)
+    except (TypeError, ValueError):
+        return False
+
+
 # ---------------------------------------------------------------------------
 # Gemini submission and polling
 # ---------------------------------------------------------------------------
@@ -714,6 +724,61 @@ def run_from_jsonl(
 
     # Build metadata lookup for _aggregate_and_merge (needed for single-mode expansion)
     request_metadata = {r["key"]: r.get("metadata", {}) for r in all_requests}
+
+    # Row-identity guard: sc_idx=0 requests embed the full original row in
+    # metadata.row_data. Verify each embedded identifier against the dataset
+    # row at the same positional index BEFORE submitting — merging is
+    # positional, so a reordered/filtered --dataset would otherwise silently
+    # attach predictions to the wrong leaders. Guards on "id" (the unique
+    # key); falls back to "slug_id" only when the dataset has no "id" column
+    # (slug_id is informative but NOT unique — repeated across spells).
+    if input_path is not None and "id" in df.columns:
+        _guard_cols = ["id"]
+    elif input_path is not None and "slug_id" in df.columns:
+        _guard_cols = ["slug_id"]
+    else:
+        _guard_cols = []
+    if _guard_cols:
+        _mismatches: list[tuple] = []
+        _checked = 0
+        for r in all_requests:
+            meta = r.get("metadata", {})
+            if "row_data" not in meta:
+                continue
+            try:
+                _ri, _, _si = _parse_custom_id(r.get("key", ""))
+            except Exception:
+                continue
+            if _si != 0:
+                continue
+            try:
+                _embedded = json.loads(meta["row_data"])
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if _ri >= len(df):
+                _mismatches.append((_ri, "<any>", _embedded.get(_guard_cols[0]), "<row_idx beyond dataset>"))
+                continue
+            _row_checked = False
+            for _col in _guard_cols:
+                if _col not in _embedded:
+                    continue
+                _row_checked = True
+                if not _ids_equal(_embedded[_col], df.iloc[_ri][_col]):
+                    _mismatches.append((_ri, _col, _embedded[_col], df.iloc[_ri][_col]))
+            _checked += 1 if _row_checked else 0
+        if _mismatches:
+            _preview = "; ".join(
+                f"row {ri} [{col}]: JSONL={a!r} vs dataset={b!r}" for ri, col, a, b in _mismatches[:5]
+            )
+            raise ValueError(
+                f"Row-identity check FAILED for {len(_mismatches)} value(s) — the --dataset row "
+                f"order no longer matches this JSONL (merging is positional). "
+                f"First mismatches: {_preview}. Use the dataset the JSONL was built from "
+                f"(or, on retry rounds, the prior run's --output) without reordering, "
+                f"filtering, or re-sorting rows."
+            )
+        if _checked:
+            print(f"  Row-identity check passed: {_checked} rows verified via {_guard_cols}.")
 
     # Auto-detect grounding from JSONL content
     use_grounding = _requests_use_grounding(all_requests)

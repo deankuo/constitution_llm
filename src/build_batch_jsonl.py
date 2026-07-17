@@ -152,10 +152,25 @@ def _make_request_line(
 # Row field extraction
 # ---------------------------------------------------------------------------
 
+def _clean_str_field(value, default: str) -> str:
+    """Return the value as a string, or the default when missing/blank.
+
+    NaN is truthy in Python, so `row.get(col) or default` does NOT catch it —
+    it leaks the literal string "nan" into prompts. Check pd.isna explicitly.
+    """
+    if pd.isna(value) or not str(value).strip():
+        return default
+    return str(value)
+
+
 def _row_fields(row: pd.Series) -> tuple[str, str, int | None, int | None]:
-    """Extract (polity, name, start_year, end_year) from a dataset row."""
-    polity = str(row.get(COL_TERRITORY_NAME) or "Unknown Polity")
-    name = str(row.get(COL_LEADER_NAME) or "Unknown Leader")
+    """Extract (polity, name, start_year, end_year) from a dataset row.
+
+    Missing polity/name become "Unknown Polity"/"Unknown Leader"; missing
+    years become None (prompt builders render them as "unknown").
+    """
+    polity = _clean_str_field(row.get(COL_TERRITORY_NAME), "Unknown Polity")
+    name = _clean_str_field(row.get(COL_LEADER_NAME), "Unknown Leader")
     raw_start = row.get(COL_START_YEAR)
     raw_end = row.get(COL_END_YEAR)
     start_year = int(raw_start) if pd.notna(raw_start) else None
@@ -415,14 +430,22 @@ def build_elections_requests(
             continue
 
         row = df.iloc[pos_idx]
-        polity = str(
-            row.get(COL_TERRITORY_NAME) or row.get("territorynamehistorical") or "Unknown Polity"
-        )
-        name = str(
-            row.get(COL_LEADER_NAME) or row.get("name") or "Unknown Leader"
-        )
-        start_year = row.get(COL_START_YEAR) or row.get("start_year") or "?"
-        end_year = row.get(COL_END_YEAR) or row.get("end_year") or "?"
+        _polity_raw = row.get(COL_TERRITORY_NAME)
+        if pd.isna(_polity_raw):
+            _polity_raw = row.get("territorynamehistorical")
+        polity = _clean_str_field(_polity_raw, "Unknown Polity")
+        _name_raw = row.get(COL_LEADER_NAME)
+        if pd.isna(_name_raw):
+            _name_raw = row.get("name")
+        name = _clean_str_field(_name_raw, "Unknown Leader")
+        _start_raw = row.get(COL_START_YEAR)
+        if pd.isna(_start_raw):
+            _start_raw = row.get("start_year")
+        _end_raw = row.get(COL_END_YEAR)
+        if pd.isna(_end_raw):
+            _end_raw = row.get("end_year")
+        start_year = int(_start_raw) if pd.notna(_start_raw) else "unknown"
+        end_year = int(_end_raw) if pd.notna(_end_raw) else "unknown"
 
         row_idx = int(row[original_idx_col]) if original_idx_col and original_idx_col in row.index else pos_idx
 

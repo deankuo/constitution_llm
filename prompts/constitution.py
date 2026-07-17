@@ -216,7 +216,7 @@ def get_prompt(
     user_prompt = usr_tmpl.format(
         polity=polity,
         name=name,
-        start_year=start_year,
+        start_year=start_year if start_year is not None else 'unknown',
         end_year=end_year if end_year is not None else 'unknown',
     )
     return sys_tmpl, user_prompt
@@ -299,7 +299,9 @@ def get_cove_questions(
     formatted = {}
     for element, questions in COVE_QUESTION_TEMPLATES.items():
         formatted[element] = [
-            q.format(polity=polity, name=name, start_year=start_year, end_year=end_year)
+            q.format(polity=polity, name=name,
+                     start_year=start_year if start_year is not None else 'unknown',
+                     end_year=end_year if end_year is not None else 'unknown')
             for q in questions
         ]
     return formatted

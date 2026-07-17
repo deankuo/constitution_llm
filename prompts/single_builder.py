@@ -545,8 +545,7 @@ class SinglePromptBuilder:
     def _build_system_prompt(self) -> str:
         prompt = (
             "You are a political scientist coding executive constraints for historical leaders.\n\n"
-            "**Core rule:** Code de facto (actual) practice, not de jure (formal) arrangements. "
-            "Focus on THIS specific leader's tenure.\n"
+            "**Core rule:** Focus on THIS specific leader's tenure.\n"
             "When evidence is uncertain, apply the indicator-appropriate default:\n"
             "- Institutional-presence indicators (federalism, checks, collegiality, petition, legislative election): default to 0 / None / No — if such an institution existed, the historical record would usually mention it, so silence indicates absence.\n"
             "- Sovereignty: default to 1 / Sovereign — overlordship or loss of domestic control would normally be recorded, so silence indicates the polity governed its own domestic affairs. (Be more cautious for premodern and non-Western polities, where semi-sovereign status may go unrecorded.)\n"
@@ -584,7 +583,10 @@ class SinglePromptBuilder:
         start_year: int,
         end_year: Optional[int]
     ) -> str:
-        tenure = f"{start_year}-{end_year if end_year is not None else 'present'}"
+        # Missing years render as "unknown" (incomplete historical record) — never
+        # "present": that reads as still-in-office and biases exit toward 14.
+        start = start_year if start_year is not None else 'unknown'
+        tenure = f"{start}-{end_year if end_year is not None else 'unknown'}"
         return (
             f"Classify the following leader on all indicators:\n\n"
             f"**Polity:** {polity}\n"
@@ -686,7 +688,8 @@ class SinglePromptBuilderV2:
         start_year: int,
         end_year: Optional[int]
     ) -> str:
-        tenure = f"{start_year}–{end_year if end_year is not None else 'present'}"
+        start = start_year if start_year is not None else 'unknown'
+        tenure = f"{start}–{end_year if end_year is not None else 'unknown'}"
         return (
             f"Annotate the following leader:\n\n"
             f"Polity: {polity}\n"
@@ -764,7 +767,8 @@ class SinglePromptBuilderV3:
         start_year: int,
         end_year: Optional[int]
     ) -> str:
-        tenure = f"{start_year}-{end_year if end_year is not None else 'present'}"
+        start = start_year if start_year is not None else 'unknown'
+        tenure = f"{start}-{end_year if end_year is not None else 'unknown'}"
 
         fields = []
         for ind in self.indicators:

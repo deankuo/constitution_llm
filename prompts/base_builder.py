@@ -103,9 +103,10 @@ class BasePromptBuilder(ABC):
         Returns:
             Formatted string like "1990-2000" or "2020-unknown"
         """
+        start = start_year if start_year is not None else "unknown"
         if end_year is None:
-            return f"{start_year}-unknown"
-        return f"{start_year}-{end_year}"
+            return f"{start}-unknown"
+        return f"{start}-{end_year}"
 
     @staticmethod
     def get_available_indicators() -> List[str]:

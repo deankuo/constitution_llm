@@ -273,13 +273,15 @@ class BatchRunner:
         if pd.isna(name):
             name = "Unknown Leader"
 
-        # Handle missing start_year
+        # Handle missing start_year: pass None so prompts render "unknown"
+        # (every row gets labeled; the LLM relies on polity/leader names).
         if pd.isna(row[COL_START_YEAR]):
-            raise ValueError(f"Missing required field: {COL_START_YEAR} for {polity}")
-        start_year = int(row[COL_START_YEAR])
+            start_year = None
+        else:
+            start_year = int(row[COL_START_YEAR])
 
-        # Handle NaN end_year for current leaders still in office
-        # Pass None to prompts so they can indicate "present" or "ongoing"
+        # Handle NaN end_year (incomplete historical record).
+        # Pass None to prompts so they render "unknown" — never "present".
         if pd.isna(row[COL_END_YEAR]):
             end_year = None
         else:

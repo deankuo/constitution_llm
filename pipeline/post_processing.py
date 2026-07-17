@@ -166,7 +166,7 @@ Respond with a single JSON object:
 
 ELECTIONS_SINGLE_V1_SYSTEM_PROMPT = """You are a political scientist coding executive constraints for historical leaders.
 
-**Core rule:** Code de facto (actual) practice, not de jure (formal) arrangements. Focus on THIS specific leader's tenure. When evidence is uncertain: this indicator can safely default to 0 / None — if legislative elections existed, the historical record would usually mention it, so silence indicates absence.
+**Core rule:** Focus on THIS specific leader's tenure. When evidence is uncertain: this indicator can safely default to 0 / None — if legislative elections existed, the historical record would usually mention it, so silence indicates absence.
 
 ## Elections
 
@@ -477,28 +477,31 @@ class ElectionsClassifier:
         Returns:
             (prediction, confidence_score, reasoning, logprob, search_queries_str, urls_used_str)
         """
-        polity = str(
-            row.get("territorynamehistorical")
-            or row.get("polity_name")
-            or "Unknown Polity"
+        _polity_raw = next(
+            (v for v in (row.get("territorynamehistorical"), row.get("polity_name"))
+             if pd.notna(v) and str(v).strip()),
+            None,
         )
-        name = str(
-            row.get("name")
-            or row.get("leader_name")
-            or "Unknown Leader"
+        polity = str(_polity_raw) if _polity_raw is not None else "Unknown Polity"
+        _name_raw = next(
+            (v for v in (row.get("name"), row.get("leader_name"))
+             if pd.notna(v) and str(v).strip()),
+            None,
         )
-        start_year = (
-            row.get("start_year")
-            or row.get("entrydateyear")
-            or row.get("leader_first_year")
-            or "?"
+        name = str(_name_raw) if _name_raw is not None else "Unknown Leader"
+        # NaN is truthy, so `or` chains don't catch missing values — check pd.isna.
+        _start_raw = next(
+            (v for v in (row.get("start_year"), row.get("entrydateyear"),
+                         row.get("leader_first_year")) if pd.notna(v)),
+            None,
         )
-        end_year = (
-            row.get("end_year")
-            or row.get("exitdateyear")
-            or row.get("leader_last_year")
-            or "?"
+        _end_raw = next(
+            (v for v in (row.get("end_year"), row.get("exitdateyear"),
+                         row.get("leader_last_year")) if pd.notna(v)),
+            None,
         )
+        start_year = int(_start_raw) if _start_raw is not None else "unknown"
+        end_year = int(_end_raw) if _end_raw is not None else "unknown"
 
         if self.mode == "single":
             system_prompt_tmpl, user_prompt_tmpl = _SINGLE_PROMPTS[self.prompt_version or "v1"]

@@ -554,10 +554,12 @@ def _process_one_row(
     Private cost fields (_input_tokens_*, _output_tokens_*, _cached_tokens_*,
     _model_identifier) are included for the caller to aggregate into CostTracker.
     """
-    country = row[COL_TERRITORY_NAME]
+    country = "Unknown Polity" if pd.isna(row[COL_TERRITORY_NAME]) else row[COL_TERRITORY_NAME]
     name = str(row.get(COL_LEADER_NAME, "Unknown")) if COL_LEADER_NAME in row.index else "Unknown"
-    start_year = int(row[COL_START_YEAR])
-    end_year = int(row[COL_END_YEAR])
+    if pd.isna(name) or not str(name).strip() or str(name) == 'nan':
+        name = "Unknown"
+    start_year = None if pd.isna(row[COL_START_YEAR]) else int(row[COL_START_YEAR])
+    end_year = None if pd.isna(row[COL_END_YEAR]) else int(row[COL_END_YEAR])
 
     entry_result = row.to_dict()
 
@@ -1211,9 +1213,11 @@ Examples:
             results = []
             for idx in tqdm(range(len(df)), desc="Processing (agentic search)"):
                 row = df.iloc[idx]
-                polity = str(row.get(COL_TERRITORY_NAME, "Unknown"))
-                name = str(row.get(COL_LEADER_NAME, "Unknown"))
-                start_year = int(row[COL_START_YEAR])
+                _p = row.get(COL_TERRITORY_NAME)
+                polity = "Unknown Polity" if pd.isna(_p) or not str(_p).strip() else str(_p)
+                _n = row.get(COL_LEADER_NAME)
+                name = "Unknown Leader" if pd.isna(_n) or not str(_n).strip() else str(_n)
+                start_year = None if pd.isna(row[COL_START_YEAR]) else int(row[COL_START_YEAR])
                 end_year = None if pd.isna(row[COL_END_YEAR]) else int(row[COL_END_YEAR])
 
                 pred = search_predictor.predict(polity, name, start_year, end_year)
@@ -1317,9 +1321,11 @@ Examples:
             results = []
             for idx in tqdm(range(len(df)), desc="Processing (forced search)"):
                 row = df.iloc[idx]
-                polity = str(row.get(COL_TERRITORY_NAME, "Unknown"))
-                name = str(row.get(COL_LEADER_NAME, "Unknown"))
-                start_year = int(row[COL_START_YEAR])
+                _p = row.get(COL_TERRITORY_NAME)
+                polity = "Unknown Polity" if pd.isna(_p) or not str(_p).strip() else str(_p)
+                _n = row.get(COL_LEADER_NAME)
+                name = "Unknown Leader" if pd.isna(_n) or not str(_n).strip() else str(_n)
+                start_year = None if pd.isna(row[COL_START_YEAR]) else int(row[COL_START_YEAR])
                 end_year = None if pd.isna(row[COL_END_YEAR]) else int(row[COL_END_YEAR])
 
                 prediction = predictor.predict(polity, name, start_year, end_year)

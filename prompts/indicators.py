@@ -1193,8 +1193,8 @@ def build_user_prompt(
         indicator_display=config.display_name,
         polity=polity,
         name=name,
-        start_year=start_year,
-        end_year=end_year,
+        start_year=start_year if start_year is not None else 'unknown',
+        end_year=end_year if end_year is not None else 'unknown',
         task_instruction=config.task_instruction,
         coding_rule_reminder=config.coding_rule_reminder,
         response_example=response_example,
@@ -1466,7 +1466,9 @@ def get_cove_questions(
         raise ValueError(f"No CoVe questions defined for indicator: {indicator}")
 
     return [
-        q.format(polity=polity, name=name, start_year=start_year, end_year=end_year)
+        q.format(polity=polity, name=name,
+                 start_year=start_year if start_year is not None else 'unknown',
+                 end_year=end_year if end_year is not None else 'unknown')
         for q in COVE_QUESTION_TEMPLATES[indicator]
     ]
 
