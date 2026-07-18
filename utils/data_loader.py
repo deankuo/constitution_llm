@@ -42,7 +42,7 @@ def load_dataframe(file_path: str) -> pd.DataFrame:
     if path_lower.endswith('.jsonl'):
         df = _load_jsonl(path)
     elif path_lower.endswith('.csv'):
-        df = pd.read_csv(file_path)
+        df = pd.read_csv(file_path, dtype={'leader_first_year': 'Int64', 'leader_last_year': 'Int64'}, low_memory=False)
     else:
         raise ValueError(
             f"Unsupported file format: {file_path}. "
