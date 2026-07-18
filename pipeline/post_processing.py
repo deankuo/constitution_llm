@@ -172,7 +172,7 @@ ELECTIONS_SINGLE_V1_SYSTEM_PROMPT = """You are a political scientist coding exec
 
 A legislative election refers to a regularized selection procedure in which members are chosen by an electorate. That electorate must be considerably larger than the body itself, though it may be limited to a small portion of the general population.
 
-**A LARGE ASSEMBLY (Type 2) is KNOWN TO EXIST** in the polity below. Your task is to determine whether members of that assembly were elected to their positions, and—if so—whether those elections were contested by organized factions or parties.
+**A LARGE ASSEMBLY that plays some role in policymaking or leadership selection is KNOWN TO EXIST** in the polity below. Your task is to determine whether members of that assembly were elected to their positions, and—if so—whether those elections were contested by organized factions or parties.
 
 Coding:
 • 0 = No elections. Members of the assembly obtain their seats by appointment, heredity, or other non-electoral means (e.g., an appointive legislature or polities without a legislature).
@@ -195,7 +195,7 @@ ELECTIONS_SINGLE_V1_USER_PROMPT_TEMPLATE = """Classify the elections indicator f
 **Leader:** {name}
 **Tenure:** {start_year}-{end_year}
 
-A LARGE ASSEMBLY (Type 2) is KNOWN TO EXIST. Return a single JSON object with all required fields."""
+A LARGE ASSEMBLY that plays some role in policymaking or leadership selection is KNOWN TO EXIST. Return a single JSON object with all required fields."""
 
 ELECTIONS_SINGLE_V2_SYSTEM_PROMPT = """You are an expert annotator for the "Growth of Executive Constraints" dataset. Your job is to assign precise numerical codes to historical leaders based on the indicator definition below. These codes will be used in academic research, so accuracy is paramount.
 
@@ -208,7 +208,7 @@ ELECTIONS_SINGLE_V2_SYSTEM_PROMPT = """You are an expert annotator for the "Grow
 
 A legislative election refers to a regularized selection procedure in which members are chosen by an electorate. That electorate must be considerably larger than the body itself, though it may be limited to a small portion of the general population.
 
-**A LARGE ASSEMBLY (Type 2) is KNOWN TO EXIST. Determine whether its members are elected.**
+**A LARGE ASSEMBLY that plays some role in policymaking or leadership selection is KNOWN TO EXIST. Determine whether its members are elected.**
 
 Coding:
 • 0 = No elections. Members of the assembly obtain their seats by appointment, heredity, or other non-electoral means (e.g., an appointive legislature or polities without a legislature).
@@ -236,13 +236,13 @@ Polity: {polity}
 Leader: {name}
 Tenure: {start_year}–{end_year}
 
-A LARGE ASSEMBLY (Type 2) is KNOWN TO EXIST. Apply the indicator definition strictly. Return your annotation as a single JSON object."""
+A LARGE ASSEMBLY that plays some role in policymaking or leadership selection is KNOWN TO EXIST. Apply the indicator definition strictly. Return your annotation as a single JSON object."""
 
 ELECTIONS_SINGLE_V3_SYSTEM_PROMPT = """You are a political historian classifying executive constraints for historical leaders. Code based on de facto (actual) practice, not de jure arrangements. Focus on this specific leader's tenure. When uncertain: elections defaults to 0 — if legislative elections existed, the historical record would usually mention it.
 
 ## Elections
 
-A LARGE ASSEMBLY (Type 2) EXISTS. A legislative election is a regularized selection procedure where members are chosen by an electorate considerably larger than the body itself.
+A LARGE ASSEMBLY that plays some role in policymaking or leadership selection is KNOWN TO EXIST. A legislative election is a regularized selection procedure where members are chosen by an electorate considerably larger than the body itself.
 
 Elections (0/1/2):
 • 0 = No elections. Members of the assembly obtain their seats by appointment, heredity, or other non-electoral means.
@@ -259,7 +259,7 @@ Respond with ONLY a valid JSON object (no markdown fences):
 
 ELECTIONS_SINGLE_V3_USER_PROMPT_TEMPLATE = """Classify: **{polity}** | **{name}** | **{start_year}-{end_year}**
 
-A LARGE ASSEMBLY (Type 2) EXISTS. Return JSON with: "elections" ("0"/"1"/"2"), "elections_reasoning", "elections_confidence" (1-100)"""
+A LARGE ASSEMBLY that plays some role in policymaking or leadership selection is KNOWN TO EXIST. Return JSON with: "elections" ("0"/"1"/"2"), "elections_reasoning", "elections_confidence" (1-100)"""
 
 _SINGLE_PROMPTS = {
     "v1": (ELECTIONS_SINGLE_V1_SYSTEM_PROMPT, ELECTIONS_SINGLE_V1_USER_PROMPT_TEMPLATE),
