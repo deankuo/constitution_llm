@@ -55,6 +55,20 @@ To retry and merge back into the SAME combined dataset:
 _aggregate_and_merge only overwrites rows present in --input, so every
 already-successful row is carried through untouched. Repeat until
 _failed_requests.jsonl is no longer produced.
+
+Recovering from a killed local process (job already submitted)
+-----------------------------------------------------------------
+Gemini batch jobs run server-side and keep going even if the local runner is
+killed (e.g. a Jupyter kernel interrupt). If a job was already submitted,
+don't resubmit — attach to it by name and just poll/download:
+    python pipeline/jsonl_batch_runner.py \\
+        --input data/temp/batch_chunk001.jsonl data/temp/batch_chunk002.jsonl \\
+        --dataset data/plt_leaders_data.csv \\
+        --output data/results/exp001.csv \\
+        --attach-jobs batches/abc123 batches/def456
+--attach-jobs takes one job name per --input chunk, in submission order. Find
+job names/states with `client.batches.list()` (google-genai SDK) if the
+notebook output with the printed "Job: ..." line was lost.
 """
 
 import argparse
@@ -249,6 +263,70 @@ def _requests_use_grounding(requests: list) -> bool:
     return False
 
 
+def _poll_and_download(
+    client,
+    job,
+    our_cids: list[str],
+    poll_interval: int = 30,
+    grounding_data: Optional[dict] = None,
+) -> dict[str, str]:
+    """Poll a batch job (already created or attached-to) until it finishes, then
+    download and parse its output file. Returns custom_id ("key") → response_text.
+
+    The output file is JSONL where each line is either
+    {"key", "metadata"?, "response": <GenerateContentResponse>} or
+    {"key", "error": {"code", "message"}} for individual request failures.
+    """
+    while True:
+        job = client.batches.get(name=job.name)
+        state = str(getattr(job.state, "name", str(job.state))).upper()
+        if any(k in state for k in ("SUCCEEDED", "FAILED", "CANCELLED", "EXPIRED")):
+            break
+        print(f"  State: {state} — polling again in {poll_interval}s ...")
+        time.sleep(poll_interval)
+
+    print(f"  Final state: {state}")
+    results: dict[str, str] = {}
+
+    if "SUCCEEDED" not in state:
+        print(f"  WARNING: job ended in {state}; no results collected.")
+        return results
+
+    dest = getattr(job, "dest", None)
+    if not dest or not dest.file_name:
+        print("  WARNING: no output file in job.dest.")
+        return results
+
+    raw = client.files.download(file=dest.file_name).decode("utf-8")
+    n_failed = 0
+    for i, line in enumerate(raw.strip().split("\n")):
+        if not line:
+            continue
+        record = json.loads(line)
+        cid = record.get("key", our_cids[i] if i < len(our_cids) else None)
+        if cid is None:
+            continue
+
+        if "error" in record:
+            n_failed += 1
+            results[cid] = ""
+            continue
+
+        resp_dict = record.get("response")
+        if not resp_dict:
+            results[cid] = ""
+            continue
+
+        results[cid] = _extract_text(resp_dict)
+        if grounding_data is not None:
+            q, u = _extract_grounding(resp_dict)
+            if q or u:
+                grounding_data[cid] = (q, u)
+
+    print(f"  Collected {len(results)} responses ({n_failed} failed requests)")
+    return results
+
+
 def _submit_and_wait(
     client,
     model: str,
@@ -266,10 +344,6 @@ def _submit_and_wait(
     size, while file uploads support up to 2GB — see
     https://ai.google.dev/gemini-api/docs/batch-api. Each request must already
     be in {"key", "request", "metadata"} shape (see src/build_batch_jsonl.py).
-
-    The output file is JSONL where each line is either
-    {"key", "metadata"?, "response": <GenerateContentResponse>} or
-    {"key", "error": {"code", "message"}} for individual request failures.
     """
     import tempfile
 
@@ -294,54 +368,7 @@ def _submit_and_wait(
         )
         print(f"  Job: {job.name}")
 
-        while True:
-            job = client.batches.get(name=job.name)
-            state = str(getattr(job.state, "name", str(job.state))).upper()
-            if any(k in state for k in ("SUCCEEDED", "FAILED", "CANCELLED", "EXPIRED")):
-                break
-            print(f"  State: {state} — polling again in {poll_interval}s ...")
-            time.sleep(poll_interval)
-
-        print(f"  Final state: {state}")
-        results: dict[str, str] = {}
-
-        if "SUCCEEDED" not in state:
-            print(f"  WARNING: job ended in {state}; no results collected.")
-            return results
-
-        dest = getattr(job, "dest", None)
-        if not dest or not dest.file_name:
-            print("  WARNING: no output file in job.dest.")
-            return results
-
-        raw = client.files.download(file=dest.file_name).decode("utf-8")
-        n_failed = 0
-        for i, line in enumerate(raw.strip().split("\n")):
-            if not line:
-                continue
-            record = json.loads(line)
-            cid = record.get("key", our_cids[i] if i < len(our_cids) else None)
-            if cid is None:
-                continue
-
-            if "error" in record:
-                n_failed += 1
-                results[cid] = ""
-                continue
-
-            resp_dict = record.get("response")
-            if not resp_dict:
-                results[cid] = ""
-                continue
-
-            results[cid] = _extract_text(resp_dict)
-            if grounding_data is not None:
-                q, u = _extract_grounding(resp_dict)
-                if q or u:
-                    grounding_data[cid] = (q, u)
-
-        print(f"  Collected {len(results)} responses ({n_failed} failed requests)")
-        return results
+        return _poll_and_download(client, job, our_cids, poll_interval, grounding_data)
     finally:
         if tmp_path and os.path.exists(tmp_path):
             os.remove(tmp_path)
@@ -350,6 +377,27 @@ def _submit_and_wait(
                 client.files.delete(name=uploaded_name)
             except Exception:
                 pass
+
+
+def _attach_and_wait(
+    client,
+    job_name: str,
+    requests: list[dict],
+    poll_interval: int = 30,
+    grounding_data: Optional[dict] = None,
+) -> dict[str, str]:
+    """Attach to an ALREADY-SUBMITTED batch job by name and collect its results.
+
+    Recovery path for when the local process (e.g. a Jupyter kernel) was killed
+    after submission — Gemini batch jobs run server-side and keep going
+    independently of the local runner, so the job may already be running or
+    finished. Skips upload/create entirely; only polls + downloads.
+    """
+    job = client.batches.get(name=job_name)
+    state = str(getattr(job.state, "name", str(job.state))).upper()
+    print(f"  Attached to job: {job_name} (state: {state})")
+    our_cids = [r["key"] for r in requests]
+    return _poll_and_download(client, job, our_cids, poll_interval, grounding_data)
 
 
 # ---------------------------------------------------------------------------
@@ -622,11 +670,21 @@ def _aggregate_and_merge(
         if col in result_df.columns and result_df[col].dtype != object:
             result_df[col] = result_df[col].astype(object)
 
+    # Batch by column instead of setting one cell at a time: with ~135k rows and
+    # dozens of indicator columns, per-cell .iloc/get_loc calls (millions of them)
+    # took over an hour. Grouping into one vectorized .loc assignment per column
+    # only touches the same (row, col) pairs the original loop did, so rows/cols
+    # absent from a given update dict are left untouched (required for the
+    # retry-merge guarantee that only retried rows get overwritten).
+    col_to_rowvals: dict[str, dict[int, object]] = defaultdict(dict)
     for row_idx, cols in row_updates.items():
         if row_idx >= n_rows:
             continue
         for col, val in cols.items():
-            result_df.iloc[row_idx, result_df.columns.get_loc(col)] = val
+            col_to_rowvals[col][row_idx] = val
+
+    for col, rowvals in col_to_rowvals.items():
+        result_df.loc[list(rowvals.keys()), col] = pd.Series(rowvals)
 
     return result_df
 
@@ -643,6 +701,7 @@ def run_from_jsonl(
     n_samples: int,
     input_path: Optional[str] = None,
     poll_interval: int = 30,
+    attach_jobs: Optional[list[str]] = None,
 ) -> pd.DataFrame:
     """Read one or more pre-built JSONL chunk files, submit each as its own batch job,
     aggregate SC across all results, and write output.
@@ -653,6 +712,10 @@ def run_from_jsonl(
     original DataFrame (all original columns preserved). When omitted, a minimal
     DataFrame is constructed from the JSONL row indices — the output will contain
     only prediction/confidence/reasoning columns keyed by positional row index.
+
+    attach_jobs: recovery path for a killed local process. When provided, must have
+    one Gemini batch job name per chunk (same order the JSONL re-chunks into) — skips
+    upload/create and instead polls/downloads results from those already-submitted jobs.
     """
     if input_path is not None:
         print(f"Loading input: {input_path}")
@@ -787,25 +850,53 @@ def run_from_jsonl(
 
     # Chunk by size and submit each chunk as a separate batch job
     chunks = _chunk_requests(all_requests)
+
+    if attach_jobs is not None and len(attach_jobs) != len(chunks):
+        raise ValueError(
+            f"--attach-jobs has {len(attach_jobs)} job name(s) but this JSONL re-chunks into "
+            f"{len(chunks)} chunk(s) — pass one job name per chunk, in the same order the "
+            f"original build/submit produced them."
+        )
+
     client = _get_client(api_key)
     display_base = f"const-llm-{Path(output_path).stem}-{int(time.time())}"
     raw_results: dict[str, str] = {}
     all_grounding: dict[str, tuple] = {}
     for i, chunk in enumerate(chunks):
         chunk_label = f"chunk {i + 1}/{len(chunks)}" if len(chunks) > 1 else "single job"
-        display_name = f"{display_base}-c{i + 1:03d}" if len(chunks) > 1 else display_base
         size_mb = sum(len(json.dumps(r, ensure_ascii=False).encode()) + 1 for r in chunk) / 1024 / 1024
-        print(f"\nSubmitting {chunk_label}: {len(chunk)} requests ({size_mb:.1f} MB) ...")
-        chunk_results = _submit_and_wait(client, model, chunk, display_name, poll_interval,
-                                         grounding_data=all_grounding if use_grounding else None)
+        if attach_jobs is not None:
+            print(f"\nAttaching to existing job for {chunk_label}: {len(chunk)} requests ({size_mb:.1f} MB) ...")
+            chunk_results = _attach_and_wait(client, attach_jobs[i], chunk, poll_interval,
+                                             grounding_data=all_grounding if use_grounding else None)
+        else:
+            display_name = f"{display_base}-c{i + 1:03d}" if len(chunks) > 1 else display_base
+            print(f"\nSubmitting {chunk_label}: {len(chunk)} requests ({size_mb:.1f} MB) ...")
+            chunk_results = _submit_and_wait(client, model, chunk, display_name, poll_interval,
+                                             grounding_data=all_grounding if use_grounding else None)
         raw_results.update(chunk_results)
+
+    # Free the request bodies now that responses are collected — only the small
+    # per-cid metadata (already extracted into request_metadata) is needed from
+    # here on. Holding both `all_requests` (grounding-heavy prompts, can be
+    # multi-GB for 100k+ row batches) and the merge/aggregation structures at
+    # once is what pushed a 135k-row grounding batch past available RAM (a
+    # Jetsam/OOM kill was observed in production on a 16GB machine, mid-merge).
+    total_requests = len(all_requests)
+    expected_cids = set(request_metadata.keys())
+    requested_rows: set[int] = set()
+    for cid in request_metadata:
+        try:
+            requested_rows.add(_parse_custom_id(cid)[0])
+        except Exception:
+            pass
+    del all_requests, chunks
 
     result_df = _aggregate_and_merge(raw_results, df, n_samples, request_metadata,
                                       grounding_data=all_grounding if use_grounding else None,
                                       include_reasoning=include_reasoning)
 
     # Response-level failures (CID missing from results or response text empty)
-    expected_cids = {r["key"] for r in all_requests}
     missing = expected_cids - set(raw_results.keys())
     empty = {cid for cid, text in raw_results.items() if not text}
     response_failed_rows = sorted({_parse_custom_id(cid)[0] for cid in missing | empty})
@@ -829,15 +920,10 @@ def run_from_jsonl(
         except Exception:
             pass
 
-    # Rows actually covered by this JSONL. Null-checking is restricted to these:
+    # requested_rows (rows actually covered by this JSONL) was computed above,
+    # right before all_requests was freed. Null-checking is restricted to these:
     # a subset build (elections gating, sanity_check re-runs, --test) must not
     # flag rows that were never requested in this batch as failures.
-    requested_rows: set[int] = set()
-    for r in all_requests:
-        try:
-            requested_rows.add(_parse_custom_id(r["key"])[0])
-        except Exception:
-            pass
 
     # Elections pass-through: the build filters to assembly_prediction == 2, so
     # non-requested rows with assembly != 2 get elections_prediction = "0" with
@@ -880,11 +966,23 @@ def run_from_jsonl(
         # Write all SC calls for failed rows so they can be resubmitted as a new batch job.
         # Resubmitting from the same JSONL is reproducibility-safe (same prompts, same sampling
         # distribution). Do NOT fall back to sync calls — they use a different serving path.
+        # all_requests was freed after download to bound memory (see above) — re-stream the
+        # JSONL files from disk instead of holding every request body in memory the whole run;
+        # this only runs when there ARE failures, so the extra I/O is the rare-path cost.
         failed_row_set = set(all_failed_rows)
-        failed_requests = [
-            r for r in all_requests
-            if _parse_custom_id(r["key"])[0] in failed_row_set
-        ]
+        failed_requests = []
+        for jpath in jsonl_paths:
+            with open(jpath, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    r = json.loads(line)
+                    try:
+                        if _parse_custom_id(r["key"])[0] in failed_row_set:
+                            failed_requests.append(r)
+                    except Exception:
+                        continue
         retry_path = Path(output_path).parent / (Path(output_path).stem + "_failed_requests.jsonl")
         retry_path.parent.mkdir(parents=True, exist_ok=True)
         with open(retry_path, "w", encoding="utf-8") as f:
@@ -914,7 +1012,7 @@ def run_from_jsonl(
         "run_timestamp": _dt.datetime.now(_dt.timezone.utc).isoformat(),
         "n_samples": n_samples,
         "input_jsonl": jsonl_paths,
-        "total_requests": len(all_requests),
+        "total_requests": total_requests,
         "success_count": sum(1 for v in raw_results.values() if v),
         "response_failed_cids": sorted(missing | empty),
         "prediction_null_rows": sorted(null_row_idxs),
@@ -971,6 +1069,17 @@ def main():
         ),
     )
     parser.add_argument("--poll-interval", type=int, default=30)
+    parser.add_argument(
+        "--attach-jobs", nargs="+", default=None,
+        help=(
+            "Recovery path: one or more ALREADY-SUBMITTED Gemini batch job names "
+            "(e.g. --attach-jobs batches/abc123 batches/def456), one per --input chunk, "
+            "in the same order. Skips upload/create and just polls/downloads results — "
+            "use this after a local process (e.g. Jupyter kernel) was killed mid-run, "
+            "since the remote batch job keeps running independently. Find job names/states "
+            "with client.batches.list() via the google-genai SDK."
+        ),
+    )
     args = parser.parse_args()
 
     api_key = os.getenv("GEMINI_API_KEY")
@@ -985,6 +1094,7 @@ def main():
         n_samples=args.n_samples,
         input_path=args.dataset,
         poll_interval=args.poll_interval,
+        attach_jobs=args.attach_jobs,
     )
 
 

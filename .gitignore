@@ -4,6 +4,7 @@
 # Dataset directories
 /Graph/
 /Data/
+/google/
 
 # IDE settings
 /.vscode/
@@ -89,7 +90,7 @@ env/
 data/temp/
 
 # shell history
-tacc/*.slurm
+tacc/
 
 # uv
 .venv/
@@ -100,3 +101,4 @@ tacc/*.slurm
 *.synctex.gz
 docs/codebook/*.out
 docs/codebook/*.log
+docs/superpowers
