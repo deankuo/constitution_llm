@@ -410,7 +410,26 @@ def build_elections_requests(
     if "assembly_prediction" not in df.columns:
         raise ValueError("Elections task requires 'assembly_prediction' column in input.")
 
-    eligible_mask = pd.to_numeric(df["assembly_prediction"], errors="coerce") == 2
+    # Self-consistency widens the gate. With SC, `assembly_prediction` holds the
+    # MAJORITY vote, so a row whose slots split 2/1/1 reads as assembly=1 and is
+    # never sent to the model at all — and a row that was never generated cannot
+    # be recovered by filtering afterwards, only by another GPU run. The reverse
+    # is cheap: the union is a strict SUPERSET of the majority set, so analyses
+    # can still be restricted to majority-eligible rows later via assembly_SC*.
+    # So when SC slot columns exist, admit any row where ANY slot says 2.
+    sc_cols = sorted(c for c in df.columns
+                     if c.startswith("assembly_SC") and c[len("assembly_SC"):].isdigit())
+    majority_mask = pd.to_numeric(df["assembly_prediction"], errors="coerce") == 2
+    if sc_cols:
+        sc_num = df[sc_cols].apply(pd.to_numeric, errors="coerce")
+        eligible_mask = (sc_num == 2).any(axis=1)
+        extra = int((eligible_mask & ~majority_mask).sum())
+        print(f"  Gate: ANY of {len(sc_cols)} SC slots == 2 ({', '.join(sc_cols)})")
+        print(f"    majority-only would be {int(majority_mask.sum())}; "
+              f"union adds {extra} split-vote rows")
+    else:
+        eligible_mask = majority_mask
+        print("  Gate: assembly_prediction == 2 (no SC slot columns found)")
 
     if prompt_version in _SINGLE_PROMPTS:
         sys_tmpl, usr_tmpl = _SINGLE_PROMPTS[prompt_version]
