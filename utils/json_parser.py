@@ -102,17 +102,31 @@ def parse_json_response(
         print(clean_response)
         print("-" * 60)
 
-    for attempt in range(1, max_retries + 1):
-        try:
-            return json.loads(clean_response)
-        except json.JSONDecodeError as e:
-            if verbose:
-                print(f"Error decoding JSON: {e}. Attempt {attempt} of {max_retries}.")
-
-            if attempt < max_retries:
-                if verbose:
-                    print(f"Retrying in {retry_delay} seconds")
-                time.sleep(retry_delay)
+    # ONE attempt, deliberately. json.loads is a pure function of
+    # clean_response: if it raises once it raises identically every time, so
+    # retrying cannot change the outcome and sleeping between retries is
+    # strictly wasted wall-clock. The retry-with-delay shape here was borrowed
+    # from network code, where it makes sense; applied to local string parsing
+    # it only burns time.
+    #
+    # This was not theoretical. With max_retries=3 and retry_delay=1.0 every
+    # unparseable response cost 2 seconds of pure time.sleep(). In
+    # jsonl_batch_runner._parse_indicator the SAME response text is parsed once
+    # per indicator, so one bad row in a 17-indicator single-mode run burned
+    # 17 x 2s = 34 seconds of sleeping. Measured on the Qwen indicators
+    # sidecar: 3400 parses took 1025.8s (~0.3s/parse average, ~15% of records
+    # unparseable), projecting to ~580 hours for the full 6.9M-parse
+    # aggregation. The TACC job reported a 2522-hour ETA and was killed by its
+    # 45-minute wall clock. Without the sleep the same work takes seconds.
+    #
+    # max_retries and retry_delay stay in the signature so existing callers
+    # keep working (main.py:134 passes them positionally), but they are now
+    # inert. Do not reintroduce the loop.
+    try:
+        return json.loads(clean_response)
+    except json.JSONDecodeError as e:
+        if verbose:
+            print(f"Error decoding JSON: {e}")
 
     # All retries failed - return error structure
     if verbose:
