@@ -102,3 +102,5 @@ tacc/
 docs/codebook/*.out
 docs/codebook/*.log
 docs/superpowers
+.Rproj.user
+*.Rproj
