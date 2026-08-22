@@ -16,8 +16,18 @@
 \hypersetup{colorlinks=false, pdftitle={Output Dataset Codebook}}
 
 \newcolumntype{P}[1]{>{\raggedright\arraybackslash}p{#1}}
+\newcolumntype{R}[1]{>{\raggedleft\arraybackslash}p{#1}}
 \newcommand{\ra}[1]{\renewcommand{\arraystretch}{#1}}
 \newcommand{\thead}[1]{\textbf{#1}}
+
+% longtable caption width. The default \LTcapwidth is 4in, which wraps every
+% caption long before the table's own right edge; set it to the text block so a
+% caption only breaks when it genuinely runs out of table. The two tables that
+% are narrower than \textwidth override it locally with \capwidth and restore it
+% with \capfull, so every caption is exactly as wide as the table above it.
+\setlength{\LTcapwidth}{\textwidth}
+\newcommand{\capwidth}[1]{\setlength{\LTcapwidth}{#1}}
+\newcommand{\capfull}{\setlength{\LTcapwidth}{\textwidth}}
 
 % Quoted prompt text block: indented, slightly smaller, used to reproduce
 % verbatim system/user prompt wording without switching to a monospace code font.
@@ -40,12 +50,13 @@
 
 \bigskip
 
-This codebook documents the dataset produced by the Gemini Batch API pipeline.
+This codebook documents the dataset produced by the Gemini Batch API pipeline and open source models including Llama3.1-8B, Qwen2.5-32B, and Gemma3-27B.
 It covers every column in the canonical, full-dataset output files. The dataset can be found in the \href{https://drive.google.com/drive/folders/1Y1oUJ41vCwXSeHYVmyZUn2sG8uHMwJx6?usp=sharing}{Google Drive folder}.
 
 \medskip
 \textbf{Canonical run settings.} The documented dataset is built WITHOUT
-self-consistency verification and WITHOUT reasoning. Every
+self-consistency verification for Gemini pipeline and WITHOUT reasoning for all three
+open source models. Every
 indicator therefore contributes exactly two plain columns —
 \texttt{\{ind\}\_\allowbreak prediction} and \texttt{\{ind\}\_\allowbreak confidence} —
 except \texttt{constitution} (three extra document-level columns) and
@@ -60,6 +71,12 @@ used.
 
 \ra{1.3}
 \begin{longtable}{P{3.8cm} P{1.5cm} P{9cm}}
+  \caption{Input columns carried through the pipeline.}\label{tab:input-cols}\\
+  \toprule
+  \thead{Column} & \thead{Type} & \thead{Meaning} \\
+  \midrule
+  \endfirsthead
+  \multicolumn{3}{l}{\small\itshape \tablename~\thetable\ (continued)}\\
   \toprule
   \thead{Column} & \thead{Type} & \thead{Meaning} \\
   \midrule
@@ -101,95 +118,101 @@ below is \texttt{\{ind\}\_\allowbreak prediction} (the coded label) and
 \subsection{Constitution (\texttt{constitution})}
 % ─────────────────────────────────────────────────────────────────────────────
 
-\textbf{Prompt source:} \texttt{prompts/\allowbreak constitution.py}. \\
+% \textbf{Prompt source:} \texttt{prompts/\allowbreak constitution.py}. \\
 \textbf{Clarficiation:} Constitution is never part of the combined \texttt{indicators} prompt — 
 it always runs as its own task/LLM call, using CoT and few-shot prompt.
 
-\begin{promptquote}
-You are a professional political scientist, historian, and constitutional expert specializing
-in constitutional history across different countries.
+% \begin{promptquote}
+% You are a professional political scientist, historian, and constitutional expert specializing
+% in constitutional history across different countries.
 
-Your task is to classify the HIGHEST TYPE of written legal document that existed in a given
-polity during a specific leader's tenure.
+% Your task is to classify the HIGHEST TYPE of written legal document that existed in a given
+% polity during a specific leader's tenure.
 
-\textbf{Type 0 --- No Written Legal Document.} No written code of law or constitution existed
-during this period. Only oral traditions, customary practices, or uncodified norms are present.
+% \textbf{Type 0 --- No Written Legal Document.} No written code of law or constitution existed
+% during this period. Only oral traditions, customary practices, or uncodified norms are present.
 
-\textbf{Type 1 --- Code of Law (Subjects/Citizens Only).} A written document containing binding
-legal provisions that govern the conduct of subjects or citizens, but does NOT constrain rulers
-or specify governance rules. Both conditions must be met: (1) Written Document --- an
-identifiable written document with legal force; (2) Code of Law --- binding legal rules
-governing the conduct of subjects/citizens. Examples: Code of Ur-Nammu in Sumer
-(c.\ 2100--2050 BCE), Code of Hammurabi in Babylon (c.\ 1750 BCE), Law of Moses (Torah) in the
-Kingdom of the Jews, Hittite Laws (Code of the Nesilim) in the Hittite Kingdom
-(c.\ 1650--1500 BCE). Does NOT qualify: royal decrees or edicts (not a systematic code of law);
-purely oral traditions or uncodified customs; documents that also specify governance rules or
-limit rulers (those qualify for Type 2 instead).
+% \textbf{Type 1 --- Code of Law (Subjects/Citizens Only).} A written document containing binding
+% legal provisions that govern the conduct of subjects or citizens, but does NOT constrain rulers
+% or specify governance rules. Both conditions must be met: (1) Written Document --- an
+% identifiable written document with legal force; (2) Code of Law --- binding legal rules
+% governing the conduct of subjects/citizens. Examples: Code of Ur-Nammu in Sumer
+% (c.\ 2100--2050 BCE), Code of Hammurabi in Babylon (c.\ 1750 BCE), Law of Moses (Torah) in the
+% Kingdom of the Jews, Hittite Laws (Code of the Nesilim) in the Hittite Kingdom
+% (c.\ 1650--1500 BCE). Does NOT qualify: royal decrees or edicts (not a systematic code of law);
+% purely oral traditions or uncodified customs; documents that also specify governance rules or
+% limit rulers (those qualify for Type 2 instead).
 
-\textbf{Type 2 --- Constitution (Code of Law + Governance Rules).} All requirements for Type 1
-plus the document also governs the polity itself. All four elements must be present:
-(1) Written Document --- an identifiable written document;
-(2) Code of Law --- binding legal rules with legal force;
-(3) Rules About Governance --- specifies how leaders are selected, how laws are enacted, or the
-structure of governmental institutions;
-(4) Limitations on Authority --- constrains the ruler's or government's power, through rights of
-subjects, checks and balances, or procedures limiting arbitrary power.
-Examples: Draconian constitution in Athens (late 7th c.\ BCE), Solonian constitution in Athens
-(early 6th c.\ BCE), Law of Manu (Manusmriti) in India (c.\ 200 BCE) [borderline], Magna Carta in
-England (1215), Golden Bull in Hungary (1222), Salic Law in the Frankish kingdoms (c.\ 500 AD).
+% \textbf{Type 2 --- Constitution (Code of Law + Governance Rules).} All requirements for Type 1
+% plus the document also governs the polity itself. All four elements must be present:
+% (1) Written Document --- an identifiable written document;
+% (2) Code of Law --- binding legal rules with legal force;
+% (3) Rules About Governance --- specifies how leaders are selected, how laws are enacted, or the
+% structure of governmental institutions;
+% (4) Limitations on Authority --- constrains the ruler's or government's power, through rights of
+% subjects, checks and balances, or procedures limiting arbitrary power.
+% Examples: Draconian constitution in Athens (late 7th c.\ BCE), Solonian constitution in Athens
+% (early 6th c.\ BCE), Law of Manu (Manusmriti) in India (c.\ 200 BCE) [borderline], Magna Carta in
+% England (1215), Golden Bull in Hungary (1222), Salic Law in the Frankish kingdoms (c.\ 500 AD).
 
-\textbf{Classification logic:} (1) Is there a written document with binding legal force applying
-to subjects? If NO $\rightarrow$ Type 0. (2) Does it ONLY govern subjects without constraining
-rulers or specifying governance? $\rightarrow$ Type 1. (3) Does it ALSO specify governance rules
-AND limit ruler authority? $\rightarrow$ Type 2.
+% \textbf{Classification logic:} (1) Is there a written document with binding legal force applying
+% to subjects? If NO $\rightarrow$ Type 0. (2) Does it ONLY govern subjects without constraining
+% rulers or specifying governance? $\rightarrow$ Type 1. (3) Does it ALSO specify governance rules
+% AND limit ruler authority? $\rightarrow$ Type 2.
 
-\textbf{If multiple documents existed during the tenure:} classify each document separately;
-report the highest type as \texttt{constitution}; list ALL documents in \texttt{document\_name}
-(semicolon-separated); list their corresponding types in \texttt{document\_types}
-(semicolon-separated, same order); list their adoption years in \texttt{constitution\_year}
-(semicolon-separated, same order).
+% \textbf{If multiple documents existed during the tenure:} classify each document separately;
+% report the highest type as \texttt{constitution}; list ALL documents in \texttt{document\_name}
+% (semicolon-separated); list their corresponding types in \texttt{document\_types}
+% (semicolon-separated, same order); list their adoption years in \texttt{constitution\_year}
+% (semicolon-separated, same order).
 
-\textbf{Analysis process:}
-\begin{enumerate}[leftmargin=1.4em]
-  \item \textbf{Identify the Historical Context} --- What type of polity was this during this
-    leader's tenure? Was it independent or subject to external governance authority?
-  \item \textbf{Determine Governance Authority} --- Who had the authority to establish legal
-    rules during this tenure? Was governance authority internal or externally imposed?
-  \item \textbf{Identify Written Legal Documents} --- What specific written document(s) existed
-    during this leader's tenure? Name each document with its official title and adoption year.
-    List ALL documents, not only the highest-type one.
-  \item \textbf{Classify Each Document} --- For each document: Does it have legal force
-    (required for Type 1 and 2)? Does it apply to subjects/citizens (required for Type 1 and 2)?
-    Does it specify governance rules (required for Type 2 only)? Does it limit the ruler's
-    authority or protect subjects' rights (required for Type 2 only)?
-  \item \textbf{Consider Temporal Factors} --- Did documents exist for the entire tenure, or only
-    part of it? Were there amendments, new documents, or abrogations during this tenure?
-  \item \textbf{Assess Confidence} --- How well-documented is the evidence? Is there scholarly
-    consensus or debate? When uncertain, lean toward a lower type (conservative coding).
-\end{enumerate}
+% \textbf{Analysis process:}
+% \begin{enumerate}[leftmargin=1.4em]
+%   \item \textbf{Identify the Historical Context} --- What type of polity was this during this
+%     leader's tenure? Was it independent or subject to external governance authority?
+%   \item \textbf{Determine Governance Authority} --- Who had the authority to establish legal
+%     rules during this tenure? Was governance authority internal or externally imposed?
+%   \item \textbf{Identify Written Legal Documents} --- What specific written document(s) existed
+%     during this leader's tenure? Name each document with its official title and adoption year.
+%     List ALL documents, not only the highest-type one.
+%   \item \textbf{Classify Each Document} --- For each document: Does it have legal force
+%     (required for Type 1 and 2)? Does it apply to subjects/citizens (required for Type 1 and 2)?
+%     Does it specify governance rules (required for Type 2 only)? Does it limit the ruler's
+%     authority or protect subjects' rights (required for Type 2 only)?
+%   \item \textbf{Consider Temporal Factors} --- Did documents exist for the entire tenure, or only
+%     part of it? Were there amendments, new documents, or abrogations during this tenure?
+%   \item \textbf{Assess Confidence} --- How well-documented is the evidence? Is there scholarly
+%     consensus or debate? When uncertain, lean toward a lower type (conservative coding).
+% \end{enumerate}
 
-\textbf{Confidence score guidelines:} 81--100 specific documents named with exact dates, all
-elements clearly documented, scholarly consensus; 61--80 strong documentary evidence, minor
-scholarly debate possible; 41--60 documents identified but some elements ambiguous, reasonable
-alternative interpretations; 21--40 limited evidence, educated inference from general
-regional/period knowledge; 1--20 no reliable specific information, essentially speculative.
+% \textbf{Confidence score guidelines:} 81--100 specific documents named with exact dates, all
+% elements clearly documented, scholarly consensus; 61--80 strong documentary evidence, minor
+% scholarly debate possible; 41--60 documents identified but some elements ambiguous, reasonable
+% alternative interpretations; 21--40 limited evidence, educated inference from general
+% regional/period knowledge; 1--20 no reliable specific information, essentially speculative.
 
-\end{promptquote}
+% \end{promptquote}
 
-\medskip
-\textit{User prompt template:}
-\begin{quote}\small
-Classify the written legal documents for the following leader's tenure: \\ 
-\textbf{Polity:} \{polity\} \\
-\textbf{Leader:} \{name\} \\
-\textbf{Tenure Period:} \{start\_year\}--\{end\_year\}. \\
-Work through the six analysis steps and return the JSON object specified above.  \\
-When uncertain, default to a lower type (conservative coding).
-\end{quote}
+% \medskip
+% \textit{User prompt template:}
+% \begin{quote}\small
+% Classify the written legal documents for the following leader's tenure: \\ 
+% \textbf{Polity:} \{polity\} \\
+% \textbf{Leader:} \{name\} \\
+% \textbf{Tenure Period:} \{start\_year\}--\{end\_year\}. \\
+% Work through the six analysis steps and return the JSON object specified above.  \\
+% When uncertain, default to a lower type (conservative coding).
+% \end{quote}
 
 \textbf{Related columns:}
 \ra{1.3}
-\begin{longtable}{P{4.6cm} P{2cm} P{8.4cm}}
+\begin{longtable}{P{4.6cm} P{2cm} P{8.1cm}}
+  \caption{Output columns of the \texttt{constitution} task.}\label{tab:constitution-cols}\\
+  \toprule
+  \thead{Column} & \thead{Type} & \thead{Meaning} \\
+  \midrule
+  \endfirsthead
+  \multicolumn{3}{l}{\small\itshape \tablename~\thetable\ (continued)}\\
   \toprule
   \thead{Column} & \thead{Type} & \thead{Meaning} \\
   \midrule
@@ -214,48 +237,47 @@ When uncertain, default to a lower type (conservative coding).
 \subsection{Indicators (combined \texttt{indicators} task)}
 % ─────────────────────────────────────────────────────────────────────────────
 
-\textbf{Prompt source:} \texttt{prompts/single\_builder.py}. Sovereign, federalism, the nine
-\texttt{checks\_*} sub-indicators, collegiality, petition, assembly, entry, exit, and symbolism
+Sovereign, federalism, the nine \texttt{checks\_*} sub-indicators, collegiality, petition, assembly, entry, exit, and symbolism
 are NOT queried one prompt per indicator --- they are combined into a single LLM call per
 leader-tenure.
 
 The shared default system prompt opens with:
 
-\begin{promptquote}
-You are a political scientist coding executive constraints for historical leaders. Core rule:
-focus on THIS specific leader's tenure. When evidence is uncertain, apply the
-indicator-appropriate default: institutional-presence indicators (federalism, checks,
-collegiality, petition, legislative election) default to 0 / None / No --- if such an
-institution existed, the historical record would usually mention it, so silence indicates
-absence. Sovereignty defaults to 1 / Sovereign --- silence indicates the polity governed its own
-domestic affairs (be more cautious for premodern and non-Western polities, where semi-sovereign
-status may go unrecorded). Assembly is ordinal (0$<$1$<$2$<$3): when choosing among
-present-but-ambiguous levels, prefer the lower level. Nominal indicators (entry, exit) and the
-non-monotonic symbolism scale do NOT default to a lower label --- lower the confidence score
-instead of forcing a code.
-\end{promptquote}
+% \begin{promptquote}
+% You are a political scientist coding executive constraints for historical leaders. Core rule:
+% focus on THIS specific leader's tenure. When evidence is uncertain, apply the
+% indicator-appropriate default: institutional-presence indicators (federalism, checks,
+% collegiality, petition, legislative election) default to 0 / None / No --- if such an
+% institution existed, the historical record would usually mention it, so silence indicates
+% absence. Sovereignty defaults to 1 / Sovereign --- silence indicates the polity governed its own
+% domestic affairs (be more cautious for premodern and non-Western polities, where semi-sovereign
+% status may go unrecorded). Assembly is ordinal (0$<$1$<$2$<$3): when choosing among
+% present-but-ambiguous levels, prefer the lower level. Nominal indicators (entry, exit) and the
+% non-monotonic symbolism scale do NOT default to a lower label --- lower the confidence score
+% instead of forcing a code.
+% \end{promptquote}
 
-\ldots followed by the ``Indicator Definitions'' section reproduced indicator-by-indicator
-below, and closing with a single JSON-output instruction requesting, for every selected
-indicator, its coded label and \texttt{\{ind\}\_\allowbreak confidence} (1--100 integer).
+% \ldots followed by the ``Indicator Definitions'' section reproduced indicator-by-indicator
+% below, and closing with a single JSON-output instruction requesting, for every selected
+% indicator, its coded label and \texttt{\{ind\}\_\allowbreak confidence} (1--100 integer).
 
 \bigskip
 \textbf{Sovereign (\texttt{sovereign})}
 
-\begin{promptquote}
-Sovereignty refers to a polity's ability to conduct its own domestic affairs without foreign
-interference. Code the polity's de facto control over domestic affairs during this leader's
-tenure; the conduct of foreign affairs is not relevant here. IMPORTANT: when evidence is
-uncertain, default to 1 (Sovereign) --- silence usually means no foreign overlord --- but be
-cautious for premodern/non-Western polities where tributary or vassal status may go unrecorded.
+% \begin{promptquote}
+% Sovereignty refers to a polity's ability to conduct its own domestic affairs without foreign
+% interference. Code the polity's de facto control over domestic affairs during this leader's
+% tenure; the conduct of foreign affairs is not relevant here. IMPORTANT: when evidence is
+% uncertain, default to 1 (Sovereign) --- silence usually means no foreign overlord --- but be
+% cautious for premodern/non-Western polities where tributary or vassal status may go unrecorded.
 
-Coding: 0 = Semi-sovereign (colony, protectorate, distant or overseas territory not fully
-incorporated into the metropole); 1 = Sovereign (city-states, nation-states, empires, republics,
-monarchies, tributary states so long as they held primary responsibility for domestic affairs,
-states within the Peloponnesian League, the Hanseatic League, the Holy Roman Empire, and the
-European Union, any state recognized by European powers or international law in the modern era,
-as well as a few that enjoy de facto sovereignty such as Somaliland and Taiwan).
-\end{promptquote}
+% Coding: 0 = Semi-sovereign (colony, protectorate, distant or overseas territory not fully
+% incorporated into the metropole); 1 = Sovereign (city-states, nation-states, empires, republics,
+% monarchies, tributary states so long as they held primary responsibility for domestic affairs,
+% states within the Peloponnesian League, the Hanseatic League, the Holy Roman Empire, and the
+% European Union, any state recognized by European powers or international law in the modern era,
+% as well as a few that enjoy de facto sovereignty such as Somaliland and Taiwan).
+% \end{promptquote}
 
 \texttt{sovereign\_prediction} (int, 0--1):
 \begin{itemize}[nosep, leftmargin=1.7em]
@@ -267,18 +289,18 @@ as well as a few that enjoy de facto sovereignty such as Somaliland and Taiwan).
 \bigskip
 \textbf{Federalism (\texttt{federalism})}
 
-\begin{promptquote}
-Federalism refers to a division of sovereignty between central and local units, reserving some
-important powers to the latter and providing a relatively decentralized mode of governance. Such
-powers are typically enshrined in a constitution, and localities are often represented in a
-chamber at the polity level.
+% \begin{promptquote}
+% Federalism refers to a division of sovereignty between central and local units, reserving some
+% important powers to the latter and providing a relatively decentralized mode of governance. Such
+% powers are typically enshrined in a constitution, and localities are often represented in a
+% chamber at the polity level.
 
-Coding: 0 = Non-federal; 1 = Federal --- includes confederations, leagues, and composite
-monarchies. Historical examples: Achaean League, Aetolian League, Lycian League, Boeotian
-League, Old Swiss Confederacy, Dutch Republic, Holy Roman Empire, Iroquois Confederacy,
-Hanseatic League, Polish-Lithuanian Commonwealth, Tokugawa Japan. Contemporary examples: Canada,
-Germany, India, United States, and the European Union.
-\end{promptquote}
+% Coding: 0 = Non-federal; 1 = Federal --- includes confederations, leagues, and composite
+% monarchies. Historical examples: Achaean League, Aetolian League, Lycian League, Boeotian
+% League, Old Swiss Confederacy, Dutch Republic, Holy Roman Empire, Iroquois Confederacy,
+% Hanseatic League, Polish-Lithuanian Commonwealth, Tokugawa Japan. Contemporary examples: Canada,
+% Germany, India, United States, and the European Union.
+% \end{promptquote}
 
 \texttt{federalism\_prediction} (int, 0--1):
 \begin{itemize}[nosep, leftmargin=1.7em]
@@ -290,16 +312,16 @@ Germany, India, United States, and the European Union.
 \bigskip
 \textbf{Collegiality (\texttt{collegiality})}
 
-\begin{promptquote}
-Collegiality refers to power at the apex of a polity being exercised in a shared manner:
-decisionmaking power is divided among co-equal actors. There may be a titular head (e.g., a
-director or chair), but the other members are regarded as partners and collaborators;
-decisionmaking is lateral rather than vertical. Code de facto practice --- if a body is formally
-collegial but actually dominated by a single actor, it is NOT collegial.
+% \begin{promptquote}
+% Collegiality refers to power at the apex of a polity being exercised in a shared manner:
+% decisionmaking power is divided among co-equal actors. There may be a titular head (e.g., a
+% director or chair), but the other members are regarded as partners and collaborators;
+% decisionmaking is lateral rather than vertical. Code de facto practice --- if a body is formally
+% collegial but actually dominated by a single actor, it is NOT collegial.
 
-Coding: 0 = Non-collegial (most presidencies, monarchies, and dictatorships); 1 = Collegial (most
-cabinets, some military juntas, many regencies, Roman consuls, Switzerland's modern presidency).
-\end{promptquote}
+% Coding: 0 = Non-collegial (most presidencies, monarchies, and dictatorships); 1 = Collegial (most
+% cabinets, some military juntas, many regencies, Roman consuls, Switzerland's modern presidency).
+% \end{promptquote}
 
 \texttt{collegiality\_prediction} (int, 0--1):
 \begin{itemize}[nosep, leftmargin=1.7em]
@@ -311,15 +333,15 @@ cabinets, some military juntas, many regencies, Roman consuls, Switzerland's mod
 \bigskip
 \textbf{Petition (\texttt{petition})}
 
-\begin{promptquote}
-A petition is a regularized, institutionalized process by which a subject or citizen may lodge a
-complaint or request for redress with a high official (e.g., a head of state, legislature,
-court, or ombudsman). It may take the form of a face-to-face meeting (the ``bell of justice''
-tradition), a letter, or an electronic communication, with one or many signatories.
+% \begin{promptquote}
+% A petition is a regularized, institutionalized process by which a subject or citizen may lodge a
+% complaint or request for redress with a high official (e.g., a head of state, legislature,
+% court, or ombudsman). It may take the form of a face-to-face meeting (the ``bell of justice''
+% tradition), a letter, or an electronic communication, with one or many signatories.
 
-Coding: 0 = No --- use of petition is extremely rare and probably ineffective, or there is no
-record of its existence; 1 = Yes --- petitions are a fairly regular feature of political life.
-\end{promptquote}
+% Coding: 0 = No --- use of petition is extremely rare and probably ineffective, or there is no
+% record of its existence; 1 = Yes --- petitions are a fairly regular feature of political life.
+% \end{promptquote}
 
 \texttt{petition\_prediction} (int, 0--1):
 \begin{itemize}[nosep, leftmargin=1.7em]
@@ -331,21 +353,21 @@ record of its existence; 1 = Yes --- petitions are a fairly regular feature of p
 \bigskip
 \textbf{Assembly (\texttt{assembly})}
 
-\begin{promptquote}
-An assembly is a body designed to govern directly, to select leaders, or to assist in governing.
-It may be advisory (a council of selected elites), representative (a legislature), or inclusive
-of all citizens (a popular assembly).
+% \begin{promptquote}
+% An assembly is a body designed to govern directly, to select leaders, or to assist in governing.
+% It may be advisory (a council of selected elites), representative (a legislature), or inclusive
+% of all citizens (a popular assembly).
 
-Coding: 0 = None. 1 = Council --- a small advisory council appointed by the ruler, which may not
-enjoy much autonomy but is nonetheless institutionalized (has a recognized name, meets regularly,
-and has a fairly stable membership); examples: noble or aristocratic councils, privy councils,
-dynastic councils, Ottoman divan. 2 = Legislature --- a large representative body that plays some
-role in policymaking or leadership selection, de jure or de facto; examples: estates assemblies
-in premodern Europe, the Hwabaek Council in Korea during the Silla Dynasty, legislatures in
-modern governments. 3 = Popular assembly --- an assembly that includes most citizens of the
-polity or a representative sample chosen by lot; examples: Ecclesia in ancient Athens,
-Landsgemeinden in modern Swiss cantons.
-\end{promptquote}
+% Coding: 0 = None. 1 = Council --- a small advisory council appointed by the ruler, which may not
+% enjoy much autonomy but is nonetheless institutionalized (has a recognized name, meets regularly,
+% and has a fairly stable membership); examples: noble or aristocratic councils, privy councils,
+% dynastic councils, Ottoman divan. 2 = Legislature --- a large representative body that plays some
+% role in policymaking or leadership selection, de jure or de facto; examples: estates assemblies
+% in premodern Europe, the Hwabaek Council in Korea during the Silla Dynasty, legislatures in
+% modern governments. 3 = Popular assembly --- an assembly that includes most citizens of the
+% polity or a representative sample chosen by lot; examples: Ecclesia in ancient Athens,
+% Landsgemeinden in modern Swiss cantons.
+% \end{promptquote}
 
 \texttt{assembly\_prediction} (int, 0--3):
 \begin{itemize}[nosep, leftmargin=1.7em]
@@ -359,20 +381,20 @@ Landsgemeinden in modern Swiss cantons.
 \bigskip
 \textbf{Entry (\texttt{entry})}
 
-\begin{promptquote}
-IMPORTANT: Code the manner of entry at the START of this tenure, not later events. If it cannot
-be determined, use 99 (do NOT guess to avoid it). The manner in which the executive entered
-office. Code the manner of entry at the start of this leader's tenure (the accession in
-\{start\_year\}).
+% \begin{promptquote}
+% IMPORTANT: Code the manner of entry at the START of this tenure, not later events. If it cannot
+% be determined, use 99 (do NOT guess to avoid it). The manner in which the executive entered
+% office. Code the manner of entry at the start of this leader's tenure (the accession in
+% \{start\_year\}).
 
-Coding: 0 = through the threat or application of force (coup, rebellion); 1 = appointed by a
-foreign power; 2 = appointed by the ruling party (one-party system); 3 = appointed by a royal
-council (royal family or conclave of aristocrats); 4 = through hereditary succession; 5 =
-appointed by the military; 6 = appointed by the legislature; 7 = appointed by the head of state;
-8 = appointed by the head of government; 9 = directly through a popular election (regardless of
-the extension of the suffrage); 10 = other (including clerical bodies such as the College of
-Cardinals); 99 = unknown (circumstances of entry are unknown).
-\end{promptquote}
+% Coding: 0 = through the threat or application of force (coup, rebellion); 1 = appointed by a
+% foreign power; 2 = appointed by the ruling party (one-party system); 3 = appointed by a royal
+% council (royal family or conclave of aristocrats); 4 = through hereditary succession; 5 =
+% appointed by the military; 6 = appointed by the legislature; 7 = appointed by the head of state;
+% 8 = appointed by the head of government; 9 = directly through a popular election (regardless of
+% the extension of the suffrage); 10 = other (including clerical bodies such as the College of
+% Cardinals); 99 = unknown (circumstances of entry are unknown).
+% \end{promptquote}
 
 \texttt{entry\_prediction} (int, 0--10 or 99) --- how the executive came to power:
 \begin{itemize}[nosep, leftmargin=1.7em]
@@ -394,21 +416,21 @@ Cardinals); 99 = unknown (circumstances of entry are unknown).
 \bigskip
 \textbf{Exit (\texttt{exit})}
 
-\begin{promptquote}
-IMPORTANT: Code the manner of exit at the END of this tenure, not later events. If it cannot be
-determined, use 99 (do NOT guess to avoid it). The circumstances of the executive's departure
-from office. Code the manner of exit at the end of this leader's tenure (the departure in
-\{end\_year\}).
+% \begin{promptquote}
+% IMPORTANT: Code the manner of exit at the END of this tenure, not later events. If it cannot be
+% determined, use 99 (do NOT guess to avoid it). The circumstances of the executive's departure
+% from office. Code the manner of exit at the end of this leader's tenure (the departure in
+% \{end\_year\}).
 
-Coding: 0 = abdicated or retired voluntarily but NOT due to ill health; 1 = other regular exit
-(e.g., term limits or defeat in election); 2 = transition to another office type/typology (by
-regular procedures); 3 = died (of disease or accident) on campaign in civil war; 4 = died (of
-disease or accident) on campaign in foreign war; 5 = died of other natural causes; 6 = retired
-due to ill health; 7 = suicide; 8 = deposed by domestic actors; 9 = assassinated or forced
-suicide; 10 = died in battle in civil war; 11 = died in battle in foreign war; 12 = transition to
-another office by irregular procedures; 13 = through deposition by a foreign state; 14 = still in
-office; 99 = unknown.
-\end{promptquote}
+% Coding: 0 = abdicated or retired voluntarily but NOT due to ill health; 1 = other regular exit
+% (e.g., term limits or defeat in election); 2 = transition to another office type/typology (by
+% regular procedures); 3 = died (of disease or accident) on campaign in civil war; 4 = died (of
+% disease or accident) on campaign in foreign war; 5 = died of other natural causes; 6 = retired
+% due to ill health; 7 = suicide; 8 = deposed by domestic actors; 9 = assassinated or forced
+% suicide; 10 = died in battle in civil war; 11 = died in battle in foreign war; 12 = transition to
+% another office by irregular procedures; 13 = through deposition by a foreign state; 14 = still in
+% office; 99 = unknown.
+% \end{promptquote}
 
 \texttt{exit\_prediction} (int, 0--14 or 99) --- circumstances of the executive's departure:
 \begin{itemize}[nosep, leftmargin=1.7em]
@@ -434,30 +456,30 @@ office; 99 = unknown.
 \bigskip
 \textbf{Symbolism (\texttt{symbolism})}
 
-\begin{promptquote}
-IMPORTANT: this scale is NON-MONOTONIC with respect to leader power --- a higher code does NOT
-mean more actual power. Codes 0--2 rise with the grandeur of the office, but code 3 marks largely
-ceremonial figureheads with little real power. Code the trappings and self-presentation of the
-office, NOT the leader's actual power. (Purely ceremonial heads who are not paramount leaders are
-excluded from the sample.)
+% \begin{promptquote}
+% IMPORTANT: this scale is NON-MONOTONIC with respect to leader power --- a higher code does NOT
+% mean more actual power. Codes 0--2 rise with the grandeur of the office, but code 3 marks largely
+% ceremonial figureheads with little real power. Code the trappings and self-presentation of the
+% office, NOT the leader's actual power. (Purely ceremonial heads who are not paramount leaders are
+% excluded from the sample.)
 
-Symbolic power is reflected in the trappings of office and the presentation of self --- e.g., a
-grandly appointed palace; regalia such as scepters, seals, thrones, and special garments; an
-aristocratic court and retinue; performance of spiritual rituals central to the polity; powers
-normally reserved for deities; special forms of address marking the ruler's apartness; and
-protections of the ruler's status such as l\`ese-majest\'e.
+% Symbolic power is reflected in the trappings of office and the presentation of self --- e.g., a
+% grandly appointed palace; regalia such as scepters, seals, thrones, and special garments; an
+% aristocratic court and retinue; performance of spiritual rituals central to the polity; powers
+% normally reserved for deities; special forms of address marking the ruler's apartness; and
+% protections of the ruler's status such as l\`ese-majest\'e.
 
-Coding: 0 = Plain --- the trappings of the office are plain and simple, little distinguishes the
-personage of the ruler from others in the realm (example: British prime minister, 10 Downing
-Street). 1 = Decorated --- the trappings of the office are impressive but connected to the office
-rather than the officeholder, who is understood as mortal (example: American president). 2 =
-Deified --- the trappings of the office are impressive and the holder is regarded as having
-divine or quasi-divine status, separate and apart from mere mortals (example: many kings in the
-premodern era). 3 = Ceremonial --- the trappings of office are so extensive, and so demanding,
-that they serve as a constraint on the exercise of power, separating the leader from the springs
-of policymaking; the executive's role is as much ceremonial as executive, approval of initiatives
-is formal (example: Japanese emperor during most periods).
-\end{promptquote}
+% Coding: 0 = Plain --- the trappings of the office are plain and simple, little distinguishes the
+% personage of the ruler from others in the realm (example: British prime minister, 10 Downing
+% Street). 1 = Decorated --- the trappings of the office are impressive but connected to the office
+% rather than the officeholder, who is understood as mortal (example: American president). 2 =
+% Deified --- the trappings of the office are impressive and the holder is regarded as having
+% divine or quasi-divine status, separate and apart from mere mortals (example: many kings in the
+% premodern era). 3 = Ceremonial --- the trappings of office are so extensive, and so demanding,
+% that they serve as a constraint on the exercise of power, separating the leader from the springs
+% of policymaking; the executive's role is as much ceremonial as executive, approval of initiatives
+% is formal (example: Japanese emperor during most periods).
+% \end{promptquote}
 
 \texttt{symbolism\_prediction} (int, 0--3; non-monotonic):
 \begin{itemize}[nosep, leftmargin=1.7em]
@@ -482,19 +504,19 @@ indicator-by-indicator like the other core indicators.
 \bigskip
 \textbf{Checks: Local / Constituent Units (\texttt{checks\_local})}
 
-\begin{promptquote}
-Do local or constituent territorial/kin-based units provide an effective check on the executive
-during THIS leader's tenure? An effective check means the body is independent of the executive
-and has the de facto capacity to resist or constrain executive action --- not merely formal/de
-jure standing. A body that exists on paper but is controlled by the executive does NOT count.
-Media, civil society organizations, and ordinary citizens are NOT counted.
+% \begin{promptquote}
+% Do local or constituent territorial/kin-based units provide an effective check on the executive
+% during THIS leader's tenure? An effective check means the body is independent of the executive
+% and has the de facto capacity to resist or constrain executive action --- not merely formal/de
+% jure standing. A body that exists on paper but is controlled by the executive does NOT count.
+% Media, civil society organizations, and ordinary citizens are NOT counted.
 
-Examples: regional and local governments, tribes, clans, ethnic governance units.
+% Examples: regional and local governments, tribes, clans, ethnic governance units.
 
-Coding: 0 = No --- such units do not exist during the tenure, or exist but cannot effectively
-resist the executive. 1 = Yes --- such units are independent and can, at least on occasion,
-effectively resist the executive.
-\end{promptquote}
+% Coding: 0 = No --- such units do not exist during the tenure, or exist but cannot effectively
+% resist the executive. 1 = Yes --- such units are independent and can, at least on occasion,
+% effectively resist the executive.
+% \end{promptquote}
 
 \texttt{checks\_local\_prediction} (int, 0--1):
 \begin{itemize}[nosep, leftmargin=1.7em]
@@ -506,19 +528,19 @@ effectively resist the executive.
 \bigskip
 \textbf{Checks: Military (\texttt{checks\_military})}
 
-\begin{promptquote}
-Do the armed forces or a warrior estate provide an effective check on the executive during THIS
-leader's tenure? An effective check means the body is independent of the executive and has the
-de facto capacity to resist or constrain executive action --- not merely formal/de jure standing.
-A body that exists on paper but is controlled by the executive does NOT count. Media, civil
-society organizations, and ordinary citizens are NOT counted.
+% \begin{promptquote}
+% Do the armed forces or a warrior estate provide an effective check on the executive during THIS
+% leader's tenure? An effective check means the body is independent of the executive and has the
+% de facto capacity to resist or constrain executive action --- not merely formal/de jure standing.
+% A body that exists on paper but is controlled by the executive does NOT count. Media, civil
+% society organizations, and ordinary citizens are NOT counted.
 
-Examples: officers, specific branches of the military, a warrior caste (e.g., Samurai).
+% Examples: officers, specific branches of the military, a warrior caste (e.g., Samurai).
 
-Coding: 0 = No --- the military does not exist as an independent force, or cannot effectively
-resist the executive. 1 = Yes --- the military is independent and can, at least on occasion,
-effectively resist the executive.
-\end{promptquote}
+% Coding: 0 = No --- the military does not exist as an independent force, or cannot effectively
+% resist the executive. 1 = Yes --- the military is independent and can, at least on occasion,
+% effectively resist the executive.
+% \end{promptquote}
 
 \texttt{checks\_military\_prediction} (int, 0--1):
 \begin{itemize}[nosep, leftmargin=1.7em]
@@ -530,20 +552,20 @@ effectively resist the executive.
 \bigskip
 \textbf{Checks: Clergy (\texttt{checks\_clergy})}
 
-\begin{promptquote}
-Do religious authorities provide an effective check on the executive during THIS leader's
-tenure? An effective check means the body is independent of the executive and has the de facto
-capacity to resist or constrain executive action --- not merely formal/de jure standing. A body
-that exists on paper but is controlled by the executive does NOT count. Media, civil society
-organizations, and ordinary citizens are NOT counted.
+% \begin{promptquote}
+% Do religious authorities provide an effective check on the executive during THIS leader's
+% tenure? An effective check means the body is independent of the executive and has the de facto
+% capacity to resist or constrain executive action --- not merely formal/de jure standing. A body
+% that exists on paper but is controlled by the executive does NOT count. Media, civil society
+% organizations, and ordinary citizens are NOT counted.
 
-Clergy power derives from their role as arbiters of a widely espoused religion or belief system.
-Examples: established church, priesthood, religious caste (of any religion or denomination).
+% Clergy power derives from their role as arbiters of a widely espoused religion or belief system.
+% Examples: established church, priesthood, religious caste (of any religion or denomination).
 
-Coding: 0 = No --- no independent religious authority exists, or it cannot effectively resist
-the executive. 1 = Yes --- religious authorities are independent and can, at least on occasion,
-effectively resist the executive.
-\end{promptquote}
+% Coding: 0 = No --- no independent religious authority exists, or it cannot effectively resist
+% the executive. 1 = Yes --- religious authorities are independent and can, at least on occasion,
+% effectively resist the executive.
+% \end{promptquote}
 
 \texttt{checks\_clergy\_prediction} (int, 0--1):
 \begin{itemize}[nosep, leftmargin=1.7em]
@@ -555,19 +577,19 @@ effectively resist the executive.
 \bigskip
 \textbf{Checks: Aristocracy (\texttt{checks\_aristocracy})}
 
-\begin{promptquote}
-Does a hereditary or titled upper stratum provide an effective check on the executive during
-THIS leader's tenure? An effective check means the body is independent of the executive and has
-the de facto capacity to resist or constrain executive action --- not merely formal/de jure
-standing. A body that exists on paper but is controlled by the executive does NOT count. Media,
-civil society organizations, and ordinary citizens are NOT counted.
+% \begin{promptquote}
+% Does a hereditary or titled upper stratum provide an effective check on the executive during
+% THIS leader's tenure? An effective check means the body is independent of the executive and has
+% the de facto capacity to resist or constrain executive action --- not merely formal/de jure
+% standing. A body that exists on paper but is controlled by the executive does NOT count. Media,
+% civil society organizations, and ordinary citizens are NOT counted.
 
-Examples: landed class, nobility, hereditary elite, titled class, patriciate, upper caste.
+% Examples: landed class, nobility, hereditary elite, titled class, patriciate, upper caste.
 
-Coding: 0 = No --- no independent aristocracy exists, or it cannot effectively resist the
-executive. 1 = Yes --- the aristocracy is independent and can, at least on occasion, effectively
-resist the executive.
-\end{promptquote}
+% Coding: 0 = No --- no independent aristocracy exists, or it cannot effectively resist the
+% executive. 1 = Yes --- the aristocracy is independent and can, at least on occasion, effectively
+% resist the executive.
+% \end{promptquote}
 
 \texttt{checks\_aristocracy\_prediction} (int, 0--1):
 \begin{itemize}[nosep, leftmargin=1.7em]
@@ -579,19 +601,19 @@ resist the executive.
 \bigskip
 \textbf{Checks: Bourgeoisie (\texttt{checks\_bourgeoisie})}
 
-\begin{promptquote}
-Does an urban commercial or capital-holding class provide an effective check on the executive
-during THIS leader's tenure? An effective check means the body is independent of the executive
-and has the de facto capacity to resist or constrain executive action --- not merely formal/de
-jure standing. A body that exists on paper but is controlled by the executive does NOT count.
-Media, civil society organizations, and ordinary citizens are NOT counted.
+% \begin{promptquote}
+% Does an urban commercial or capital-holding class provide an effective check on the executive
+% during THIS leader's tenure? An effective check means the body is independent of the executive
+% and has the de facto capacity to resist or constrain executive action --- not merely formal/de
+% jure standing. A body that exists on paper but is controlled by the executive does NOT count.
+% Media, civil society organizations, and ordinary citizens are NOT counted.
 
-Examples: merchants, traders, artisans, financiers, creditors, business/commercial classes.
+% Examples: merchants, traders, artisans, financiers, creditors, business/commercial classes.
 
-Coding: 0 = No --- no independent commercial class exists, or it cannot effectively resist the
-executive. 1 = Yes --- the commercial class is independent and can, at least on occasion,
-effectively resist the executive.
-\end{promptquote}
+% Coding: 0 = No --- no independent commercial class exists, or it cannot effectively resist the
+% executive. 1 = Yes --- the commercial class is independent and can, at least on occasion,
+% effectively resist the executive.
+% \end{promptquote}
 
 \texttt{checks\_bourgeoisie\_prediction} (int, 0--1):
 \begin{itemize}[nosep, leftmargin=1.7em]
@@ -603,20 +625,20 @@ effectively resist the executive.
 \bigskip
 \textbf{Checks: Bureaucracy (\texttt{checks\_bureaucracy})}
 
-\begin{promptquote}
-Does a professional administrative apparatus provide an effective check on the executive during
-THIS leader's tenure? An effective check means the body is independent of the executive and has
-the de facto capacity to resist or constrain executive action --- not merely formal/de jure
-standing. A body that exists on paper but is controlled by the executive does NOT count. Media,
-civil society organizations, and ordinary citizens are NOT counted.
+% \begin{promptquote}
+% Does a professional administrative apparatus provide an effective check on the executive during
+% THIS leader's tenure? An effective check means the body is independent of the executive and has
+% the de facto capacity to resist or constrain executive action --- not merely formal/de jure
+% standing. A body that exists on paper but is controlled by the executive does NOT count. Media,
+% civil society organizations, and ordinary citizens are NOT counted.
 
-Examples: civil servants, Confucian scholar-officials serving as top-level advisors and
-administrators.
+% Examples: civil servants, Confucian scholar-officials serving as top-level advisors and
+% administrators.
 
-Coding: 0 = No --- no independent bureaucracy exists, or it cannot effectively resist the
-executive. 1 = Yes --- the bureaucracy is independent and can, at least on occasion, effectively
-resist the executive.
-\end{promptquote}
+% Coding: 0 = No --- no independent bureaucracy exists, or it cannot effectively resist the
+% executive. 1 = Yes --- the bureaucracy is independent and can, at least on occasion, effectively
+% resist the executive.
+% \end{promptquote}
 
 \texttt{checks\_bureaucracy\_prediction} (int, 0--1):
 \begin{itemize}[nosep, leftmargin=1.7em]
@@ -628,19 +650,19 @@ resist the executive.
 \bigskip
 \textbf{Checks: Judiciary (\texttt{checks\_judiciary})}
 
-\begin{promptquote}
-Do independent adjudicative bodies provide an effective check on the executive during THIS
-leader's tenure? An effective check means the body is independent of the executive and has the
-de facto capacity to resist or constrain executive action --- not merely formal/de jure standing.
-A body that exists on paper but is controlled by the executive does NOT count. Media, civil
-society organizations, and ordinary citizens are NOT counted.
+% \begin{promptquote}
+% Do independent adjudicative bodies provide an effective check on the executive during THIS
+% leader's tenure? An effective check means the body is independent of the executive and has the
+% de facto capacity to resist or constrain executive action --- not merely formal/de jure standing.
+% A body that exists on paper but is controlled by the executive does NOT count. Media, civil
+% society organizations, and ordinary citizens are NOT counted.
 
-Examples: courts of law, tribunals, judicial bodies, legal institutions.
+% Examples: courts of law, tribunals, judicial bodies, legal institutions.
 
-Coding: 0 = No --- no independent judiciary exists, or it cannot effectively resist the
-executive. 1 = Yes --- the judiciary is independent and can, at least on occasion, effectively
-resist the executive.
-\end{promptquote}
+% Coding: 0 = No --- no independent judiciary exists, or it cannot effectively resist the
+% executive. 1 = Yes --- the judiciary is independent and can, at least on occasion, effectively
+% resist the executive.
+% \end{promptquote}
 
 \texttt{checks\_judiciary\_prediction} (int, 0--1):
 \begin{itemize}[nosep, leftmargin=1.7em]
@@ -652,19 +674,19 @@ resist the executive.
 \bigskip
 \textbf{Checks: Assembly (\texttt{checks\_assembly})}
 
-\begin{promptquote}
-Does a deliberative representative or popular body provide an effective check on the executive
-during THIS leader's tenure? An effective check means the body is independent of the executive
-and has the de facto capacity to resist or constrain executive action --- not merely formal/de
-jure standing. A body that exists on paper but is controlled by the executive does NOT count.
-Media, civil society organizations, and ordinary citizens are NOT counted.
+% \begin{promptquote}
+% Does a deliberative representative or popular body provide an effective check on the executive
+% during THIS leader's tenure? An effective check means the body is independent of the executive
+% and has the de facto capacity to resist or constrain executive action --- not merely formal/de
+% jure standing. A body that exists on paper but is controlled by the executive does NOT count.
+% Media, civil society organizations, and ordinary citizens are NOT counted.
 
-Examples: popular assembly, legislature, parliament.
+% Examples: popular assembly, legislature, parliament.
 
-Coding: 0 = No --- no independent assembly exists, or it cannot effectively resist the executive.
-1 = Yes --- an assembly is independent and can, at least on occasion, effectively resist the
-executive.
-\end{promptquote}
+% Coding: 0 = No --- no independent assembly exists, or it cannot effectively resist the executive.
+% 1 = Yes --- an assembly is independent and can, at least on occasion, effectively resist the
+% executive.
+% \end{promptquote}
 
 \texttt{checks\_assembly\_prediction} (int, 0--1):
 \begin{itemize}[nosep, leftmargin=1.7em]
@@ -676,19 +698,19 @@ executive.
 \bigskip
 \textbf{Checks: Advisory Council (\texttt{checks\_council})}
 
-\begin{promptquote}
-Does an institutionalized elite council adjacent to the executive provide an effective check on
-the executive during THIS leader's tenure? An effective check means the body is independent of
-the executive and has the de facto capacity to resist or constrain executive action --- not
-merely formal/de jure standing. A body that exists on paper but is controlled by the executive
-does NOT count. Media, civil society organizations, and ordinary citizens are NOT counted.
+% \begin{promptquote}
+% Does an institutionalized elite council adjacent to the executive provide an effective check on
+% the executive during THIS leader's tenure? An effective check means the body is independent of
+% the executive and has the de facto capacity to resist or constrain executive action --- not
+% merely formal/de jure standing. A body that exists on paper but is controlled by the executive
+% does NOT count. Media, civil society organizations, and ordinary citizens are NOT counted.
 
-Examples: royal council, council of state, regency council, privy council, council of elders.
+% Examples: royal council, council of state, regency council, privy council, council of elders.
 
-Coding: 0 = No --- no independent council exists, or it cannot effectively resist the executive.
-1 = Yes --- a council is independent and can, at least on occasion, effectively resist the
-executive.
-\end{promptquote}
+% Coding: 0 = No --- no independent council exists, or it cannot effectively resist the executive.
+% 1 = Yes --- a council is independent and can, at least on occasion, effectively resist the
+% executive.
+% \end{promptquote}
 
 \texttt{checks\_council\_prediction} (int, 0--1):
 \begin{itemize}[nosep, leftmargin=1.7em]
@@ -701,48 +723,53 @@ executive.
 \subsection{Elections (\texttt{elections}) --- Downstream Task}
 % ─────────────────────────────────────────────────────────────────────────────
 
-\textbf{Prompt source:} \texttt{pipeline/post\_\allowbreak processing.py}. Run separately, aFTER
-the main pipeline. Depends on \texttt{assembly\_\allowbreak prediction}: rows where \texttt{assembly\_\allowbreak prediction}
+Run separately, after the main pipeline. Depends on \texttt{assembly\_\allowbreak prediction}: rows where \texttt{assembly\_\allowbreak prediction}
 $\neq$ 2 receive a hard-coded pass-through label of \texttt{"0"} with NO API call;
 only rows with \texttt{assembly\_\allowbreak prediction} = 2 get an LLM call.
 
-\begin{promptquote}
-You are a political scientist coding executive constraints for historical leaders. Core rule:
-focus on THIS specific leader's tenure. When evidence is uncertain: this indicator can safely
-default to 0 / None --- if legislative elections existed, the historical record would usually
-mention it, so silence indicates absence.
+% \begin{promptquote}
+% You are a political scientist coding executive constraints for historical leaders. Core rule:
+% focus on THIS specific leader's tenure. When evidence is uncertain: this indicator can safely
+% default to 0 / None --- if legislative elections existed, the historical record would usually
+% mention it, so silence indicates absence.
 
-\textbf{Elections.} A legislative election refers to a regularized selection procedure in which
-members are chosen by an electorate. That electorate must be considerably larger than the body
-itself, though it may be limited to a small portion of the general population. A LARGE ASSEMBLY
-that plays some role in policymaking or leadership selection is KNOWN TO EXIST in the polity
-below. Your task is to determine whether members of
-that assembly were elected to their positions, and --- if so --- whether those elections were
-contested by organized factions or parties.
+% \textbf{Elections.} A legislative election refers to a regularized selection procedure in which
+% members are chosen by an electorate. That electorate must be considerably larger than the body
+% itself, though it may be limited to a small portion of the general population. A LARGE ASSEMBLY
+% that plays some role in policymaking or leadership selection is KNOWN TO EXIST in the polity
+% below. Your task is to determine whether members of
+% that assembly were elected to their positions, and --- if so --- whether those elections were
+% contested by organized factions or parties.
 
-Coding: 0 = No elections --- members of the assembly obtain their seats by appointment,
-heredity, or other non-electoral means (e.g., an appointive legislature or polities without a
-legislature). 1 = Non-competitive --- elections without identifiable parties or factions, or
-where one party/faction monopolizes the field; may consist of a vote by acclamation. 2 =
-Competitive --- elections are organized by multiple factions or parties; although the contest
-may not be free and fair, contestants have a reasonable expectation of winning power at some
-point in the future, and turnover is conceivable.
-\end{promptquote}
+% Coding: 0 = No elections --- members of the assembly obtain their seats by appointment,
+% heredity, or other non-electoral means (e.g., an appointive legislature or polities without a
+% legislature). 1 = Non-competitive --- elections without identifiable parties or factions, or
+% where one party/faction monopolizes the field; may consist of a vote by acclamation. 2 =
+% Competitive --- elections are organized by multiple factions or parties; although the contest
+% may not be free and fair, contestants have a reasonable expectation of winning power at some
+% point in the future, and turnover is conceivable.
+% \end{promptquote}
 
-\medskip
-\textit{User prompt template:}
-\begin{quote}\small
-Classify the elections indicator for the following leader: \\
-\textbf{Polity:} \{polity\} \\
-\textbf{Leader:} \{name\} \\
-\textbf{Tenure:} \{start\_year\}--\{end\_year\}. \\
-A LARGE ASSEMBLY that plays some role in policymaking or leadership selection is KNOWN TO EXIST. Return a single
-JSON object with all required fields.
-\end{quote}
+% \medskip
+% \textit{User prompt template:}
+% \begin{quote}\small
+% Classify the elections indicator for the following leader: \\
+% \textbf{Polity:} \{polity\} \\
+% \textbf{Leader:} \{name\} \\
+% \textbf{Tenure:} \{start\_year\}--\{end\_year\}. \\
+% A LARGE ASSEMBLY that plays some role in policymaking or leadership selection is KNOWN TO EXIST. Return a single
+% JSON object with all required fields.
+% \end{quote}
 
 \textbf{Related columns:}
 \ra{1.3}
 \begin{longtable}{P{4.8cm} P{3cm} P{6.7cm}}
+  \caption{Output columns of the downstream \texttt{elections} task.}\label{tab:elections-cols}\\
+  \toprule
+  \thead{Column} & \thead{Type} & \thead{Meaning} \\
+  \midrule
+  \endfirsthead
+  \multicolumn{3}{l}{\small\itshape \tablename~\thetable\ (continued)}\\
   \toprule
   \thead{Column} & \thead{Type} & \thead{Meaning} \\
   \midrule
@@ -761,35 +788,75 @@ JSON object with all required fields.
 \section{Dataset Statistics}
 % ═══════════════════════════════════════════════════════════════════════════════
 
-This section reports label distributions and missingness for the current full-dataset snapshot. \texttt{elections} is not yet included
-(downstream task, not yet run).
+This section reports label distributions and missingness for the current full-dataset snapshot
+of the Gemini dataset, \texttt{\allowbreak plt\_\allowbreak constraints.csv} (135{,}672 rows,
+51 columns).
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Missing predictions in this dataset}
 % ─────────────────────────────────────────────────────────────────────────────
 
-The \texttt{constitution} task has zero missing predictions (135{,}672 / 135{,}672 parsed). The
-\texttt{indicators} task (one combined LLM call per leader-tenure) has a small, uniform number of
-missing predictions across almost every indicator --- exactly 14 rows for every indicator except
-\texttt{entry} (19) and \texttt{exit} (18). The uniform 14 come from responses whose JSON was
-truncated or unparseable for the whole call, which nulls every indicator in that row
-simultaneously; \texttt{entry}/\texttt{exit} each have a handful of additional
-indicator-specific validation failures.
+\textbf{The Gemini dataset is complete.} All three tasks --- \texttt{constitution},
+\texttt{indicators}, and \texttt{elections} --- now have \emph{zero} missing predictions:
+every one of the 19 \texttt{\{ind\}\_\allowbreak prediction} columns is non-null on all
+135{,}672 rows. The earlier round of unparseable responses (14 rows on most indicators,
+19 on \texttt{entry} and 18 on \texttt{exit}, caused by JSON truncation that nulled a whole
+call at once) was resubmitted through the retry-merge loop and has been filled in; the
+final row was repaired by hand from its raw response text.
 
-These rows are already identified with a ready-to-resubmit jsonline file already written. \textbf{As of this
-snapshot the retry has not yet been resubmitted}, pending resolution of a temporary Gemini API
-access issue. Once resubmitted per the retry-merge protocol described later in this codebook,
-these $\leq$19-row gaps should close to zero without touching any other row.
+The only column that is null by design is \texttt{elections\_\allowbreak confidence}: it is
+empty on the 97{,}480 pass-through rows
+(\texttt{assembly\_\allowbreak prediction} $\neq$ 2) that never received an LLM call.
+Their \texttt{elections\_\allowbreak prediction} is the hard-coded label 0.
+
+Residual missingness now exists only in the open-weight runs documented in
+Section~\ref{sec:ow-runs}. The summary is below; Section~\ref{sec:ow-missing} breaks it
+down by task and separates prediction-level from slot-level gaps.
+
+\ra{1.3}
+\begin{longtable}{P{3.2cm} P{2.4cm} P{8.6cm}}
+  \caption{Missing predictions by pipeline, all 135{,}672 rows.}\label{tab:missing-by-model}\\
+  \toprule
+  \thead{Pipeline} & \thead{Missing rows} & \thead{Detail} \\
+  \midrule
+  \endfirsthead
+  \multicolumn{3}{l}{\small\itshape \tablename~\thetable\ (continued)}\\
+  \toprule
+  \thead{Pipeline} & \thead{Missing rows} & \thead{Detail} \\
+  \midrule
+  \endhead
+  \bottomrule
+  \endfoot
+  Gemini    & 0 & Complete on all 19 indicators. \\
+  Llama-3.1-8B  & 0 & Complete on all 19 indicators. \\
+  Qwen2.5-32B & 31 & The same 31 rows are null on all 17 \texttt{indicators}-task
+    indicators (one unparseable combined call nulls the whole row);
+    \texttt{constitution} and \texttt{elections} are complete. \\
+  Gemma-3-27B & 0 (18 of 19) & Complete on the 17 \texttt{indicators}-task indicators and on
+    \texttt{elections}, but carries \emph{no} \texttt{constitution} column at all: that run
+    did not complete (see Section~\ref{sec:ow-modelconfig} on the \texttt{outlines}
+    backend). \\
+\end{longtable}
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Label distributions}
+\label{sec:label-dists}
 % ─────────────────────────────────────────────────────────────────────────────
 
-Counts and percentages of total rows (135{,}672) for every category actually observed, plus the
-missing-prediction rows documented above. Category meanings are defined in Section~2.
+Counts and percentages of total rows (135{,}672) for every category actually observed.
+There are no missing-prediction rows: every indicator sums to the full 135{,}672. Category
+meanings are defined in Section~2.
 
 \ra{1.15}
-\begin{longtable}{P{7.6cm} P{2.3cm} P{2.3cm}}
+\capwidth{15.3cm}
+\begin{longtable}{P{9.8cm} P{2.1cm} P{2.1cm}}
+  \caption{Gemini label distributions, all 19 indicators ($N = 135{,}672$, zero
+    missing).}\label{tab:label-dists-table}\\
+  \toprule
+  \thead{Label} & \thead{Count} & \thead{\% of rows} \\
+  \midrule
+  \endfirsthead
+  \multicolumn{3}{l}{\small\itshape \tablename~\thetable\ (continued)}\\
   \toprule
   \thead{Label} & \thead{Count} & \thead{\% of rows} \\
   \midrule
@@ -797,123 +864,124 @@ missing-prediction rows documented above. Category meanings are defined in Secti
   \bottomrule
   \endfoot
   \multicolumn{3}{l}{\textbf{Constitution (\texttt{constitution})}} \\
-  \quad 0 & 59,168 & 43.61\% \\
-  \quad 1 & 21,137 & 15.58\% \\
-  \quad 2 & 55,367 & 40.81\% \\
+  \quad 0 --- no written legal document & 59,168 & 43.61\% \\
+  \quad 1 --- code of law (governs subjects only) & 21,137 & 15.58\% \\
+  \quad 2 --- constitution (law $+$ governance rules $+$ limits) & 55,367 & 40.81\% \\
   \addlinespace
   \multicolumn{3}{l}{\textbf{Sovereign (\texttt{sovereign})}} \\
-  \quad 0 & 58,018 & 42.76\% \\
-  \quad 1 & 77,640 & 57.23\% \\
-  \quad Missing (unparsed) & 14 & 0.01\% \\
+  \quad 0 --- semi-sovereign (colony, protectorate, dependency) & 58,025 & 42.77\% \\
+  \quad 1 --- sovereign over domestic affairs & 77,647 & 57.23\% \\
   \addlinespace
   \multicolumn{3}{l}{\textbf{Federalism (\texttt{federalism})}} \\
-  \quad 0 & 129,215 & 95.24\% \\
-  \quad 1 & 6,443 & 4.75\% \\
-  \quad Missing (unparsed) & 14 & 0.01\% \\
+  \quad 0 --- non-federal (unitary) & 129,229 & 95.25\% \\
+  \quad 1 --- federal (incl.\ confederations, leagues) & 6,443 & 4.75\% \\
   \addlinespace
   \multicolumn{3}{l}{\textbf{Collegiality (\texttt{collegiality})}} \\
-  \quad 0 & 117,213 & 86.39\% \\
-  \quad 1 & 18,445 & 13.60\% \\
-  \quad Missing (unparsed) & 14 & 0.01\% \\
+  \quad 0 --- non-collegial (a single actor dominates) & 117,224 & 86.40\% \\
+  \quad 1 --- collegial (power shared among co-equals) & 18,448 & 13.60\% \\
   \addlinespace
   \multicolumn{3}{l}{\textbf{Petition (\texttt{petition})}} \\
-  \quad 0 & 81,168 & 59.83\% \\
-  \quad 1 & 54,490 & 40.16\% \\
-  \quad Missing (unparsed) & 14 & 0.01\% \\
+  \quad 0 --- rare, ineffective, or unrecorded & 81,180 & 59.84\% \\
+  \quad 1 --- a regular feature of political life & 54,492 & 40.16\% \\
   \addlinespace
   \multicolumn{3}{l}{\textbf{Assembly (\texttt{assembly})}} \\
-  \quad 0 & 55,054 & 40.58\% \\
-  \quad 1 & 38,555 & 28.42\% \\
-  \quad 2 & 38,189 & 28.15\% \\
-  \quad 3 & 3,860 & 2.85\% \\
-  \quad Missing (unparsed) & 14 & 0.01\% \\
+  \quad 0 --- none & 55,060 & 40.58\% \\
+  \quad 1 --- council (small, advisory, institutionalized) & 38,560 & 28.42\% \\
+  \quad 2 --- legislature (policymaking or selection role) & 38,192 & 28.15\% \\
+  \quad 3 --- popular assembly (most citizens, or by lot) & 3,860 & 2.85\% \\
   \addlinespace
-  \multicolumn{3}{l}{\textbf{Entry (\texttt{entry})}} \\
-  \quad 0 & 8,890 & 6.55\% \\
-  \quad 1 & 29,027 & 21.39\% \\
-  \quad 2 & 1,719 & 1.27\% \\
-  \quad 3 & 6,125 & 4.51\% \\
-  \quad 4 & 32,730 & 24.12\% \\
-  \quad 5 & 528 & 0.39\% \\
-  \quad 6 & 10,664 & 7.86\% \\
-  \quad 7 & 19,121 & 14.09\% \\
-  \quad 8 & 1,321 & 0.97\% \\
-  \quad 9 & 4,154 & 3.06\% \\
-  \quad 10 & 7,632 & 5.63\% \\
-  \quad 99 & 13,742 & 10.13\% \\
-  \quad Missing (unparsed) & 19 & 0.01\% \\
+  \multicolumn{3}{l}{\textbf{Entry (\texttt{entry})} --- how the executive came to power} \\
+  \quad 0 --- force (coup, rebellion, conquest) & 8,890 & 6.55\% \\
+  \quad 1 --- appointed by a foreign power & 29,030 & 21.40\% \\
+  \quad 2 --- appointed by the ruling party & 1,719 & 1.27\% \\
+  \quad 3 --- appointed by a royal council & 6,125 & 4.51\% \\
+  \quad 4 --- hereditary succession & 32,735 & 24.13\% \\
+  \quad 5 --- appointed by the military & 528 & 0.39\% \\
+  \quad 6 --- appointed by the legislature & 10,666 & 7.86\% \\
+  \quad 7 --- appointed by the head of state & 19,125 & 14.10\% \\
+  \quad 8 --- appointed by the head of government & 1,321 & 0.97\% \\
+  \quad 9 --- direct popular election & 4,155 & 3.06\% \\
+  \quad 10 --- other (e.g.\ a clerical body) & 7,632 & 5.63\% \\
+  \quad 99 --- unknown & 13,746 & 10.13\% \\
   \addlinespace
-  \multicolumn{3}{l}{\textbf{Exit (\texttt{exit})}} \\
-  \quad 0 & 4,670 & 3.44\% \\
-  \quad 1 & 43,191 & 31.83\% \\
-  \quad 2 & 6,308 & 4.65\% \\
-  \quad 3 & 137 & 0.10\% \\
-  \quad 4 & 532 & 0.39\% \\
-  \quad 5 & 34,731 & 25.60\% \\
-  \quad 6 & 888 & 0.65\% \\
-  \quad 7 & 224 & 0.17\% \\
-  \quad 8 & 8,557 & 6.31\% \\
-  \quad 9 & 3,578 & 2.64\% \\
-  \quad 10 & 790 & 0.58\% \\
-  \quad 11 & 2,078 & 1.53\% \\
-  \quad 12 & 364 & 0.27\% \\
-  \quad 13 & 5,776 & 4.26\% \\
-  \quad 14 & 708 & 0.52\% \\
-  \quad 99 & 23,122 & 17.04\% \\
-  \quad Missing (unparsed) & 18 & 0.01\% \\
+  \multicolumn{3}{l}{\textbf{Exit (\texttt{exit})} --- circumstances of departure} \\
+  \quad 0 --- voluntary retirement or abdication & 4,670 & 3.44\% \\
+  \quad 1 --- other regular exit (term limit, defeat) & 43,197 & 31.84\% \\
+  \quad 2 --- regular transition to another office & 6,308 & 4.65\% \\
+  \quad 3 --- died on campaign, civil war (disease/accident) & 137 & 0.10\% \\
+  \quad 4 --- died on campaign, foreign war (disease/accident) & 532 & 0.39\% \\
+  \quad 5 --- died of natural causes & 34,735 & 25.60\% \\
+  \quad 6 --- retired due to ill health & 888 & 0.65\% \\
+  \quad 7 --- suicide & 224 & 0.17\% \\
+  \quad 8 --- deposed by domestic actors & 8,558 & 6.31\% \\
+  \quad 9 --- assassinated or forced suicide & 3,578 & 2.64\% \\
+  \quad 10 --- killed in battle, civil war & 790 & 0.58\% \\
+  \quad 11 --- killed in battle, foreign war & 2,079 & 1.53\% \\
+  \quad 12 --- irregular transition to another office & 364 & 0.27\% \\
+  \quad 13 --- deposed by a foreign state & 5,776 & 4.26\% \\
+  \quad 14 --- still in office & 708 & 0.52\% \\
+  \quad 99 --- unknown & 23,128 & 17.05\% \\
   \addlinespace
-  \multicolumn{3}{l}{\textbf{Symbolism (\texttt{symbolism})}} \\
-  \quad 0 & 35,912 & 26.47\% \\
-  \quad 1 & 74,884 & 55.19\% \\
-  \quad 2 & 23,401 & 17.25\% \\
-  \quad 3 & 1,461 & 1.08\% \\
-  \quad Missing (unparsed) & 14 & 0.01\% \\
+  \multicolumn{3}{l}{\textbf{Symbolism (\texttt{symbolism})} --- non-monotonic; 3 is not
+    ``more'' than 2} \\
+  \quad 0 --- plain & 35,917 & 26.47\% \\
+  \quad 1 --- decorated (officeholder understood as mortal) & 74,889 & 55.20\% \\
+  \quad 2 --- deified (divine or quasi-divine status) & 23,405 & 17.25\% \\
+  \quad 3 --- ceremonial (trappings constrain the ruler) & 1,461 & 1.08\% \\
+  \addlinespace
+  \multicolumn{3}{l}{\textbf{Checks --- nine binary sub-indicators.} For each:
+    0 $=$ absent, or present but unable to} \\
+  \multicolumn{3}{l}{effectively resist the executive; 1 $=$ independent and able to
+    resist, at least on occasion.} \\
   \addlinespace
   \multicolumn{3}{l}{\textbf{Checks --- Local / Constituent Units (\texttt{checks\_local})}} \\
-  \quad 0 & 109,316 & 80.57\% \\
-  \quad 1 & 26,342 & 19.42\% \\
-  \quad Missing (unparsed) & 14 & 0.01\% \\
+  \quad 0 --- no effective check & 109,327 & 80.58\% \\
+  \quad 1 --- effective check & 26,345 & 19.42\% \\
   \addlinespace
   \multicolumn{3}{l}{\textbf{Checks --- Military (\texttt{checks\_military})}} \\
-  \quad 0 & 124,971 & 92.11\% \\
-  \quad 1 & 10,687 & 7.88\% \\
-  \quad Missing (unparsed) & 14 & 0.01\% \\
+  \quad 0 --- no effective check & 124,984 & 92.12\% \\
+  \quad 1 --- effective check & 10,688 & 7.88\% \\
   \addlinespace
   \multicolumn{3}{l}{\textbf{Checks --- Clergy (\texttt{checks\_clergy})}} \\
-  \quad 0 & 113,248 & 83.47\% \\
-  \quad 1 & 22,410 & 16.52\% \\
-  \quad Missing (unparsed) & 14 & 0.01\% \\
+  \quad 0 --- no effective check & 113,260 & 83.48\% \\
+  \quad 1 --- effective check & 22,412 & 16.52\% \\
   \addlinespace
   \multicolumn{3}{l}{\textbf{Checks --- Aristocracy (\texttt{checks\_aristocracy})}} \\
-  \quad 0 & 97,688 & 72.00\% \\
-  \quad 1 & 37,970 & 27.99\% \\
-  \quad Missing (unparsed) & 14 & 0.01\% \\
+  \quad 0 --- no effective check & 97,697 & 72.01\% \\
+  \quad 1 --- effective check & 37,975 & 27.99\% \\
   \addlinespace
   \multicolumn{3}{l}{\textbf{Checks --- Bourgeoisie (\texttt{checks\_bourgeoisie})}} \\
-  \quad 0 & 123,999 & 91.40\% \\
-  \quad 1 & 11,659 & 8.59\% \\
-  \quad Missing (unparsed) & 14 & 0.01\% \\
+  \quad 0 --- no effective check & 124,013 & 91.41\% \\
+  \quad 1 --- effective check & 11,659 & 8.59\% \\
   \addlinespace
   \multicolumn{3}{l}{\textbf{Checks --- Bureaucracy (\texttt{checks\_bureaucracy})}} \\
-  \quad 0 & 129,931 & 95.77\% \\
-  \quad 1 & 5,727 & 4.22\% \\
-  \quad Missing (unparsed) & 14 & 0.01\% \\
+  \quad 0 --- no effective check & 129,945 & 95.78\% \\
+  \quad 1 --- effective check & 5,727 & 4.22\% \\
   \addlinespace
   \multicolumn{3}{l}{\textbf{Checks --- Judiciary (\texttt{checks\_judiciary})}} \\
-  \quad 0 & 113,783 & 83.87\% \\
-  \quad 1 & 21,875 & 16.12\% \\
-  \quad Missing (unparsed) & 14 & 0.01\% \\
+  \quad 0 --- no effective check & 113,794 & 83.87\% \\
+  \quad 1 --- effective check & 21,878 & 16.13\% \\
   \addlinespace
   \multicolumn{3}{l}{\textbf{Checks --- Assembly (\texttt{checks\_assembly})}} \\
-  \quad 0 & 99,555 & 73.38\% \\
-  \quad 1 & 36,103 & 26.61\% \\
-  \quad Missing (unparsed) & 14 & 0.01\% \\
+  \quad 0 --- no effective check & 99,567 & 73.39\% \\
+  \quad 1 --- effective check & 36,105 & 26.61\% \\
   \addlinespace
   \multicolumn{3}{l}{\textbf{Checks --- Advisory Council (\texttt{checks\_council})}} \\
-  \quad 0 & 100,480 & 74.06\% \\
-  \quad 1 & 35,178 & 25.93\% \\
-  \quad Missing (unparsed) & 14 & 0.01\% \\
+  \quad 0 --- no effective check & 100,492 & 74.07\% \\
+  \quad 1 --- effective check & 35,180 & 25.93\% \\
+  \addlinespace
+  \multicolumn{3}{l}{\textbf{Elections (\texttt{elections})}} \\
+  \quad 0 --- pass-through (\texttt{assembly} $\neq$ 2, no LLM call) & 97,480 & 71.85\% \\
+  \quad 0 --- LLM-coded: assembly exists but is not elected & 12,273 & 9.05\% \\
+  \quad 1 --- elected, no organized factions & 7,959 & 5.87\% \\
+  \quad 2 --- competitive (organized factions or parties) & 17,960 & 13.24\% \\
 \end{longtable}
+\capfull
+
+The \texttt{elections} block separates the two kinds of zero: 97{,}480 rows are labelled 0 by
+the pass-through rule without any model call, and only the remaining 38{,}192 rows
+(\texttt{assembly\_\allowbreak prediction} = 2) were actually judged by the model, of which
+12{,}273 were coded 0. Any analysis of \texttt{elections} should keep these two groups apart.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Constitution document-metadata missingness}
@@ -926,6 +994,13 @@ different rates once conditioned on \texttt{constitution\_\allowbreak prediction
 
 \ra{1.2}
 \begin{longtable}{P{2.4cm} P{2cm} P{2.9cm} P{2.9cm} P{2.9cm}}
+  \caption{Constitution document-metadata missingness}\label{tab:constitution-meta-missing}\\
+  \toprule
+  \thead{Prediction} & \thead{Rows} & \thead{document\_name missing} &
+  \thead{document\_types missing} & \thead{constitution\_year missing} \\
+  \midrule
+  \endfirsthead
+  \multicolumn{5}{l}{\small\itshape \tablename~\thetable\ (continued)}\\
   \toprule
   \thead{Prediction} & \thead{Rows} & \thead{document\_name missing} &
   \thead{document\_types missing} & \thead{constitution\_year missing} \\
@@ -991,6 +1066,12 @@ negligible at 0.001\% of rows.)
 
 \ra{1.3}
 \begin{longtable}{P{4.5cm} P{10cm}}
+  \caption{Output files written by the Gemini batch pipeline.}\label{tab:output-files}\\
+  \toprule
+  \thead{File} & \thead{Description} \\
+  \midrule
+  \endfirsthead
+  \multicolumn{2}{l}{\small\itshape \tablename~\thetable\ (continued)}\\
   \toprule
   \thead{File} & \thead{Description} \\
   \midrule
@@ -1032,5 +1113,461 @@ negligible at 0.001\% of rows.)
     \texttt{assembly\_prediction} column), run with \texttt{--dataset plt\_indicators.csv} $\rightarrow$
     final merged dataset
 \end{enumerate}
+
+% ═══════════════════════════════════════════════════════════════════════════════
+\section{Open-Weight Model Runs}
+\label{sec:ow-runs}
+% ═══════════════════════════════════════════════════════════════════════════════
+
+Everything above documents the Gemini Batch API dataset. The same three tasks were
+additionally run on three open-weight models served locally with vLLM on TACC
+Lonestar6. These runs share the pipeline's prompts, label sets, coding rules and
+column-naming conventions; what differs is the sampling regime (self-consistency is
+ON) and the availability of token-level probabilities, which a hosted API does not
+expose. This section documents only those differences.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\subsection{Models and run configuration}
+\label{sec:ow-modelconfig}
+% ─────────────────────────────────────────────────────────────────────────────
+
+\ra{1.3}
+\begin{longtable}{P{3.4cm} P{3.3cm} P{3.3cm} P{3.3cm}}
+  \caption{Open-weight models and run configuration (vLLM on TACC
+    Lonestar6).}\label{tab:ow-config}\\
+  \toprule
+  \thead{} & \thead{Llama} & \thead{Gemma} & \thead{Qwen} \\
+  \midrule
+  \endfirsthead
+  \multicolumn{4}{l}{\small\itshape \tablename~\thetable\ (continued)}\\
+  \toprule
+  \thead{} & \thead{Llama} & \thead{Gemma} & \thead{Qwen} \\
+  \midrule
+  \endhead
+  \bottomrule
+  \endfoot
+  Checkpoint & \texttt{Llama-3.1-\allowbreak 8B-Instruct} &
+    \texttt{Gemma-3-\allowbreak 27b-it} & \texttt{Qwen2.5-\allowbreak 32B-Instruct} \\
+  Parameters & 8B & 27B & 32B \\
+  Tensor parallel & 1 & 2 & 2 \\
+  % Decoding backend & xgrammar & \textbf{outlines} & xgrammar \\
+  Throughput & 0.29 s/row & $\approx$1.6 s/row & 1.59 s/row \\
+  Full-dataset time & $\approx$11 h, one job & $\approx$60 h, 4 shards &
+    $\approx$60 h \\
+\end{longtable}
+
+Throughput is per dataset row and already includes all three self-consistency
+samples. The two larger models require tensor parallelism because neither fits in a
+single 40\,GB accelerator at \texttt{bfloat16}; the 8B model does, which is why it
+completes within one scheduling window while the others must be sharded or chained.
+
+\textbf{Settings held constant across all three models.} Identical request files
+(the serialised prompts are model-independent; each model's chat template is applied
+at run time from its own checkpoint), \texttt{max\_\allowbreak model\_\allowbreak
+len} 8192, \texttt{max\_\allowbreak tokens} 2048, \texttt{dtype}
+\texttt{bfloat16}, \texttt{seed} 42, top-20 token logprobs retained, and two
+additional self-consistency samples, giving \textbf{three votes per row}. Sampling
+temperature and nucleus parameter are carried in the request file and are therefore
+identical across models. Reasoning text is disabled, so no
+\texttt{\{ind\}\_\allowbreak reasoning} columns are emitted.
+
+\textbf{No quantisation.} All three run at \texttt{bfloat16}. Quantisation would
+perturb the logits from which the probability columns in
+Section~\ref{sec:ow-columns} are derived, so it is never applied.
+
+% \textbf{Why Gemma uses a different backend.} Gemma-3 under xgrammar fails on the
+% \texttt{constitution} schema: generation stalls immediately after emitting
+% \texttt{\{"constitution":} and pads with whitespace until the token budget is
+% exhausted. A controlled sweep over 20 rows established that this is independent of
+% schema shape --- a schema reduced to a single enumerated field still stalls --- and
+% that the \texttt{outlines} backend runs the unmodified schema cleanly. The schema is
+% therefore identical across models; only the mask implementation differs. Because
+% \texttt{outlines} is unsupported by the vLLM V1 engine at the version used, Gemma
+% constitution runs fall back to the V0 engine and a different attention kernel.
+% \emph{This is a genuine methodological difference and should be reported as one:
+% all three models are constrained to the same schema and the same legal label set,
+% but Gemma's constitution predictions are produced through a different
+% constrained-decoding implementation than Qwen's and Llama's.}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\subsection{Columns not present in the Gemini dataset}
+\label{sec:ow-columns}
+% ─────────────────────────────────────────────────────────────────────────────
+
+Two families of columns appear only in the open-weight outputs.
+
+\textbf{(a) Self-consistency slots.} The Gemini dataset is a single pass, so each
+indicator contributes \texttt{\{ind\}\_\allowbreak prediction} and
+\texttt{\{ind\}\_\allowbreak confidence}. The open-weight runs draw three
+independent samples per row, numbered \texttt{SC1}--\texttt{SC3}, and reduce them by
+majority vote.
+
+\ra{1.3}
+\begin{longtable}{P{5.2cm} P{9.3cm}}
+  \caption{Self-consistency columns present only in the open-weight
+    outputs.}\label{tab:ow-sc-cols}\\
+  \toprule
+  \thead{Column} & \thead{Meaning} \\
+  \midrule
+  \endfirsthead
+  \multicolumn{2}{l}{\small\itshape \tablename~\thetable\ (continued)}\\
+  \toprule
+  \thead{Column} & \thead{Meaning} \\
+  \midrule
+  \endhead
+  \bottomrule
+  \endfoot
+  \texttt{\{ind\}\_SC1..SC3} & The label produced by each individual sample.
+    \texttt{SC1} is the initial call, \texttt{SC2}--\texttt{SC3} the two additional
+    samples. Null when that sample's output could not be parsed. \\
+  \texttt{\{ind\}\_\allowbreak prediction} & Majority vote across the three slots.
+    Present even when a slot is null, in which case the vote is taken over the
+    surviving slots --- see the caution below. \\
+  \texttt{\{ind\}\_\allowbreak agreement} & The winning label's vote count divided by
+    the number of \emph{non-null} slots, in $[0,1]$. \\
+  \texttt{\{ind\}\_\allowbreak uncertainty} & \texttt{none} if unanimous,
+    \texttt{low} if the winner holds a majority, \texttt{high} if all slots differ
+    (in which case the prediction falls back to \texttt{SC1}). \\
+  \texttt{\{ind\}\_\allowbreak confidence\_\allowbreak SC1..SC3} & Per-sample
+    self-reported confidence, integer 1--100. Replaces the single
+    \texttt{\{ind\}\_\allowbreak confidence} column of the Gemini dataset. \\
+\end{longtable}
+
+\emph{Caution on the agreement denominator.} \texttt{\{ind\}\_\allowbreak agreement}
+is computed over non-null slots only. A row with one unparseable slot therefore
+reports a ratio out of two rather than three, and nothing in the column itself
+signals this. Any analysis treating agreement as comparable across rows should first
+check the \texttt{\{ind\}\_SC$n$} columns for nulls and exclude or separately flag
+those rows.
+
+\textbf{(b) Token-level probability columns.} For every indicator and every
+self-consistency slot the runner records the model's probability distribution over
+the \emph{legal labels for that indicator} at the position where the label token is
+emitted. Four columns per indicator per slot:
+
+\ra{1.3}
+\begin{longtable}{P{5.2cm} P{9.3cm}}
+  \caption{Token-level probability columns present only in the open-weight
+    outputs.}\label{tab:ow-prob-cols}\\
+  \toprule
+  \thead{Column} & \thead{Meaning} \\
+  \midrule
+  \endfirsthead
+  \multicolumn{2}{l}{\small\itshape \tablename~\thetable\ (continued)}\\
+  \toprule
+  \thead{Column} & \thead{Meaning} \\
+  \midrule
+  \endhead
+  \bottomrule
+  \endfoot
+  \texttt{\{ind\}\_\allowbreak label\_\allowbreak dist\_\allowbreak SC$n$} & JSON
+    object mapping each legal label to its probability. Keys are the label values as
+    they appear in \texttt{\{ind\}\_\allowbreak prediction}; values sum to~1. \\
+  \texttt{\{ind\}\_\allowbreak prob\_\allowbreak SC$n$} & Probability mass assigned to
+    the label the model actually emitted --- the entry of \texttt{label\_\allowbreak
+    dist} selected in that slot. \\
+  \texttt{\{ind\}\_\allowbreak logprob\_\allowbreak SC$n$} & Natural logarithm of the
+    preceding column. Redundant with it by construction; provided because the log
+    scale is the convenient one for likelihood-style aggregation. \\
+  \texttt{\{ind\}\_\allowbreak entropy\_\allowbreak SC$n$} & Shannon entropy of the
+    full \texttt{label\_\allowbreak dist}, in nats. Zero means all mass on one label;
+    the maximum is $\ln K$ for an indicator with $K$ legal labels. \\
+\end{longtable}
+
+\textbf{How these are computed.} The generator is asked for the top~20 token
+logprobs at each position. At the label position those logprobs are restricted to
+the tokens corresponding to legal labels for that indicator, exponentiated, and
+renormalised to sum to~1; the result is \texttt{label\_\allowbreak dist}. Mass on
+tokens outside the legal set is discarded rather than redistributed, so these are
+\emph{conditional} probabilities given that a legal label was produced. Because
+constrained decoding already forbids illegal tokens, the discarded mass is normally
+negligible.
+
+\emph{Three columns, one quantity.} \texttt{prob}, \texttt{logprob} and
+\texttt{entropy} are not three independent measurements. The first two are the same
+number on different scales; the third summarises the whole distribution rather than
+the selected label. A row can show high \texttt{prob} together with high
+\texttt{entropy} only when the remaining mass is spread thinly over many labels.
+
+\textbf{Single-token label requirement.} Per-label probability and entropy are well
+defined only if each legal label occupies exactly one token. The labels for
+\texttt{entry} (0--10, 99) and \texttt{exit} (0--14, 99) do not satisfy this, because
+multi-digit values tokenise into more than one piece. These two indicators are
+therefore \emph{aliased} at prompt-construction time: \texttt{entry} uses A--K for
+0--10 and Z for 99; \texttt{exit} uses A--O for 0--14 and Z for 99. The model emits
+letters, and the runner maps them back to the integer codes before anything is
+written out. \textbf{All published columns --- including the keys inside
+\texttt{label\_\allowbreak dist} --- use the integer codes documented earlier in this
+codebook.} The letters never appear in the output.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\subsection{Output file inventory}
+% ─────────────────────────────────────────────────────────────────────────────
+
+Each model produces one file per task, all 135{,}672 rows, aligned row-for-row with
+the input on \texttt{id}.
+
+\ra{1.3}
+\begin{longtable}{P{4.6cm} P{1.7cm} P{8.4cm}}
+  \caption{Open-weight output file inventory (per model).}\label{tab:ow-files}\\
+  \toprule
+  \thead{File} & \thead{Columns} & \thead{Contents} \\
+  \midrule
+  \endfirsthead
+  \multicolumn{3}{l}{\small\itshape \tablename~\thetable\ (continued)}\\
+  \toprule
+  \thead{File} & \thead{Columns} & \thead{Contents} \\
+  \midrule
+  \endhead
+  \bottomrule
+  \endfoot
+  \texttt{exp\_\{model\}\_\allowbreak indicators.csv} & 363 &
+    6 input columns $+$ 17 indicators $\times$ 21 columns each: 3 SC slots $\times$
+    \{label, confidence, label\_dist, prob, logprob, entropy\}, plus prediction,
+    agreement, uncertainty. \\
+  \texttt{exp\_\{model\}\_\allowbreak constitution.csv} & 33 &
+    6 input columns $+$ 1 indicator $\times$ 27 columns: 3 SC slots $\times$
+    \{label, document\_name, year, document\_types, label\_dist, prob, logprob,
+    entropy\}, plus prediction, agreement, uncertainty. Constitution carries
+    document metadata per slot \emph{instead of} a confidence slot. \\
+  \texttt{exp\_\{model\}\_\allowbreak elections.csv} & 384 &
+    The indicators frame plus the elections columns. Rows whose \texttt{assembly}
+    prediction is not 2 pass through with \texttt{elections} $=0$ and no model call,
+    so their SC and probability columns are empty \emph{by design}, not by failure. \\
+  \texttt{plt\_\allowbreak constraints\_\allowbreak \{model\}.csv} & 411 &
+    \textbf{The final per-model file.} The elections frame (384) merged with the
+    constitution columns (27). This is the one to analyse; the three files above are
+    intermediates. \\
+\end{longtable}
+
+Each file supersedes the one above it: a completed \texttt{elections.csv} contains
+every indicators column as well, and \texttt{plt\_\allowbreak constraints\_\allowbreak
+\{model\}.csv} in turn contains everything in \texttt{elections.csv} plus the
+constitution columns.
+
+At the time of writing, \texttt{plt\_\allowbreak constraints\_\allowbreak
+llama8b.csv} and \texttt{plt\_\allowbreak constraints\_\allowbreak qwen32b.csv} exist
+at the full 411 columns. Gemma has only \texttt{gemma27b\_\allowbreak elections.csv}
+(384 columns, 18 predictions): its constitution run is outstanding, so Gemma carries
+no \texttt{constitution} column anywhere and is absent from the constitution row of
+the comparison table below.
+
+A sidecar \texttt{\{stem\}\_\allowbreak raw.jsonl} accompanies each run, holding one
+line per (row, sample) with the raw generated text, the finish reason and the token
+logprobs. It is the source of truth from which the CSV is rebuilt. It is appended to
+rather than overwritten, so re-running selected rows leaves the superseded lines in
+place; aggregation keeps the last write for each (row, sample) key.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\subsection{Missingness in the open-weight runs}
+\label{sec:ow-missing}
+% ─────────────────────────────────────────────────────────────────────────────
+
+Two different things can be missing here, and only the first is visible in the
+prediction columns. \textbf{Prediction-level} missingness means the merged
+\texttt{\{ind\}\_\allowbreak prediction} is null: no slot parsed, so no vote could be
+taken. \textbf{Slot-level} missingness means one of \texttt{SC1}--\texttt{SC3} failed to
+parse while the remaining slots still produced a majority --- the prediction is
+non-null and looks perfectly healthy, but it rests on two votes rather than three and
+its \texttt{\{ind\}\_\allowbreak agreement} is a ratio out of two. This is exactly the
+denominator problem flagged in Section~\ref{sec:ow-columns}; the counts below are how
+large it actually is.
+
+\ra{1.25}
+\capwidth{14.9cm}
+\begin{longtable}{P{2cm} P{2.6cm} R{2.4cm} R{2.6cm} R{3.2cm}}
+  \caption{Missingness in the open-weight runs, by model and task.}\label{tab:ow-missing}\\
+  \toprule
+  \thead{Model} & \thead{Task} & \thead{Rows scored} & \thead{Missing predictions} &
+    \thead{Rows with $\geq$1 unparsed slot} \\
+  \midrule
+  \endfirsthead
+  \multicolumn{5}{l}{\small\itshape \tablename~\thetable\ (continued)}\\
+  \toprule
+  \thead{Model} & \thead{Task} & \thead{Rows scored} & \thead{Missing predictions} &
+    \thead{Rows with $\geq$1 unparsed slot} \\
+  \midrule
+  \endhead
+  \bottomrule
+  \endfoot
+  Llama & constitution & 135,672 & 0 & 68 \\
+        & indicators   & 135,672 & 0 & 0 \\
+        & elections    & 31,579  & 0 & 0 \\
+  \addlinespace
+  Qwen  & constitution & 135,672 & 0 & 32 \\
+        & indicators   & 135,672 & 31 & 85 \\
+        & elections    & 11,251  & 0 & 0 \\
+  \addlinespace
+  Gemma & constitution & \multicolumn{3}{l}{\emph{not run --- no column exists}} \\
+        & indicators   & 135,672 & 0 & 0 \\
+        & elections    & 26,152  & 0 & 0 \\
+\end{longtable}
+\capfull
+
+For \texttt{constitution} and \texttt{indicators} every model was asked all 135{,}672
+rows. For \texttt{elections} the gate admits only rows the \emph{same model} coded
+\texttt{assembly} $=2$, so ``rows scored'' differs by model by construction and is not a
+sign of failure; the remaining rows carry the pass-through label 0 with empty SC and
+probability columns, again by design.
+
+Read together with the Gemini figures in Section~\ref{sec:label-dists}: at the
+prediction level only Qwen's \texttt{indicators} task is incomplete, and there the same
+31 rows are null across all 17 indicators at once --- the signature of one combined call
+whose JSON never parsed, not of 17 independent failures. Slot-level gaps are
+concentrated in \texttt{constitution} (68 rows for Llama, 32 for Qwen), which is the only
+task with free-string fields and therefore the only one whose output can be truncated
+mid-string; Qwen's 85 slot-level rows in \texttt{indicators} include its 31
+prediction-level rows.
+
+\medskip
+% \noindent\fbox{\parbox{0.97\textwidth}{\textbf{Pending correction --- Qwen
+% \texttt{elections}.} The run recorded in
+% \texttt{exp\_\allowbreak qwen32b\_\allowbreak elections\_\allowbreak provenance.json}
+% names \texttt{gemma-3-27b-it} as its checkpoint, and its raw output is 99.3\% verbatim
+% identical to the Gemma elections run across all 10{,}704 keys the two share --- which two
+% distinct models sampling at temperature 1.0 would not produce. The Qwen
+% \texttt{elections} column is therefore very probably Gemma output, and \textbf{will be
+% regenerated}. Until it is, the Qwen \texttt{elections} figures in
+% Table~\ref{tab:cross-model} and Table~\ref{tab:elections-agreement} should not be cited.
+% Nothing else in the Qwen files is affected: \texttt{constitution} and \texttt{indicators}
+% carry the correct checkpoint in their own provenance records.}}
+
+% ═══════════════════════════════════════════════════════════════════════════════
+\section{Cross-Model Comparison}
+% ═══════════════════════════════════════════════════════════════════════════════
+
+The table below compares each open-weight model against the Gemini dataset
+documented in the preceding sections. Agreement is the proportion of rows on which
+the two pipelines emit the same label, computed only where both produced a non-null
+prediction. For the open-weight models, \texttt{\{ind\}\_\allowbreak prediction} is
+the \textbf{majority vote over the three self-consistency samples}, not any single
+sample.
+
+\textbf{The Qwen \texttt{elections} row of both tables below is under correction} --- see
+the boxed note in Section~\ref{sec:ow-missing}; that column is very probably Gemma
+output and will be regenerated.
+
+$N = 135{,}672$ throughout, except the Qwen indicator rows where $N = 135{,}641$
+(31 rows carry no Qwen prediction). The Gemini side is now non-null everywhere, so $N$ is
+bounded only by the open-weight column. Gemma has no \texttt{constitution} column:
+that run did not complete, for the reason given in the previous section.
+
+\ra{1.15}
+\capwidth{12.5cm}
+\begin{longtable}{P{4.2cm} R{2.2cm} R{2.2cm} R{2.2cm}}
+  \caption{Open-weight agreement with Gemini, by indicator.}\label{tab:cross-model}\\
+  \toprule
+  \thead{Indicator} & \thead{Llama} & \thead{Qwen} & \thead{Gemma} \\
+  \midrule
+  \endfirsthead
+  \multicolumn{4}{l}{\small\itshape \tablename~\thetable\ (continued)}\\
+  \toprule
+  \thead{Indicator} & \thead{Llama} & \thead{Qwen} & \thead{Gemma} \\
+  \midrule
+  \endhead
+  \bottomrule
+  \endfoot
+  \texttt{sovereign}          & 0.573 & 0.798 & 0.639 \\
+  \texttt{federalism}         & 0.915 & 0.949 & 0.906 \\
+  \texttt{checks\_local}       & 0.789 & 0.809 & 0.696 \\
+  \texttt{checks\_military}    & 0.918 & 0.911 & 0.292 \\
+  \texttt{checks\_clergy}      & 0.840 & 0.844 & 0.710 \\
+  \texttt{checks\_aristocracy} & 0.682 & 0.734 & 0.526 \\
+  \texttt{checks\_bourgeoisie} & 0.873 & 0.911 & 0.886 \\
+  \texttt{checks\_bureaucracy} & 0.928 & 0.950 & 0.690 \\
+  \texttt{checks\_judiciary}   & 0.857 & 0.846 & 0.860 \\
+  \texttt{checks\_assembly}    & 0.790 & 0.769 & 0.825 \\
+  \texttt{checks\_council}     & 0.741 & 0.726 & 0.435 \\
+  \texttt{collegiality}       & 0.872 & 0.875 & 0.623 \\
+  \texttt{petition}           & 0.627 & 0.598 & 0.696 \\
+  \texttt{assembly}           & 0.433 & 0.463 & 0.484 \\
+  \texttt{entry}              & 0.290 & 0.291 & 0.370 \\
+  \texttt{exit}               & 0.318 & 0.423 & 0.462 \\
+  \texttt{symbolism}          & 0.376 & 0.553 & 0.494 \\
+  \midrule
+  \texttt{constitution}       & 0.334 & 0.508 & --- \\
+  \texttt{elections}          & 0.847 & 0.840 & 0.814 \\
+\end{longtable}
+\capfull
+
+\textbf{Reading these numbers.} Raw agreement is not comparable across indicators,
+for two reasons that pull in opposite directions. First, it rises mechanically with
+how skewed an indicator's label distribution is: \texttt{federalism} exceeds 0.9 for
+all three models largely because everyone answers~0 on the overwhelming majority of
+rows, so most of that figure is concordance any two coders with the same marginal
+would reach without agreeing about anything in particular. Second, it falls
+mechanically with the number of categories, which is why \texttt{entry} (12 labels)
+and \texttt{exit} (16) sit lowest. Read each figure against that indicator's label
+distribution in Section~\ref{sec:label-dists} rather than against the other rows of
+this table.
+
+Comparison \emph{across} the three columns is the more useful direction, because
+category count and marginal skew are held fixed within a row. Qwen is closest to
+Gemini on most indicators, and markedly so on \texttt{sovereign} (0.798 against
+Llama's 0.573) and \texttt{symbolism} (0.553 against 0.376). Gemma is the outlier in
+both directions: it alone falls below 0.5 on \texttt{checks\_\allowbreak military}
+(0.292, against roughly 0.91 for the other two) and on
+\texttt{checks\_\allowbreak council} (0.435), yet it leads on \texttt{entry},
+\texttt{exit} and \texttt{petition}. A single indicator collapsing to 0.292 while its
+neighbours hold above 0.9 is more consistent with a systematic labelling difference
+--- one model reading that indicator's definition differently --- than with diffuse
+noise. \texttt{checks\_\allowbreak military} is worth inspecting directly before the
+Gemma column is used.
+
+\textbf{The \texttt{elections} row is not what it appears.} Its high values are
+largely definitional rather than substantive. Rows whose \texttt{assembly} prediction
+is not~2 receive \texttt{elections} $=0$ by rule with no model call, and that covers
+97{,}480 of the Gemini rows (a further 12{,}273 model-coded rows are also labelled~0, giving
+109{,}753 zeros in total). Both pipelines therefore assign~0 to most rows without
+either having judged anything. Restricting to rows where \emph{both} pipelines
+actually invoked the model gives a different picture:
+
+\ra{1.2}
+\begin{longtable}{P{3.4cm} r r r}
+  \caption{\texttt{elections} agreement, restricted to rows both pipelines actually
+    scored.}\label{tab:elections-agreement}\\
+  \toprule
+  \thead{Model} & \thead{Rows both scored} & \thead{Agreement (scored)} &
+    \thead{Agreement (all rows)} \\
+  \midrule
+  \endfirsthead
+  \multicolumn{4}{l}{\small\itshape \tablename~\thetable\ (continued)}\\
+  \toprule
+  \thead{Model} & \thead{Rows both scored} & \thead{Agreement (scored)} &
+    \thead{Agreement (all rows)} \\
+  \midrule
+  \endhead
+  \bottomrule
+  \endfoot
+  Llama & 3{,}298  & 0.857 & 0.847 \\
+  Qwen  & 6{,}763  & 0.761 & 0.840 \\
+  Gemma & 17{,}424 & 0.531 & 0.814 \\
+\end{longtable}
+
+Note the row counts. Gemini assigns \texttt{assembly} $=2$ to 38{,}192 rows, but only
+3{,}298 of those are also gated in by Llama --- an overlap of 8.6\%. Because
+\texttt{assembly} itself agrees at only 0.43--0.48, each pipeline's elections gate
+selects a substantially different set of leader-tenures. \textbf{The elections columns
+of two pipelines are therefore not directly comparable}: they answer the same question
+about different populations. Any analysis using \texttt{elections} should either
+restrict to rows gated in by both pipelines, or state which pipeline's
+\texttt{assembly} defined the sample.
+
+\textbf{What this does and does not establish.} These figures measure
+\emph{inter-model} agreement, not accuracy. Three indicators (\texttt{sovereign},
+\texttt{collegiality}, \texttt{assembly}) have human-coded ground truth against which
+any of these models can be scored directly, and that comparison is the one that
+speaks to validity. Low agreement between two models is consistent with one being
+accurate and the other not, as well as with both being unreliable; it does not by
+itself adjudicate between those cases. It does mean the datasets are not
+interchangeable, and that any downstream result should state which model produced the
+labels it rests on.
+
+\textbf{Comparability caveats.} The pipelines differ in more than the model. The
+Gemini dataset is a single pass; every open-weight column is a majority vote over
+three sampled generations. Sampling at nonzero temperature and then voting is not the
+same estimator as one decode, and part of the disagreement above is attributable to
+that difference rather than to the models themselves. A like-for-like comparison would
+either take \texttt{\{ind\}\_SC1} alone or re-run Gemini under matched sampling.
 
 \end{document}
