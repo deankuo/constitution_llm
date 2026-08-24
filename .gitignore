@@ -104,3 +104,9 @@ docs/codebook/*.log
 docs/superpowers
 .Rproj.user
 *.Rproj
+*.Rhistory
+*.rds
+*.RDS
+
+# docs
+stats/*.pdf
