@@ -309,15 +309,15 @@ plt_gemini %>%
                      labels = c("pre-0", "0-1000", "1000-1500",
                                 "1500-1800", "1800-1900", "1900+"))) %>%
     group_by(era) %>%
-    summarise(n = n(), theta = mean(theta_A, na.rm = TRUE)) %>%
+    summarise(n = n(), theta = mean(theta_B, na.rm = TRUE)) %>%
     print(n = Inf)
 
 # Polity (It seems like it depends on the length of that polity as well)
 plt_gemini %>%
     group_by(polity_name) %>%
     filter(n() >= 30) %>%
-    summarise(n = n(), theta = mean(theta_A, na.rm = TRUE)) %>%
-    arrange(desc(theta)) %>%
+    summarise(n = n(), theta = mean(theta_B, na.rm = TRUE)) %>%
+    arrange(-desc(theta)) %>%
     print(n = 20)
 
 
@@ -327,18 +327,18 @@ plt_gemini %>%
                               "Russia","Prussia","Ottoman Empire","China",
                               "Soviet Union","Germany","Japan","France", "United States Of America")) %>%
     group_by(polity_name) %>%
-    summarise(n = n(), theta = mean(theta_A, na.rm = TRUE)) %>%
+    summarise(n = n(), theta = mean(theta_B, na.rm = TRUE)) %>%
     arrange(desc(theta)) %>% print(n = Inf)
+```
+
+```{r}
+plt_df <- read_csv("../data/raw/plt_leader_20260716.csv", show_col_types = F)
 ```
 
 # Bifactor
 
 ```{r}
-dat_A2  <- make_irt_data(plt_gemini, items_A)
-type_A2 <- get_itemtype(dat_A2)
 
-dat_B2  <- make_irt_data(plt_gemini, items_B)
-type_B2 <- get_itemtype(dat_B2)
 ```
 
 ## EFA
