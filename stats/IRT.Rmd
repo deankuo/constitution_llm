@@ -9,6 +9,13 @@ output:
 
 # Setup
 
+```{asis Problems}
+There are a few things that worth noticing:  
+1. I recoded the symbolism indicator as it shows negative loading in single factor analysis (I recoded 2(deified) to 0 (plain) and 0 to 2). Also, symbolism only has 1400+ data with labeled as 3 (ceremonial).
+2. Sovereign seems to be a single vector by itself
+3. I also recoded assembly and election since they are related concept. The new indicator called representation has six labels
+```
+
 ```{r setup, warning=FALSE}
 suppressPackageStartupMessages({
     library(haven)
@@ -16,6 +23,9 @@ suppressPackageStartupMessages({
     library(tidyverse)
     library(mirt)
     library(psych)
+    library(scales)
+    library(MCMCpack)
+    select <- dplyr::select
 })
 
 # mirt parallel compute
@@ -23,17 +33,23 @@ mirtCluster(4)
 
 # Load datasets
 plt_gemini <- read_csv("../data/plt_constraints.csv", show_col_types = F)
+# region_broad has the least missingness (n = 16090)
+raw_data <- read_csv("../data/plt_dataset.csv", show_col_types = F) %>%
+    select(id, region_broad) %>%
+    rename(region = region_broad)
+
+plt_gemini <- left_join(plt_gemini, raw_data, by = "id")
 
 # data aggregation
 plt_gemini <- plt_gemini %>%
     mutate(
-        entry_3_prediction = case_when(
+        entry_4_prediction = case_when(
             entry_prediction %in% c(0, 1) ~ 0,
             entry_prediction == 4 ~ 1,
             entry_prediction %in% c(2, 3, 5, 7, 8) ~ 2,
             entry_prediction %in% c(6, 9) ~ 3
         ),
-        exit_3_prediction = case_when(
+        exit_4_prediction = case_when(
             exit_prediction %in% c(3, 4, 7, 8, 9, 10, 11, 12, 13) ~ 0,
             exit_prediction %in% c(5, 6) ~ 1,
             exit_prediction == 0 ~ 2,
@@ -48,18 +64,155 @@ plt_gemini <- plt_gemini %>%
         elections_prediction = if_else(assembly_prediction == 2,
                                        elections_prediction,
                                        NA_real_),
+        representation = case_when(
+            assembly_prediction == 0 ~ 0,
+            assembly_prediction == 1 ~ 1,
+            assembly_prediction == 2 & elections_prediction == 0 ~ 2,
+            assembly_prediction == 2 & elections_prediction == 1 ~ 3,
+            assembly_prediction == 2 & elections_prediction == 2 ~ 4,
+            assembly_prediction == 3 ~ 5),
+        # symbolism recode
+        symbolism_recode = case_when(
+            symbolism_prediction == 2 ~ 0,
+            symbolism_prediction == 1 ~ 1,
+            symbolism_prediction == 0 ~ 2,
+            symbolism_prediction == 3 ~ 3,
+        ),
         across(c(exit_prediction, entry_prediction), ~na_if(., 99)))
 
-plt_gemini %>%
-    group_by(entry_3_prediction) %>%
+# Distribution of checks
+ggplot(plt_gemini, aes(x=checks_prediction)) +
+    geom_bar(fill = "steelblue", width = 0.7) +
+    labs(title = " Aggregated Checks Distribution", x = "Labels", y = "Values") +
+    scale_x_continuous(breaks = 0:9) +
+    geom_text(aes(label = after_stat(count)),
+              stat = "count",
+              vjust = -0.3,
+              size = 4) + 
+    theme_bw()
+
+# Distribution of representation
+ggplot(plt_gemini, aes(x=factor(representation))) +
+    geom_bar(fill = "steelblue", width = 0.7) +
+    labs(title = "Representation Distribution", x = "Labels", y = "Values") +
+    scale_x_discrete(labels = c("0" = "No Assembly",
+                                "1" = "Council",
+                                "2" = "Legislature, no elections",
+                                "3" = "Non-competitive Legislature",
+                                "4" = "Competitive Legislature",
+                                "5" = "Popular assembly")) +
+    geom_text(aes(label = after_stat(count)),
+              stat = "count",
+              hjust = -0.3,
+              size = 4) +
+    theme_bw() +
+    coord_flip() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.2))) 
+
+# checks_prediction is sparse after 7 (8: n = 189 (0.14%), 9: n = 33 (0.02%))
+# combine 7/8/9 to "7+" (1,274 in total)
+plt_gemini <- plt_gemini %>%
+    mutate(checks_prediction =  pmin(checks_prediction, 7),
+           era = cut(leader_first_year, c(-Inf, 0, 1500, 1800, Inf),
+                     labels = c("BC","0-1500","1500-1800","1800-")))
+
+# See the facial validity looks like for entry indicator with four lables
+entry_table <- plt_gemini %>%
+    mutate(
+        total_score = rowSums(select(., sovereign_prediction, constitution_prediction,  
+                                     federalism_prediction, 
+                                     checks_prediction, collegiality_prediction,
+                                     petition_prediction, assembly_prediction,
+                                     elections_prediction), na.rm = TRUE)
+    ) %>%
+    group_by(entry_4_prediction, era) %>%
     summarise(
         n = n(),
-        rest = mean(sovereign_prediction + constitution_prediction + federalism_prediction +                      checks_prediction + collegiality_prediction + petition_prediction +                           assembly_prediction + elections_prediction, na.rm = TRUE))
+        mean_score = mean(total_score, na.rm = TRUE),
+        .groups = "drop"
+    ) %>%
+    filter(!is.na(entry_4_prediction) & !is.na(era)) %>%
+    mutate(display_val = paste0(round(mean_score, 2), " (n=", n, ")")) %>%
+    select(entry_4_prediction, era, display_val) %>%
+    pivot_wider(names_from = era, values_from = display_val)
 
-#===============================================================================
-# IRT: item sets
-#===============================================================================
+print("---Entry Indicator Table---")
+print(entry_table)
 
+# exit
+exit_table <- plt_gemini %>%
+    mutate(
+        total_score = rowSums(select(., sovereign_prediction, constitution_prediction, 
+                                     federalism_prediction, checks_prediction, 
+                                     collegiality_prediction, petition_prediction, 
+                                     assembly_prediction, elections_prediction), na.rm = TRUE)
+    ) %>%
+    group_by(exit_4_prediction, era) %>%
+    summarise(
+        n = n(),
+        mean_score = mean(total_score, na.rm = TRUE),
+        .groups = "drop"
+    ) %>%
+    filter(!is.na(exit_4_prediction) & !is.na(era)) %>%
+    mutate(display_val = paste0(round(mean_score, 2), " (n=", n, ")")) %>%
+    select(exit_4_prediction, era, display_val) %>%
+    pivot_wider(names_from = era, values_from = display_val)
+
+print("---Exit Indicator Table---")
+print(exit_table)
+
+# missingness (we only allow entry and exit indicator to have NA)
+miss_table <- plt_gemini %>%
+    group_by(region, era) %>% 
+    summarise(
+        n = n(),
+        miss_entry_rate = mean(is.na(entry_4_prediction)), 
+        miss_exit_rate = mean(is.na(exit_4_prediction)),
+        .groups = "drop"
+    ) %>%
+    filter(!is.na(region) & !is.na(era)) %>%
+    mutate(display_val = paste0(
+        percent(miss_entry_rate, accuracy = 0.1), " / ", 
+        percent(miss_exit_rate, accuracy = 0.1), " (n=", n, ")"
+    )) %>%
+    select(region, era, display_val) %>%
+    pivot_wider(names_from = era, values_from = display_val)
+
+print("--- Combined Missingness Table (Entry % / Exit % (n=Total)) ---")
+print(miss_table)
+
+# Seems like there's a chronological missingness
+
+
+# total score
+summary_df <- plt_gemini %>%
+    mutate(
+        total_score = rowSums(select(., sovereign_prediction, constitution_prediction, 
+                                     federalism_prediction, checks_prediction, 
+                                     collegiality_prediction, petition_prediction, 
+                                     assembly_prediction, elections_prediction), 
+                              na.rm = TRUE)) %>%
+    group_by(era, region) %>%
+    summarise(
+        n = n(),
+        mean_score = mean(total_score, na.rm = TRUE),
+        .groups = "drop"
+    ) %>%
+    filter(!is.na(era) & !is.na(region))
+
+table_df <- summary_df %>%
+    mutate(display_val = paste0(round(mean_score, 2), " (n=", n, ")")) %>%
+    select(region, era, display_val) %>%
+    pivot_wider(names_from = era, values_from = display_val)
+
+print("---Total score table---")
+print(table_df)
+```
+
+# PCA
+
+```{r PCA}
 # Version A: all 19 indicators
 items_A <- c(
     "constitution_prediction",
@@ -70,8 +223,8 @@ items_A <- c(
     "assembly_prediction",
     "elections_prediction",
     "symbolism_prediction",
-    "entry_3_prediction",
-    "exit_3_prediction",
+    "entry_4_prediction",
+    "exit_4_prediction",
     "checks_local_prediction",
     "checks_military_prediction",
     "checks_judiciary_prediction",
@@ -90,24 +243,84 @@ items_B <- c(
     "federalism_prediction",
     "collegiality_prediction",
     "petition_prediction",
-    "assembly_prediction",
-    "elections_prediction",
-    "symbolism_prediction",
-    "entry_3_prediction",
-    "exit_3_prediction",
+    "representation",
+    "symbolism_recode",
+    "entry_4_prediction",
+    "exit_4_prediction",
     "checks_prediction"
 )
 
-# checks_prediction is sparse after 7 (8: n = 189 (0.14%), 9: n = 33 (0.02%))
-# combine 7/8/9 to "7+" (1,274 in total)
-COLLAPSE_CHECKS_TOP <- TRUE
+# Version C: exclude sovereign
+items_C <- c(
+    "constitution_prediction",
+    "federalism_prediction",
+    "collegiality_prediction",
+    "petition_prediction",
+    "representation",
+    "symbolism_recode",
+    "entry_4_prediction",
+    "exit_4_prediction",
+    "checks_prediction"
+)
 
-plt_gemini <- plt_gemini %>%
-    mutate(checks_prediction = if (COLLAPSE_CHECKS_TOP) {
-        pmin(checks_prediction, 7)
-    } else {
-        checks_prediction
-    })
+data_items_B <- plt_gemini[items_B]
+# missingness
+plt_gemini %>% mutate(cc = complete.cases(data_items_B)) %>%
+    group_by(era) %>% summarise(complete_rate = mean(cc))
+
+fit_pc <- princomp(na.omit(data_items_B), cor = TRUE)
+print(fit_pc)
+
+# loadings
+fit_pc$loadings
+
+# screeplot
+screeplot(fit_pc, type ='line')
+```
+
+# Factor Analysis
+
+```{r FA}
+# single factor
+fa1 <- fa(data_items_B, nfactors = 1, fm = "pa")
+print(fa1)
+
+# How many factors do we need?
+fa.parallel(data_items_B, fa = "fa", cor = "poly")
+
+fit_fa <- fa(r = data_items_B,
+             nfactors = 3,
+             scores = "regression",
+             rotate = "oblimin") # This is the default method
+
+print(fit_fa)
+```
+
+```{r Test}
+psych::omega(data_items_B, nfactors = 3, poly = TRUE, fm = "pa")
+```
+
+# IRT Model
+
+### MCMCpack (would take 5-7 hours)
+
+```{r MCMCpack}
+sub <- data_items_B[sample(nrow(data_items_B), 5000), ]
+system.time(
+    test <- MCMCordfactanal(as.matrix(sub), factors = 1,
+                            lambda.constraints = list(representation = list(2, "+")),
+                            burnin = 500, mcmc = 1000, thin = 1,
+                            store.lambda = TRUE, store.scores = TRUE,
+                            tune = 1.2, verbose = 500)
+)
+```
+
+### Using mirt since emIRT is not applicable this time
+
+```{r IRT}
+#===============================================================================
+# IRT: item sets
+#===============================================================================
 
 #-------------------------------------------------------------------------------
 # helper: item matrix & itemtype. Mixed with "2PL" and "graded"
@@ -143,11 +356,6 @@ dat_B <- make_irt_data(plt_gemini, items_B)
 type_B <- get_itemtype(dat_B)
 
 print(type_A)
-```
-
-# IRT Model
-
-```{r}
 set.seed(42)
 
 mod_A <- mirt(dat_A, model = 1, itemtype = type_A,
@@ -157,6 +365,16 @@ mod_A <- mirt(dat_A, model = 1, itemtype = type_A,
 mod_B <- mirt(dat_B, model = 1, itemtype = type_B,
               method = "EM", SE = TRUE,
               technical = list(NCYCLES = 2000))
+
+m1 <- mirt(dat_B, 1, itemtype = type_B, method = "EM", technical = list(NCYCLES = 2000))
+m2 <- mirt(dat_B, 2, itemtype = type_B, method = "EM", technical = list(NCYCLES = 2000))
+m3 <- mirt(dat_B, 3, itemtype = type_B, method = "EM", technical = list(NCYCLES = 2000))
+
+anova(m1, m2)
+anova(m2, m3)
+
+summary(m2, rotate = "oblimin")
+summary(m3, rotate = "oblimin")
 
 saveRDS(mod_A, "./mod_A_unidim.rds")
 saveRDS(mod_B, "./mod_B_unidim.rds")
@@ -182,23 +400,106 @@ summary(mod_A)
 summary(mod_B)
 ```
 
+## Facial Validity
+
+```{r Validity test}
+# mirtCluster(remove = TRUE)
+th1 <- fscores(m1, method = "EAP", full.scores.SE = TRUE)
+
+plt_scored <- plt_gemini %>%
+    mutate(theta = th1[, 1], theta_se = th1[, 2],
+           n_miss = rowSums(is.na(dat_B)))
+# Era
+plt_scored %>%
+    group_by(era) %>%
+    slice_max(theta, n = 10) %>%
+    select(era, polity_name, leader_name, leader_first_year, theta, theta_se) %>%
+    arrange(era, desc(theta)) %>%
+    print(n = 50)
+
+plt_scored %>%
+    group_by(era) %>%
+    slice_min(theta, n = 10) %>%
+    select(era, polity_name, leader_name, leader_first_year, theta, theta_se) %>%
+    print(n = 50)
+
+# Polity (It seems like it depends on the length of that polity as well)
+plt_scored %>%
+    group_by(polity_name) %>%
+    filter(n() >= 30) %>%
+    summarise(n = n(), theta = mean(theta, na.rm = TRUE)) %>%
+    arrange(desc(theta)) %>%
+    print(n = 20)
+
+
+# Known polities
+source("classic_cases.R")
+# key_cases <- c("Roman Republic","Athens","Venice","England",
+#                "Russia","Prussia","Ottoman Empire","China",
+#                "Soviet Union","Germany","Japan","France", "United States Of America")
+plt_scored %>%
+    add_case() %>%
+    group_by(case) %>%
+    summarise(n          = n(),
+              n_leaders  = n_distinct(leader_name),
+              theta_mean = mean(theta, na.rm = TRUE),
+              theta_sd   = sd(theta, na.rm = TRUE),
+              theta_sem  = theta_sd / sqrt(sum(!is.na(theta))),
+              eap_se     = mean(theta_se, na.rm = TRUE),
+              .groups    = "drop") %>%
+    arrange(desc(theta_mean)) %>% print(n = Inf)
+
+ggplot(plt_scored, aes(leader_first_year, theta)) +
+    geom_point(alpha = 0.03) +
+    geom_smooth(method = "gam") +
+    labs(x = "Year", y = "Executive constraints")
+
+th2 <- fscores(m2, method = "EAP") 
+plt2 <- plt_scored %>% mutate(f1 = th2[,1], f2 = th2[,2])
+
+
+case_pts <- plt2 %>% add_case()     
+
+case_ctr <- case_pts %>%
+    group_by(case) %>%
+    summarise(f1 = mean(f1, na.rm = TRUE),
+              f2 = mean(f2, na.rm = TRUE),
+              n  = n(), .groups = "drop")   
+
+ggplot(plt2, aes(f1, f2)) +
+    geom_point(alpha = 0.02, colour = "grey40") +                   
+    geom_point(data = case_pts, aes(colour = case),                   
+               alpha = 0.35, size = 1) +
+    geom_point(data = case_ctr, aes(fill = case), shape = 21,   
+               size = 3, colour = "black", stroke = 0.4, show.legend = FALSE) +
+    ggrepel::geom_text_repel(data = case_ctr, aes(label = case),
+                             size = 3, max.overlaps = Inf,
+                             box.padding = 0.4, min.segment.length = 0,
+                             seed = 42) +
+    guides(colour = "none") +
+    labs(x = "F1", y = "F2") +
+    theme_minimal()
+
+
+```
+
 ## Check Indicator Order
 
 ```{r}
-graded_items <- names(type_B)[type_B == "graded"]
-
-for (it in graded_items) {
-    a_it <- coef_B[it, "a"]
-    b <- coef_B[it, grep("^b[0-9]", colnames(coef_B))]
-    b <- b[!is.na(b)]
-    ok <- if (a_it >= 0) all(diff(b) > 0) else all(diff(b) < 0)
-    cat(sprintf("%-32s a = %6.3f   b = %-28s ordered? %s\n",
-                it, a_it, paste(round(b, 3), collapse = "  "), ok))
-}
-
-# fit_A <- itemfit(mod_A, fit_stats = "S_X2", na.rm = T)
-# fit_A %>% arrange(desc(RMSEA.S_X2)) %>% print()
+# graded_items <- names(type_B)[type_B == "graded"]
 # 
+# for (it in graded_items) {
+#     a_it <- coef_B[it, "a"]
+#     b <- coef_B[it, grep("^b[0-9]", colnames(coef_B))]
+#     b <- b[!is.na(b)]
+#     ok <- if (a_it >= 0) all(diff(b) > 0) else all(diff(b) < 0)
+#     cat(sprintf("%-32s a = %6.3f   b = %-28s ordered? %s\n",
+#                 it, a_it, paste(round(b, 3), collapse = "  "), ok))
+# }
+# 
+# # fit_A <- itemfit(mod_A, fit_stats = "S_X2", na.rm = T)
+# # fit_A %>% arrange(desc(RMSEA.S_X2)) %>% print()
+# # 
 # fit_B <- itemfit(mod_B, fit_stats = "S_X2", na.rm = T)
 # fit_B %>% arrange(desc(RMSEA.S_X2)) %>% print()
 ```
@@ -206,55 +507,59 @@ for (it in graded_items) {
 ## Local Dependence Problem (assembly; check_assembly; elections)
 
 ```{r}
-q3_full <- residuals(mod_A, type = "Q3", verbose = FALSE)
-q3_pairs <- as.data.frame(as.table(q3_full)) %>%
-    filter(as.character(Var1) < as.character(Var2)) %>%
-    rename(item1 = Var1, item2 = Var2, Q3 = Freq) %>%
-    arrange(desc(abs(Q3)))
-head(q3_pairs, 20)
-
+# q3_full <- residuals(mod_A, type = "Q3", verbose = FALSE)
+# q3_pairs <- as.data.frame(as.table(q3_full)) %>%
+#     filter(as.character(Var1) < as.character(Var2)) %>%
+#     rename(item1 = Var1, item2 = Var2, Q3 = Freq) %>%
+#     arrange(desc(abs(Q3)))
+# head(q3_pairs, 20)
+# 
 q3_full_B <- residuals(mod_B, type = "Q3", verbose = FALSE)
 q3_pairs <- as.data.frame(as.table(q3_full_B)) %>%
     filter(as.character(Var1) < as.character(Var2)) %>%
     rename(item1 = Var1, item2 = Var2, Q3 = Freq) %>%
-    # mutate(Q3 = Q3 - 0.1) %>% # adjust negative expectation 
+    mutate(Q3 = Q3 + 0.1) %>% # adjust negative expectation
     arrange(desc(abs(Q3)))
 head(q3_pairs, 20)
 ```
 
 ```{r}
-plt_gemini %>%
-    count(sovereign_prediction, exit_3_prediction) %>%
-    group_by(sovereign_prediction) %>%
-    mutate(prop = round(n / sum(n), 3)) %>%
-    select(-n) %>%
-    tidyr::pivot_wider(names_from = sovereign_prediction,
-                       values_from = prop,
-                       names_prefix = "sovereign_")
+# plt_gemini %>%
+#     count(sovereign_prediction, exit_4_prediction) %>%
+#     group_by(sovereign_prediction) %>%
+#     mutate(prop = round(n / sum(n), 3)) %>%
+#     select(-n) %>%
+#     tidyr::pivot_wider(names_from = sovereign_prediction,
+#                        values_from = prop,
+#                        names_prefix = "sovereign_")
+
+cor(plt_scored$theta, plt_gemini$representation, use = "complete.obs", method = "spearman")
 ```
 
 ```{r}
 # see if the second dimension shares similar trend with year
-mod2 <- mirt(dat_B, 2, itemtype = type_B, method = "EM", rotate = "oblimin")
-f <- fscores(mod2, method = "EAP")
-
-cor(f[, 2], plt_gemini$leader_first_year, use = "complete.obs") 
-summary(mod2)  
-
-# check symbolism labeling
-it_nosym <- unname(type_B)[items_B != "symbolism_prediction"]
-mod_nosym <- mirt(dat_B[, items_B != "symbolism_prediction"], 1,
-                  itemtype = it_nosym, method = "EM")
-plt_gemini %>%
-    mutate(th_ns = fscores(mod_nosym, method = "EAP")[, 1]) %>%
-    group_by(symbolism_prediction) %>%
-    summarise(n = n(), theta = mean(th_ns, na.rm = TRUE)) %>%
-    arrange(theta)
+# mod2 <- mirt(dat_B, 2, itemtype = type_B, method = "EM", rotate = "oblimin")
+# f <- fscores(mod2, method = "EAP")
+# 
+# cor(f[, 2], plt_gemini$leader_first_year, use = "complete.obs") 
+# summary(mod2)  
+# 
+# # check symbolism labeling
+# it_nosym <- unname(type_B)[items_B != "symbolism_prediction"]
+# mod_nosym <- mirt(dat_B[, items_B != "symbolism_prediction"], 1,
+#                   itemtype = it_nosym, method = "EM")
+# plt_gemini %>%
+#     mutate(th_ns = fscores(mod_nosym, method = "EAP")[, 1]) %>%
+#     group_by(symbolism_prediction) %>%
+#     summarise(n = n(), theta = mean(th_ns, na.rm = TRUE)) %>%
+#     arrange(theta)
 ```
 
 ```{r}
-plot(mod_B, type = "info") 
+plot(mod_B, type = "info")
 plot(mod_B, type = "SE")
+
+plot(mod_B, type = "infotrace", facet_items = TRUE)
 
 th <- fscores(mod_B, method = "EAP", full.scores = TRUE, full.scores.SE = TRUE)
 
@@ -271,68 +576,31 @@ plt_gemini %>%
 ## Theta
 
 ```{r}
-fs_A <- fscores(mod_A, method = "EAP", full.scores = TRUE, full.scores.SE = TRUE)
-fs_B <- fscores(mod_B, method = "EAP", full.scores = TRUE, full.scores.SE = TRUE)
-
-# empirical reliability
-empirical_rxx(fs_A)
-empirical_rxx(fs_B)
-
-plt_gemini <- plt_gemini %>%
-    mutate(theta_A = fs_A[, "F1"], theta_A_se = fs_A[, "SE_F1"],
-           theta_B = fs_B[, "F1"], theta_B_se = fs_B[, "SE_F1"])
-
-cor(plt_gemini$theta_A, plt_gemini$theta_B, use = "complete.obs", method = "spearman")
-
-# Simple sum
-plt_gemini <- plt_gemini %>%
-    mutate(simple_sum = rowSums(across(all_of(items_A)), na.rm = TRUE))
-
-cor(plt_gemini$theta_A, plt_gemini$simple_sum, use = "complete.obs")
-
-ggplot(plt_gemini, aes(x = theta_A, y = theta_B)) +
-    geom_hex(bins = 60) +
-    scale_fill_viridis_c(trans = "log10") +
-    labs(x = "theta (Version A: 19 items)",
-         y = "theta (Version B: checks summed)") +
-    theme_minimal()
-```
-
-## Face Validity Check
-
-```{r}
-# mirtCluster(remove = TRUE)
-# Era
-plt_gemini %>%
-    mutate(era = cut(leader_first_year,
-                     c(-3000, 0, 1000, 1500, 1800, 1900, 2030),
-                     labels = c("pre-0", "0-1000", "1000-1500",
-                                "1500-1800", "1800-1900", "1900+"))) %>%
-    group_by(era) %>%
-    summarise(n = n(), theta = mean(theta_B, na.rm = TRUE)) %>%
-    print(n = Inf)
-
-# Polity (It seems like it depends on the length of that polity as well)
-plt_gemini %>%
-    group_by(polity_name) %>%
-    filter(n() >= 30) %>%
-    summarise(n = n(), theta = mean(theta_B, na.rm = TRUE)) %>%
-    arrange(-desc(theta)) %>%
-    print(n = 20)
-
-
-# Known polities
-plt_gemini %>%
-    filter(polity_name %in% c("Roman Republic","Athens","Venice","England",
-                              "Russia","Prussia","Ottoman Empire","China",
-                              "Soviet Union","Germany","Japan","France", "United States Of America")) %>%
-    group_by(polity_name) %>%
-    summarise(n = n(), theta = mean(theta_B, na.rm = TRUE)) %>%
-    arrange(desc(theta)) %>% print(n = Inf)
-```
-
-```{r}
-plt_df <- read_csv("../data/raw/plt_leader_20260716.csv", show_col_types = F)
+# fs_A <- fscores(mod_A, method = "EAP", full.scores = TRUE, full.scores.SE = TRUE)
+# fs_B <- fscores(mod_B, method = "EAP", full.scores = TRUE, full.scores.SE = TRUE)
+# 
+# # empirical reliability
+# empirical_rxx(fs_A)
+# empirical_rxx(fs_B)
+# 
+# plt_gemini <- plt_gemini %>%
+#     mutate(theta_A = fs_A[, "F1"], theta_A_se = fs_A[, "SE_F1"],
+#            theta_B = fs_B[, "F1"], theta_B_se = fs_B[, "SE_F1"])
+# 
+# cor(plt_gemini$theta_A, plt_gemini$theta_B, use = "complete.obs", method = "spearman")
+# 
+# # Simple sum
+# plt_gemini <- plt_gemini %>%
+#     mutate(simple_sum = rowSums(across(all_of(items_A)), na.rm = TRUE))
+# 
+# cor(plt_gemini$theta_A, plt_gemini$simple_sum, use = "complete.obs")
+# 
+# ggplot(plt_gemini, aes(x = theta_A, y = theta_B)) +
+#     geom_hex(bins = 60) +
+#     scale_fill_viridis_c(trans = "log10") +
+#     labs(x = "theta (Version A: 19 items)",
+#          y = "theta (Version B: checks summed)") +
+#     theme_minimal()
 ```
 
 # Bifactor
