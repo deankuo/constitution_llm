@@ -64,13 +64,17 @@ plt_gemini <- plt_gemini %>%
         elections_prediction = if_else(assembly_prediction == 2,
                                        elections_prediction,
                                        NA_real_),
+        # 0 - no
+        # 1 - council, legislative with no election
+        # 2 - assembly with non-competitive election
+        # 3 - assembly with election and popular asembly
         representation = case_when(
             assembly_prediction == 0 ~ 0,
             assembly_prediction == 1 ~ 1,
-            assembly_prediction == 2 & elections_prediction == 0 ~ 2,
-            assembly_prediction == 2 & elections_prediction == 1 ~ 3,
-            assembly_prediction == 2 & elections_prediction == 2 ~ 4,
-            assembly_prediction == 3 ~ 5),
+            assembly_prediction == 2 & elections_prediction == 0 ~ 1,
+            assembly_prediction == 2 & elections_prediction == 1 ~ 2,
+            assembly_prediction == 2 & elections_prediction == 2 ~ 3,
+            assembly_prediction == 3 ~ 3),
         # symbolism recode
         symbolism_recode = case_when(
             symbolism_prediction == 2 ~ 0,
@@ -285,15 +289,25 @@ screeplot(fit_pc, type ='line')
 fa1 <- fa(data_items_B, nfactors = 1, fm = "pa")
 print(fa1)
 
-# How many factors do we need?
-fa.parallel(data_items_B, fa = "fa", cor = "poly")
-
 fit_fa <- fa(r = data_items_B,
              nfactors = 3,
              scores = "regression",
              rotate = "oblimin") # This is the default method
 
-print(fit_fa)
+pc <- psych::polychoric(data_items_B, global = FALSE)
+
+n_eff <- sum(complete.cases(data_items_B))
+
+fa1_poly <- fa(r = pc$rho, nfactors = 1, n.obs = n_eff, fm = "pa")
+fa3_poly <- fa(r = pc$rho, nfactors = 3, n.obs = n_eff, fm = "pa", rotate = "oblimin")
+
+# How many factors do we need?
+fa.parallel(data_items_B, fa = "fa", cor = "poly")
+
+
+print(fa1_poly)
+
+print(fa3_poly)
 ```
 
 ```{r Test}
@@ -356,6 +370,11 @@ dat_B <- make_irt_data(plt_gemini, items_B)
 type_B <- get_itemtype(dat_B)
 
 print(type_A)
+
+dat_C  <- make_irt_data(plt_gemini, items_C)
+type_C <- get_itemtype(dat_C)
+
+
 set.seed(42)
 
 mod_A <- mirt(dat_A, model = 1, itemtype = type_A,
@@ -366,7 +385,7 @@ mod_B <- mirt(dat_B, model = 1, itemtype = type_B,
               method = "EM", SE = TRUE,
               technical = list(NCYCLES = 2000))
 
-m1 <- mirt(dat_B, 1, itemtype = type_B, method = "EM", technical = list(NCYCLES = 2000))
+m1 <- mirt(dat_C, 1, itemtype = type_C, method = "EM", technical = list(NCYCLES = 2000))
 m2 <- mirt(dat_B, 2, itemtype = type_B, method = "EM", technical = list(NCYCLES = 2000))
 m3 <- mirt(dat_B, 3, itemtype = type_B, method = "EM", technical = list(NCYCLES = 2000))
 
@@ -398,6 +417,9 @@ coef_A %>%
 
 summary(mod_A)
 summary(mod_B)
+
+plt_gemini %>%
+    filter((polity_name == "Soviet Union") & (leader_first_year >= 1924) & (leader_last_year <= 1953)) %>% View()
 ```
 
 ## Facial Validity
@@ -481,6 +503,31 @@ ggplot(plt2, aes(f1, f2)) +
     theme_minimal()
 
 
+# library(mgcv)
+# 
+dd <- plt_scored %>%
+    filter(!is.na(theta), !is.na(leader_first_year),
+           !is.na(region), !is.na(polity_name)) %>%
+    mutate(polity_name = factor(polity_name),
+           region      = factor(region))
+
+dd2 <- dd %>%
+    group_by(polity_name) %>%
+    filter(n() >= 5) %>%
+    mutate(theta_c = theta - mean(theta)) %>%
+    ungroup()
+
+m_fe <- bam(theta_c ~ s(leader_first_year, k = 30), data = dd2, discrete = TRUE)
+plot(m_fe, shade = TRUE)
+
+
+m_reg <- bam(theta_c ~ region + s(leader_first_year, by = region, k = 25),
+            data = dd2, discrete = TRUE, nthreads = 4)
+
+plot(m_reg, select = 1, shade = TRUE)
+
+plt_gemini %>% filter(polity_name == "Roman Republic") %>%
+    count(cut(leader_first_year, seq(-510, -20, by = 50))) %>% print(n = 20)
 ```
 
 ## Check Indicator Order
