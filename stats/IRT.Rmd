@@ -82,6 +82,7 @@ plt_gemini <- plt_gemini %>%
             symbolism_prediction == 0 ~ 2,
             symbolism_prediction == 3 ~ 3,
         ),
+        tenure = (leader_last_year - leader_first_year),
         across(c(exit_prediction, entry_prediction), ~na_if(., 99)))
 
 # Distribution of checks
@@ -247,7 +248,9 @@ items_B <- c(
     "federalism_prediction",
     "collegiality_prediction",
     "petition_prediction",
-    "representation",
+    # "representation",
+    "assembly_prediction",
+    "elections_prediction",
     "symbolism_recode",
     "entry_4_prediction",
     "exit_4_prediction",
@@ -268,6 +271,8 @@ items_C <- c(
 )
 
 data_items_B <- plt_gemini[items_B]
+lapply(data_items_B, function(x) round(prop.table(table(x, useNA = "ifany")), 3))
+lapply(data_items_B, function(x) round(mean(x, na.rm = T), 3))
 # missingness
 plt_gemini %>% mutate(cc = complete.cases(data_items_B)) %>%
     group_by(era) %>% summarise(complete_rate = mean(cc))
@@ -280,6 +285,7 @@ fit_pc$loadings
 
 # screeplot
 screeplot(fit_pc, type ='line')
+
 ```
 
 # Factor Analysis
