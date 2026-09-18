@@ -16,6 +16,8 @@ There are a few things that worth noticing:
 3. I also recoded assembly and election since they are related concept. The new indicator called representation has six labels
 ```
 
+# Preprocessing
+
 ```{r setup, warning=FALSE}
 suppressPackageStartupMessages({
     library(haven)
@@ -82,9 +84,171 @@ plt_gemini <- plt_gemini %>%
             symbolism_prediction == 0 ~ 2,
             symbolism_prediction == 3 ~ 3,
         ),
-        tenure = (leader_last_year - leader_first_year),
+        tenure = (leader_last_year - leader_first_year + 1),
+        tenure_log = log(tenure),
         across(c(exit_prediction, entry_prediction), ~na_if(., 99)))
 
+plt_gemini %>%
+    group_by(polity_name) %>%
+    mutate(win_span = leader_last_year - lag(leader_first_year, 2)) %>%
+    ungroup() %>%
+    summarise(across(win_span, list(p10 = ~quantile(.x, .1, na.rm = TRUE),
+                                    med = ~median(.x, na.rm = TRUE),
+                                    p90 = ~quantile(.x, .9, na.rm = TRUE))))
+```
+
+### Tenure
+
+```{r}
+# tenure classification
+plt_gemini <- plt_gemini %>%
+    drop_na(leader_first_year, leader_last_year) %>%
+    arrange(polity_name, leader_first_year, leader_last_year) %>%
+    group_by(polity_name) %>%
+    mutate(
+        gap   = leader_first_year - lag(leader_last_year),
+        spell = cumsum(is.na(gap) | gap > 500)
+    ) %>%
+    group_by(polity_name, spell) %>%
+    mutate(
+        tenure_w1          = tenure,
+        tenure_trailing_w3 = pmax(tenure, lag(tenure, 1), lag(tenure, 2), na.rm = TRUE),
+        tenure_centered_w3 = pmax(lag(tenure, 1), tenure, lead(tenure, 1), na.rm = TRUE),
+        tenure_leading_w3  = pmax(tenure, lead(tenure, 1), lead(tenure, 2), na.rm = TRUE),
+        tenure_trailing_w5 = pmax(tenure, lag(tenure, 1), lag(tenure, 2),
+                                  lag(tenure, 3), lag(tenure, 4), na.rm = TRUE),
+        tenure_centered_w5 = pmax(lag(tenure, 2), lag(tenure, 1), tenure,
+                                  lead(tenure, 1), lead(tenure, 2), na.rm = TRUE),
+        tenure_leading_w5  = pmax(tenure, lead(tenure, 1), lead(tenure, 2),
+                                  lead(tenure, 3), lead(tenure, 4), na.rm = TRUE),
+        
+        # same window as lexical_lw3; 2 = <8 years (most constrained), 0 = 16+
+        tenure_3_prediction_w3 = case_when(
+            tenure_leading_w3 <= 8 ~ 2,
+            tenure_leading_w3 <= 15 ~ 1,
+            tenure_leading_w3 > 15 ~ 0
+        )
+    ) %>%
+    ungroup()
+
+plt_gemini %>%
+    group_by(polity_name, spell) %>%
+    mutate(win_span = leader_last_year - lag(leader_first_year, 2)) %>%
+    ungroup() %>%
+    summarise(across(win_span, list(p10 = ~quantile(.x, .1, na.rm = TRUE),
+                                    med = ~median(.x, na.rm = TRUE),
+                                    p90 = ~quantile(.x, .9, na.rm = TRUE),
+                                    max = ~max(.x, na.rm = TRUE))))
+
+# Calender approach
+plt_gemini <- plt_gemini %>%
+    group_by(polity_name) %>%
+    mutate(
+        tenure_cal25 = sapply(leader_last_year, function(t)
+            max(tenure[leader_last_year <= t & leader_last_year > t - 25], na.rm = TRUE))
+    ) %>%
+    ungroup()
+
+
+span <- plt_gemini %>%
+    arrange(polity_name, leader_first_year) %>%
+    group_by(polity_name) %>%
+    mutate(win_span = leader_last_year - lag(leader_first_year, 2)) %>%
+    ungroup() %>%
+    filter(!is.na(win_span), win_span > 0)
+
+# 1. Distribution of tenure window
+ggplot(span, aes(win_span)) +
+    geom_histogram(bins = 50) +
+    scale_x_log10(breaks = c(1, 2, 5, 12, 25, 71, 200)) +
+    geom_vline(xintercept = 12, linetype = "dashed") +
+    labs(x = "Total year of three leaders (log)", y = "Leader Number") +
+    theme_minimal()
+
+# Distribution across time
+span %>%
+    mutate(era = floor(leader_last_year / 100) * 100) %>%
+    group_by(era) %>%
+    summarise(n = n(),
+              p10 = quantile(win_span, .1),
+              med = median(win_span),
+              p90 = quantile(win_span, .9)) %>%
+    filter(n >= 30) %>%
+    ggplot(aes(era, med)) +
+    geom_ribbon(aes(ymin = p10, ymax = p90), alpha = .2) +
+    geom_line() +
+    scale_y_log10() +
+    labs(x = "Year", y = "Window Length (log)") +
+    theme_minimal()
+
+# Something's wrong in the polity and leader year
+plt_gemini %>%
+    filter(polity_name %in% c("Mari", "Anhalt Freistaat", "Timbuktu")) %>%
+    arrange(polity_name, leader_first_year) %>%
+    select(polity_name, leader_name, leader_first_year, leader_last_year) %>%
+    print(n = 100)
+
+# Same polity has BCE and CE
+plt_gemini %>%
+    group_by(polity_name) %>%
+    summarise(n = n(),
+              n_bce = sum(leader_first_year < 0, na.rm = TRUE),
+              n_ce  = sum(leader_first_year > 0, na.rm = TRUE)) %>%
+    filter(n_bce > 0, n_ce > 0) %>%
+    arrange(n_bce) %>%
+    print(n = 50)
+
+plt_gemini <- plt_gemini %>%
+    mutate(name_style = if_else(str_detect(leader_name, "^[a-z]|[()]"), "messy", "clean"))
+
+count(plt_gemini, name_style)
+
+plt_gemini %>% filter(gap > 500) %>% count(polity_name, sort = TRUE)
+plt_gemini %>% count(polity_name, spell) %>% filter(n == 1) %>% nrow()
+```
+
+### Lexical check
+
+```{r}
+plt_gemini %>%
+    summarise(across(starts_with("tenure_") & !matches("^tenure$"),
+                     list(n = ~sum(!is.na(.x)), lvl1 = ~mean(.x > 15, na.rm = TRUE)))) %>%
+    pivot_longer(everything(), names_to = c("spec", ".value"), names_pattern = "(.*)_(n|lvl1)$")
+
+
+# validity
+py <- plt_gemini %>%
+    mutate(year = map2(leader_first_year, leader_last_year, seq)) %>%
+    unnest(year) %>%
+    group_by(polity_name, year) %>%
+    summarise(across(starts_with("tenure_") & !matches("log"),
+                     ~ if (all(is.na(.x))) NA_real_ else max(.x, na.rm = TRUE)),
+              .groups = "drop")
+
+py %>%
+    summarise(across(starts_with("tenure_"), ~mean(.x > 15, na.rm = TRUE)))
+
+
+# Why 15?
+thresh <- map_dfr(5:40, function(k) {
+    py %>%
+        summarise(across(c(tenure_w1, tenure_trailing_w3, tenure_trailing_w5),
+                         ~mean(.x > k, na.rm = TRUE))) %>%
+        mutate(threshold = k)
+})
+
+thresh %>%
+    pivot_longer(-threshold, names_to = "spec", values_to = "share") %>%
+    ggplot(aes(threshold, share, colour = spec)) +
+    geom_line() +
+    geom_vline(xintercept = 15, linetype = "dashed") +
+    labs(y = "share at lexical level 1") +
+    theme_minimal()
+```
+
+### Checks & Representation (Assembly + Election)
+
+```{r}
 # Distribution of checks
 ggplot(plt_gemini, aes(x=checks_prediction)) +
     geom_bar(fill = "steelblue", width = 0.7) +
@@ -120,8 +284,17 @@ ggplot(plt_gemini, aes(x=factor(representation))) +
 plt_gemini <- plt_gemini %>%
     mutate(checks_prediction =  pmin(checks_prediction, 7),
            era = cut(leader_first_year, c(-Inf, 0, 1500, 1800, Inf),
-                     labels = c("BC","0-1500","1500-1800","1800-")))
+                     labels = c("BC","0-1500","1500-1800","1800-"))) %>%
+    mutate(checks_3_prediction = case_when(
+        checks_prediction == 0 ~ 0,
+        checks_prediction %in% c(1, 2, 3) ~ 1,
+        checks_prediction > 3 ~ 2
+    ))
+```
 
+### Entry & Exit
+
+```{r}
 # See the facial validity looks like for entry indicator with four lables
 entry_table <- plt_gemini %>%
     mutate(
@@ -166,7 +339,132 @@ exit_table <- plt_gemini %>%
 
 print("---Exit Indicator Table---")
 print(exit_table)
+```
 
+### Quasi-lexical scale
+
+```{asis Lexical}
+Higher scores supersede lower ones; Tenure > 15 caps the score at 1 (two specs: own tenure, leading 3-leader window).
+1 none; 2 code of law (or petitions); 3 constitution (or ceremonial leader / federalism);
+4 advisory body; 5 checks (or collegial / entry by appointment); 6 legislative body;
+7 elective leader (entry = 9); 8 regular exit (elective leader, exit 0/1/2).
+```
+
+```{r Quasi-lexical}
+# Drop rows with unknown entry/exit (99 -> NA in setup). Done AFTER the tenure
+# windows are built so lead()/lag() still see every leader in the polity.
+plt_gemini %>%
+    mutate(dropped = is.na(entry_prediction) | is.na(exit_prediction)) %>%
+    group_by(era) %>%
+    summarise(n = n(), dropped = sum(dropped), share = round(dropped / n, 3))
+
+lex <- plt_gemini %>%
+    drop_na(entry_prediction, exit_prediction)
+
+# Criterion met for each level (1 = met). "Assumed if" clauses qualify a row
+# for that level directly, since higher scores supersede lower ones.
+lex <- lex %>%
+    mutate(
+        lex2_code_of_law  = constitution_prediction >= 1 | petition_prediction == 1,
+        lex3_constitution = constitution_prediction == 2 | symbolism_prediction == 3 |
+                            federalism_prediction == 1,
+        # council or non-competitive legislature; cumulative, so any higher
+        # representative body also counts
+        lex4_advisory     = assembly_prediction >= 1| representation == 2,
+        lex5_checks       = checks_3_prediction >= 1 | collegiality_prediction == 1 |
+                            entry_4_prediction %in% 2,
+        lex6_legislative  = assembly_prediction == 3 |
+                            (assembly_prediction == 2 & elections_prediction %in% 2),
+        lex7_elective     = entry_prediction == 9,
+        lex8_regular_exit = lex7_elective & exit_prediction %in% c(0, 1, 2),
+        across(matches("^lex[2-8]_"), as.integer)
+    )
+
+lex_items <- grep("^lex[2-8]_", names(lex), value = TRUE)
+
+# Highest level whose criterion is met; Tenure > 15 caps the score at 1
+lexical_score <- function(data, tenure_col = NULL) {
+    score <- rep(1L, nrow(data))
+    for (k in 2:8) score[data[[lex_items[k - 1]]] %in% 1] <- k
+    if (!is.null(tenure_col)) score[data[[tenure_col]] > 15] <- 1L
+    score
+}
+
+lex <- lex %>%
+    mutate(lexical_raw = lexical_score(lex),
+           lexical_w1  = lexical_score(lex, "tenure_w1"),
+           lexical_lw3 = lexical_score(lex, "tenure_leading_w3"))
+
+# Level distribution: no cap vs. hard cap on own tenure vs. leading 3-leader window
+lex %>%
+    select(lexical_raw, lexical_w1, lexical_lw3) %>%
+    pivot_longer(everything(), names_to = "spec", values_to = "level") %>%
+    count(spec, level) %>%
+    group_by(spec) %>%
+    mutate(share = round(n / sum(n), 3)) %>%
+    ungroup() %>%
+    pivot_wider(id_cols = level, names_from = spec, values_from = share)
+
+# Empirical demandingness: share meeting each criterion (should fall with level)
+lex %>%
+    summarise(across(all_of(lex_items), ~round(mean(.x), 3))) %>%
+    pivot_longer(everything(), names_to = "level", values_to = "share_met")
+
+# Exceptions: among rows meeting the higher criterion (column), share NOT
+# meeting the lower one (row). Level 8 is conditional on 7 by construction.
+guttman_items <- lex_items[1:6]
+m <- as.matrix(lex[guttman_items])
+exceptions <- matrix(NA_real_, 6, 6, dimnames = list(guttman_items, guttman_items))
+for (i in 1:5) for (j in (i + 1):6) {
+    exceptions[i, j] <- round(sum(m[, j] == 1 & m[, i] == 0) / sum(m[, j] == 1), 3)
+}
+exceptions
+
+# Scalability of an ordering (easiest -> most demanding):
+#   CR = 1 - Guttman errors / (n * items), errors against the ideal pattern
+#        implied by the quasi-lexical score
+#   H  = 1 - observed / expected pairwise errors (Loevinger's H, theoretical order)
+scalability <- function(m, order) {
+    m <- m[, order, drop = FALSE]
+    K <- ncol(m)
+    top <- apply(m, 1, function(r) if (any(r == 1)) max(which(r == 1)) else 0L)
+    ideal <- outer(top, seq_len(K), ">=") * 1L
+    p <- colMeans(m)
+    obs <- 0; expd <- 0
+    for (i in 1:(K - 1)) for (j in (i + 1):K) {
+        obs  <- obs + sum(m[, j] == 1 & m[, i] == 0)
+        expd <- expd + nrow(m) * p[j] * (1 - p[i])
+    }
+    tibble(CR = round(1 - sum(m != ideal) / length(m), 3),
+           H  = round(1 - obs / expd, 3))
+}
+
+# Robustness items:
+#   lex4_strict: advisory body as written (council or non-competitive legislature),
+#                NOT nested in level 6, so lex4/lex6 pairs are no longer errors by definition
+#   lex5_nobody: checks excluding checks_assembly / checks_council, which overlap
+#                mechanically with the representation levels 4 and 6
+lex <- lex %>%
+    mutate(
+        lex4_strict = as.integer(assembly_prediction == 1 |
+                                 (assembly_prediction == 2 & elections_prediction %in% c(0, 1))),
+        lex5_nobody = as.integer(
+            (checks_prediction - checks_assembly_prediction - checks_council_prediction) >= 1 |
+            collegiality_prediction == 1 | entry_4_prediction %in% 2)
+    )
+
+codings <- list(
+    cumulative        = guttman_items,
+    as_written        = replace(guttman_items, 3, "lex4_strict"),
+    checks_no_bodies  = replace(guttman_items, 4, "lex5_nobody"),
+    as_written_nobody = replace(guttman_items, 3:4, c("lex4_strict", "lex5_nobody"))
+)
+
+```
+
+### Overall
+
+```{r}
 # missingness (we only allow entry and exit indicator to have NA)
 miss_table <- plt_gemini %>%
     group_by(region, era) %>% 
@@ -213,6 +511,26 @@ table_df <- summary_df %>%
 
 print("---Total score table---")
 print(table_df)
+
+
+robust_tbl <- plt_gemini %>%
+    summarise(across(starts_with("tenure_"),
+                     list(mean = ~mean(.x, na.rm = TRUE),
+                          med  = ~median(.x, na.rm = TRUE),
+                          lvl1 = ~mean(.x > 15, na.rm = TRUE)))) %>%
+    pivot_longer(everything(),
+                 names_to = c("spec", ".value"),
+                 names_pattern = "tenure_(.*)_(mean|med|lvl1)$") %>%
+    separate(spec, c("alignment", "width"), sep = "_w", fill = "left") %>%
+    mutate(alignment = replace_na(alignment, "(none)"),
+           width = as.integer(width)) %>%
+    arrange(width, alignment)
+
+print(robust_tbl)
+
+robust_tbl %>%
+    group_by(alignment) %>%
+    summarise(ok = !is.unsorted(lvl1))
 ```
 
 # PCA
@@ -248,13 +566,14 @@ items_B <- c(
     "federalism_prediction",
     "collegiality_prediction",
     "petition_prediction",
-    # "representation",
-    "assembly_prediction",
-    "elections_prediction",
+    "representation",
+    # "assembly_prediction",
+    # "elections_prediction",
     "symbolism_recode",
     "entry_4_prediction",
     "exit_4_prediction",
-    "checks_prediction"
+    "checks_prediction",
+    "tenure_3_prediction_w3"
 )
 
 # Version C: exclude sovereign
@@ -534,6 +853,57 @@ plot(m_reg, select = 1, shade = TRUE)
 
 plt_gemini %>% filter(polity_name == "Roman Republic") %>%
     count(cut(leader_first_year, seq(-510, -20, by = 50))) %>% print(n = 20)
+```
+
+## Lexical vs. IRT
+
+```{r Lexical vs IRT}
+# theta   : m1    (Version C, no tenure / sovereign)
+# theta_B : mod_B (Version B, includes tenure_3_prediction_w3). lexical_lw3 and
+#           theta_B share the tenure information, so their correlation is partly mechanical
+fs_B <- fscores(mod_B, method = "EAP")
+
+# Same sample as the lexical scale (known years, entry, exit). New object so the
+# positional cor(plt_scored$theta, plt_gemini$...) below still lines up
+lex_irt <- plt_scored %>%
+    mutate(theta_B = fs_B[, 1]) %>%
+    drop_na(leader_first_year, leader_last_year, entry_prediction, exit_prediction) %>%
+    inner_join(lex %>% select(id, starts_with("lexical_"), matches("^lex[2-8]_")),
+               by = "id")
+
+stopifnot(nrow(lex_irt) == nrow(lex))
+
+# 1. Spearman correlation (lexical is ordinal)
+lex_irt %>%
+    summarise(across(c(lexical_raw, lexical_w1, lexical_lw3),
+                     list(theta   = ~cor(.x, theta,   method = "spearman", use = "complete.obs"),
+                          theta_B = ~cor(.x, theta_B, method = "spearman", use = "complete.obs")))) %>%
+    pivot_longer(everything(), names_to = c("lexical", "irt"),
+                 names_pattern = "(lexical_[^_]+)_(.*)", values_to = "rho") %>%
+    pivot_wider(names_from = irt, values_from = rho)
+
+# 2. Mean theta by lexical level: should rise monotonically if the ladder is valid
+lex_irt %>%
+    group_by(lexical_raw) %>%
+    summarise(n = n(),
+              theta   = round(mean(theta,   na.rm = TRUE), 2),
+              theta_B = round(mean(theta_B, na.rm = TRUE), 2))
+
+lex_irt %>%
+    pivot_longer(c(lexical_raw, lexical_lw3), names_to = "spec", values_to = "level") %>%
+    ggplot(aes(factor(level), theta)) +
+    geom_boxplot(outlier.alpha = 0.05) +
+    facet_wrap(~spec) +
+    labs(x = "Lexical level", y = "theta (Version C, no tenure)") +
+    theme_minimal()
+
+# 3. Tenure cap: within each uncapped level, theta of rows pushed down to level 1
+#    vs. rows left alone. Capped rows with similar theta = cap disagrees with indicators
+lex_irt %>%
+    mutate(capped = lexical_raw > 1 & lexical_lw3 == 1) %>%
+    group_by(lexical_raw, capped) %>%
+    summarise(n = n(), theta = round(mean(theta, na.rm = TRUE), 2), .groups = "drop") %>%
+    pivot_wider(names_from = capped, values_from = c(n, theta), names_prefix = "capped_")
 ```
 
 ## Check Indicator Order
