@@ -27,6 +27,7 @@ suppressPackageStartupMessages({
     library(psych)
     library(scales)
     library(MCMCpack)
+    library(mgcv)
     select <- dplyr::select
 })
 
@@ -131,6 +132,7 @@ plt_gemini <- plt_gemini %>%
     ) %>%
     ungroup()
 
+# There are some data problems
 plt_gemini %>%
     group_by(polity_name, spell) %>%
     mutate(win_span = leader_last_year - lag(leader_first_year, 2)) %>%
@@ -162,7 +164,7 @@ ggplot(span, aes(win_span)) +
     geom_histogram(bins = 50) +
     scale_x_log10(breaks = c(1, 2, 5, 12, 25, 71, 200)) +
     geom_vline(xintercept = 12, linetype = "dashed") +
-    labs(x = "Total year of three leaders (log)", y = "Leader Number") +
+    labs(x = "Total year of three leaders", y = "Leader Number") +
     theme_minimal()
 
 # Distribution across time
@@ -178,7 +180,7 @@ span %>%
     geom_ribbon(aes(ymin = p10, ymax = p90), alpha = .2) +
     geom_line() +
     scale_y_log10() +
-    labs(x = "Year", y = "Window Length (log)") +
+    labs(x = "Year", y = "Window Length") +
     theme_minimal()
 
 # Something's wrong in the polity and leader year
@@ -210,6 +212,7 @@ plt_gemini %>% count(polity_name, spell) %>% filter(n == 1) %>% nrow()
 ### Lexical check
 
 ```{r}
+# Ratio of data fall into level 1 with different tenure classification
 plt_gemini %>%
     summarise(across(starts_with("tenure_") & !matches("^tenure$"),
                      list(n = ~sum(!is.na(.x)), lvl1 = ~mean(.x > 15, na.rm = TRUE)))) %>%
@@ -392,12 +395,12 @@ lexical_score <- function(data, tenure_col = NULL) {
 
 lex <- lex %>%
     mutate(lexical_raw = lexical_score(lex),
-           lexical_w1  = lexical_score(lex, "tenure_w1"),
+           lexical_trailing_w3  = lexical_score(lex, "tenure_trailing_w3"),
            lexical_lw3 = lexical_score(lex, "tenure_leading_w3"))
 
 # Level distribution: no cap vs. hard cap on own tenure vs. leading 3-leader window
 lex %>%
-    select(lexical_raw, lexical_w1, lexical_lw3) %>%
+    select(lexical_raw, lexical_trailing_w3, lexical_lw3) %>%
     pivot_longer(everything(), names_to = "spec", values_to = "level") %>%
     count(spec, level) %>%
     group_by(spec) %>%
@@ -586,7 +589,8 @@ items_C <- c(
     "symbolism_recode",
     "entry_4_prediction",
     "exit_4_prediction",
-    "checks_prediction"
+    "checks_prediction",
+    "tenure_3_prediction_w3"
 )
 
 data_items_B <- plt_gemini[items_B]
@@ -694,8 +698,6 @@ cat("\n===== Version B items =====\n")
 dat_B <- make_irt_data(plt_gemini, items_B)
 type_B <- get_itemtype(dat_B)
 
-print(type_A)
-
 dat_C  <- make_irt_data(plt_gemini, items_C)
 type_C <- get_itemtype(dat_C)
 
@@ -728,9 +730,11 @@ saveRDS(mod_B, "./mod_B_unidim.rds")
 #===============================================================================
 coef_A <- coef(mod_A, simplify = TRUE, IRTpars = TRUE)$items
 coef_B <- coef(mod_B, simplify = TRUE, IRTpars = TRUE)$items
+coef_C <- coef(m1, simplify = TRUE, IRTpars = TRUE)$items
 
 round(coef_A, 3)
 round(coef_B, 3)
+round(coef_C, 3)
 
 
 coef_A %>%
@@ -751,10 +755,13 @@ plt_gemini %>%
 
 ```{r Validity test}
 # mirtCluster(remove = TRUE)
-th1 <- fscores(m1, method = "EAP", full.scores.SE = TRUE)
+th1 <- fscores(mod_B, method = "EAP", full.scores.SE = TRUE)
+th2 <- fscores(m1, method = "EAP") 
 
 plt_scored <- plt_gemini %>%
-    mutate(theta = th1[, 1], theta_se = th1[, 2],
+    mutate(theta = th1[, 1], 
+           theta_se = th1[, 2],
+           theta_t = th2[,1],
            n_miss = rowSums(is.na(dat_B)))
 # Era
 plt_scored %>%
@@ -790,30 +797,33 @@ plt_scored %>%
     summarise(n          = n(),
               n_leaders  = n_distinct(leader_name),
               theta_mean = mean(theta, na.rm = TRUE),
+              theta_mean_t = mean(theta_t, na.rm = TRUE),
               theta_sd   = sd(theta, na.rm = TRUE),
-              theta_sem  = theta_sd / sqrt(sum(!is.na(theta))),
-              eap_se     = mean(theta_se, na.rm = TRUE),
+              # theta_sem  = theta_sd / sqrt(sum(!is.na(theta))),
+              # eap_se     = mean(theta_se, na.rm = TRUE),
               .groups    = "drop") %>%
     arrange(desc(theta_mean)) %>% print(n = Inf)
 
-ggplot(plt_scored, aes(leader_first_year, theta)) +
-    geom_point(alpha = 0.03) +
-    geom_smooth(method = "gam") +
+ggplot(plt_scored, aes(x = leader_first_year)) +
+    # theta without tenure
+    geom_point(aes(y = theta), alpha = 0.03, color = "gray") +
+    geom_smooth(aes(y = theta), method = "gam", color = "blue") +
+    
+    # theta with tenure
+    # geom_point(aes(y = theta_t), alpha = 0.03, color = "red") +
+    geom_smooth(aes(y = theta_t), method = "gam", color = "red") +
+    
     labs(x = "Year", y = "Executive constraints")
-
-th2 <- fscores(m2, method = "EAP") 
-plt2 <- plt_scored %>% mutate(f1 = th2[,1], f2 = th2[,2])
-
 
 case_pts <- plt2 %>% add_case()     
 
 case_ctr <- case_pts %>%
     group_by(case) %>%
-    summarise(f1 = mean(f1, na.rm = TRUE),
-              f2 = mean(f2, na.rm = TRUE),
+    summarise(f1 = mean(theta, na.rm = TRUE),
+              f2 = mean(theta_t, na.rm = TRUE),
               n  = n(), .groups = "drop")   
 
-ggplot(plt2, aes(f1, f2)) +
+ggplot(case_ctr, aes(f1, f2)) +
     geom_point(alpha = 0.02, colour = "grey40") +                   
     geom_point(data = case_pts, aes(colour = case),                   
                alpha = 0.35, size = 1) +
@@ -827,46 +837,20 @@ ggplot(plt2, aes(f1, f2)) +
     labs(x = "F1", y = "F2") +
     theme_minimal()
 
-
-# library(mgcv)
-# 
-dd <- plt_scored %>%
-    filter(!is.na(theta), !is.na(leader_first_year),
-           !is.na(region), !is.na(polity_name)) %>%
-    mutate(polity_name = factor(polity_name),
-           region      = factor(region))
-
-dd2 <- dd %>%
-    group_by(polity_name) %>%
-    filter(n() >= 5) %>%
-    mutate(theta_c = theta - mean(theta)) %>%
-    ungroup()
-
-m_fe <- bam(theta_c ~ s(leader_first_year, k = 30), data = dd2, discrete = TRUE)
-plot(m_fe, shade = TRUE)
-
-
-m_reg <- bam(theta_c ~ region + s(leader_first_year, by = region, k = 25),
-            data = dd2, discrete = TRUE, nthreads = 4)
-
-plot(m_reg, select = 1, shade = TRUE)
-
-plt_gemini %>% filter(polity_name == "Roman Republic") %>%
-    count(cut(leader_first_year, seq(-510, -20, by = 50))) %>% print(n = 20)
 ```
 
 ## Lexical vs. IRT
 
 ```{r Lexical vs IRT}
-# theta   : m1    (Version C, no tenure / sovereign)
-# theta_B : mod_B (Version B, includes tenure_3_prediction_w3). lexical_lw3 and
+# theta   : mod_B   (Version C, no tenure / sovereign)
+# theta_B : m1 (Version B, includes tenure_3_prediction_w3). lexical_lw3 and
 #           theta_B share the tenure information, so their correlation is partly mechanical
-fs_B <- fscores(mod_B, method = "EAP")
+fs_B <- fscores(m1, method = "EAP")
 
 # Same sample as the lexical scale (known years, entry, exit). New object so the
 # positional cor(plt_scored$theta, plt_gemini$...) below still lines up
 lex_irt <- plt_scored %>%
-    mutate(theta_B = fs_B[, 1]) %>%
+    mutate(theta_t = fs_B[, 1]) %>%
     drop_na(leader_first_year, leader_last_year, entry_prediction, exit_prediction) %>%
     inner_join(lex %>% select(id, starts_with("lexical_"), matches("^lex[2-8]_")),
                by = "id")
@@ -877,7 +861,7 @@ stopifnot(nrow(lex_irt) == nrow(lex))
 lex_irt %>%
     summarise(across(c(lexical_raw, lexical_w1, lexical_lw3),
                      list(theta   = ~cor(.x, theta,   method = "spearman", use = "complete.obs"),
-                          theta_B = ~cor(.x, theta_B, method = "spearman", use = "complete.obs")))) %>%
+                          theta_t = ~cor(.x, theta_t, method = "spearman", use = "complete.obs")))) %>%
     pivot_longer(everything(), names_to = c("lexical", "irt"),
                  names_pattern = "(lexical_[^_]+)_(.*)", values_to = "rho") %>%
     pivot_wider(names_from = irt, values_from = rho)
@@ -887,7 +871,7 @@ lex_irt %>%
     group_by(lexical_raw) %>%
     summarise(n = n(),
               theta   = round(mean(theta,   na.rm = TRUE), 2),
-              theta_B = round(mean(theta_B, na.rm = TRUE), 2))
+              theta_t = round(mean(theta_t, na.rm = TRUE), 2))
 
 lex_irt %>%
     pivot_longer(c(lexical_raw, lexical_lw3), names_to = "spec", values_to = "level") %>%
@@ -904,6 +888,139 @@ lex_irt %>%
     group_by(lexical_raw, capped) %>%
     summarise(n = n(), theta = round(mean(theta, na.rm = TRUE), 2), .groups = "drop") %>%
     pivot_wider(names_from = capped, values_from = c(n, theta), names_prefix = "capped_")
+```
+
+### Visualization
+
+```{r Visualization, fig.width = 8, fig.height = 5, cache = TRUE}
+# Clean tenure ablation: SAME item set as mod_B, tenure removed. The existing
+# m1 (Version C) also drops sovereign, so mod_B vs m1 cannot isolate tenure.
+items_nt <- setdiff(items_B, "tenure_3_prediction_w3")
+set.seed(42)
+mod_B_nt <- mirt(dat_B[items_nt], 1, itemtype = type_B[items_nt],
+                 method = "EM", SE = FALSE,
+                 technical = list(NCYCLES = 2000), verbose = FALSE)
+
+# theta from the no-tenure model: keeps the lexical tenure cap and the IRT scale
+# from sharing tenure information, so panel B is not mechanically correlated
+lex_nt <- plt_gemini %>%
+    mutate(theta_nt = fscores(mod_B_nt, method = "EAP")[, 1]) %>%
+    inner_join(lex %>% select(id, lexical_raw), by = "id")
+
+# A. Ladder position vs. empirical difficulty -------------------------------
+# share_met is a MARGINAL rate (no hierarchical conditioning), which is what
+# makes it usable as a difficulty measure. It should fall down the ladder.
+lev_lab <- c(lex2_code_of_law  = "2  Code of law",
+             lex3_constitution = "3  Constitution",
+             lex4_advisory     = "4  Advisory body",
+             lex5_checks       = "5  Checks",
+             lex6_legislative  = "6  Legislature",
+             lex7_elective     = "7  Elective")
+
+p1_df <- lex %>%
+    summarise(across(all_of(guttman_items), ~mean(.x))) %>%
+    pivot_longer(everything(), names_to = "item", values_to = "share_met") %>%
+    mutate(theory    = match(item, guttman_items),
+           empirical = rank(-share_met),
+           label     = factor(lev_lab[item], levels = rev(lev_lab)),
+           misplaced = theory != empirical)
+
+ggplot(p1_df, aes(share_met, label)) +
+    geom_segment(aes(x = 0, xend = share_met, yend = label), colour = "grey85") +
+    geom_point(aes(colour = misplaced), size = 4) +
+    geom_text(aes(label = paste0("rank ", empirical), colour = misplaced),
+              hjust = -0.45, size = 3, show.legend = FALSE) +
+    scale_colour_manual(values = c(`FALSE` = "grey35", `TRUE` = "firebrick"),
+                        guide = "none") +
+    scale_x_continuous(limits = c(0, 0.92), labels = percent) +
+    labs(x = "Share meeting the criterion  (higher = easier)", y = NULL,
+         title = "Ladder position vs. empirical difficulty",
+         subtitle = "Rungs should get harder going down. Red = out of place") +
+    theme_minimal()
+
+# B. Mean theta by lexical level --------------------------------------------
+# Weak test by construction: lexical_score takes the HIGHEST level met, so the
+# mean rises almost mechanically. Read it for the level-7 inversion and for how
+# little theta separates levels 2-5, not as evidence the ordering is right.
+p2_df <- lex_nt %>%
+    group_by(lexical_raw) %>%
+    summarise(n  = n(),
+              mu = mean(theta_nt, na.rm = TRUE),
+              se = sd(theta_nt, na.rm = TRUE) / sqrt(sum(!is.na(theta_nt))),
+              .groups = "drop") %>%
+    mutate(violation = !is.na(lag(mu)) & mu < lag(mu))
+
+ggplot(p2_df, aes(lexical_raw, mu)) +
+    geom_line(colour = "grey65") +
+    geom_errorbar(aes(ymin = mu - 1.96 * se, ymax = mu + 1.96 * se), width = 0.12) +
+    geom_point(aes(size = n, colour = violation)) +
+    ggrepel::geom_text_repel(aes(label = comma(n)), size = 2.7, colour = "grey30",
+                             nudge_y = 0.28, direction = "y",
+                             segment.colour = NA, seed = 1) +
+    scale_size_area(max_size = 11, guide = "none") +
+    scale_colour_manual(values = c(`FALSE` = "grey25", `TRUE` = "firebrick"),
+                        guide = "none") +
+    scale_x_continuous(breaks = 1:8) +
+    labs(x = "Lexical level (uncapped)", y = expression(theta),
+         title = "Mean theta by lexical level",
+         subtitle = "Area = n, bars = 95% CI. Level 7 inverts; levels 2-5 compressed") +
+    theme_minimal()
+
+# C. What adding tenure does to the other items -----------------------------
+get_a <- function(m) coef(m, simplify = TRUE, IRTpars = TRUE)$items %>%
+    as.data.frame() %>% rownames_to_column("item") %>% select(item, a)
+
+a_cmp <- bind_rows(get_a(mod_B_nt) %>% mutate(model = "without tenure"),
+                   get_a(mod_B)    %>% mutate(model = "with tenure")) %>%
+    filter(item %in% items_nt) %>%
+    mutate(model = factor(model, c("without tenure", "with tenure")))
+
+a_cmp <- a_cmp %>%
+    left_join(a_cmp %>% pivot_wider(names_from = model, values_from = a) %>%
+                  transmute(item, delta = `with tenure` - `without tenure`),
+              by = "item") %>%
+    mutate(big = abs(delta) > 0.25)
+
+ggplot(a_cmp, aes(model, a, group = item)) +
+    geom_line(aes(colour = big, linewidth = big)) +
+    geom_point(aes(colour = big), size = 1.8) +
+    ggrepel::geom_text_repel(data = filter(a_cmp, model == "with tenure"),
+                             aes(label = sub("_prediction$", "", item), colour = big),
+                             nudge_x = 0.1, hjust = 0, direction = "y", size = 2.7,
+                             segment.colour = "grey85", max.overlaps = Inf, seed = 42) +
+    scale_colour_manual(values = c(`FALSE` = "grey70", `TRUE` = "firebrick"),
+                        guide = "none") +
+    scale_linewidth_manual(values = c(`FALSE` = 0.4, `TRUE` = 1.1), guide = "none") +
+    scale_x_discrete(expand = expansion(mult = c(0.18, 0.62))) +
+    labs(x = NULL, y = "discrimination (a)",
+         title = "What adding tenure does to the other items",
+         subtitle = "Reliability .8125 -> .8140;  Spearman r(theta) = .98") +
+    theme_minimal()
+
+# D. Local dependence: tenure vs. every other item --------------------------
+# Yen's Q3 is negatively biased under local independence, E[Q3] ~ -1/(K-1);
+# adding 1/(K-1) recentres it. K is read off the fitted item set, not hardcoded.
+K_B <- ncol(dat_B)
+
+p4_df <- as.data.frame(as.table(residuals(mod_B, type = "Q3", verbose = FALSE))) %>%
+    filter(as.character(Var1) < as.character(Var2)) %>%
+    rename(i1 = Var1, i2 = Var2, Q3 = Freq) %>%
+    filter(grepl("tenure", i1) | grepl("tenure", i2)) %>%
+    mutate(other = sub("_prediction$", "",
+                       if_else(grepl("tenure", as.character(i1)),
+                               as.character(i2), as.character(i1))),
+           Q3_adj = Q3 + 1 / (K_B - 1))
+
+ggplot(p4_df, aes(Q3_adj, fct_reorder(other, Q3_adj))) +
+    geom_col(aes(fill = abs(Q3_adj) > 0.2), width = 0.68) +
+    geom_vline(xintercept = c(-0.2, 0.2), linetype = "dashed", colour = "grey55") +
+    geom_vline(xintercept = 0, colour = "grey25") +
+    scale_fill_manual(values = c(`FALSE` = "grey72", `TRUE` = "firebrick"),
+                      guide = "none") +
+    labs(x = expression(Q[3] ~ ", bias-adjusted by " * 1 / (K - 1)), y = NULL,
+         title = "Local dependence: tenure vs. every other item",
+         subtitle = "Q3(tenure, exit) = +.37 - tenure largely re-encodes regular exit") +
+    theme_minimal()
 ```
 
 ## Check Indicator Order
