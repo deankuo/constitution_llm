@@ -125,10 +125,10 @@ plt_gemini <- plt_gemini %>%
         
         # same window as lexical_lw3; 2 = <8 years (most constrained), 0 = 16+
         tenure_3_prediction_w3 = case_when(
-            tenure_leading_w3 <= 8 ~ 2,
-            tenure_leading_w3 <= 15 ~ 1,
-            tenure_leading_w3 > 15 ~ 0
-        )
+            tenure_leading_w3 <= 8 ~ 2, # < 8 years
+            tenure_leading_w3 <= 15 ~ 1, # 8-15
+            tenure_leading_w3 > 15 ~ 0 # > 15
+        ) 
     ) %>%
     ungroup()
 
@@ -837,6 +837,9 @@ ggplot(case_ctr, aes(f1, f2)) +
     labs(x = "F1", y = "F2") +
     theme_minimal()
 
+
+plt_gemini %>%
+    filter((polity_name == "Germany") & (leader_first_year >= 1933) & (leader_last_year <= 1945)) %>% View()
 ```
 
 ## Lexical vs. IRT
