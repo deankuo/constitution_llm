@@ -261,7 +261,7 @@ ggplot(plt_gemini, aes(x=checks_prediction)) +
               stat = "count",
               vjust = -0.3,
               size = 4) + 
-    theme_bw()
+    theme_minimal()
 
 # Distribution of representation
 ggplot(plt_gemini, aes(x=factor(representation))) +
@@ -290,8 +290,8 @@ plt_gemini <- plt_gemini %>%
                      labels = c("BC","0-1500","1500-1800","1800-"))) %>%
     mutate(checks_3_prediction = case_when(
         checks_prediction == 0 ~ 0,
-        checks_prediction %in% c(1, 2, 3) ~ 1,
-        checks_prediction > 3 ~ 2
+        checks_prediction %in% c(1, 2, 3, 4) ~ 1,
+        checks_prediction > 4 ~ 2
     ))
 ```
 
@@ -562,7 +562,7 @@ items_A <- c(
     "checks_clergy_prediction"
 )
 
-# Version B: Checks_prediction aggregation
+# Version B: Checks_prediction aggregation and elections and assembly aggregation
 items_B <- c(
     "constitution_prediction",
     "sovereign_prediction",
@@ -570,8 +570,6 @@ items_B <- c(
     "collegiality_prediction",
     "petition_prediction",
     "representation",
-    # "assembly_prediction",
-    # "elections_prediction",
     "symbolism_recode",
     "entry_4_prediction",
     "exit_4_prediction",
@@ -712,12 +710,22 @@ mod_B <- mirt(dat_B, model = 1, itemtype = type_B,
               method = "EM", SE = TRUE,
               technical = list(NCYCLES = 2000))
 
-m1 <- mirt(dat_C, 1, itemtype = type_C, method = "EM", technical = list(NCYCLES = 2000))
-m2 <- mirt(dat_B, 2, itemtype = type_B, method = "EM", technical = list(NCYCLES = 2000))
-m3 <- mirt(dat_B, 3, itemtype = type_B, method = "EM", technical = list(NCYCLES = 2000))
+m1 <- mirt(dat_A, 1, itemtype = type_A, method = "EM", technical = list(NCYCLES = 2000))
+m2 <- mirt(dat_B, 1, itemtype = type_B, method = "EM", technical = list(NCYCLES = 2000))
+m3 <- mirt(dat_C, 1, itemtype = type_C, method = "EM", technical = list(NCYCLES = 2000))
 
-anova(m1, m2)
-anova(m2, m3)
+# store theta
+th1 <- fscores(m1, method = "EAP") 
+th2 <- fscores(m2, method = "EAP") 
+th3 <- fscores(m3, method = "EAP") 
+
+plt_scored <- plt_gemini %>%
+    mutate(theta_all = th1[, 1], 
+           theta_agg = th2[, 1],
+           theta_no_sov = th3[,1])
+
+saveRDS(plt_scored, "./plt_irt.rds")
+
 
 summary(m2, rotate = "oblimin")
 summary(m3, rotate = "oblimin")
@@ -747,8 +755,6 @@ coef_A %>%
 summary(mod_A)
 summary(mod_B)
 
-plt_gemini %>%
-    filter((polity_name == "Soviet Union") & (leader_first_year >= 1924) & (leader_last_year <= 1953)) %>% View()
 ```
 
 ## Facial Validity
