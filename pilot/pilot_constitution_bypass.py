@@ -1,8 +1,15 @@
 """Pilot: constitution-bypass question (conditional on constitution == 2).
 
 Two prompt versions x 3 reps per case, no search, sync Gemini calls.
-Version A = professor's reframed wording verbatim ("letter AND spirit").
-Version B = A + "letter OR spirit" + one sentence on formally legal hollowing-out.
+Both versions use the final question wording from prompts/constitution_bypass.py
+(the Nixon / Lincoln "does not count" examples are part of the question itself):
+  C = question only
+  D = question + early/middle-era examples (Sulla/Caesar, Charles I vs Cicero, Faliero)
+The prompt module is shared with `build_batch_jsonl.py --task constitution_bypass`,
+so what is tested here is exactly what the batch run sends.
+
+Earlier pilot (versions A/B, "letter and/or spirit" wording): Lincoln was coded 1
+in 6/6 runs against the professor's judgement of 0; Nixon and Ebert were unstable.
 """
 import os
 import sys
@@ -17,13 +24,17 @@ os.chdir(ROOT)
 load_dotenv(os.path.join(ROOT, ".env"))
 
 from models.llm_clients import create_llm  # noqa: E402
+from prompts.constitution_bypass import get_prompt, select_type2_docs  # noqa: E402
 from utils.json_parser import parse_json_response  # noqa: E402
 
 MODEL = "gemini-3.1-pro-preview"
 N_REPS = 3
-OUT = "data/temp/pilot_constitution_bypass.csv"
+OUT = "data/temp/pilot_constitution_bypass_v2.csv"
+VERSIONS = {"C": False, "D": True}  # version -> with_examples
 
 # id -> (group, provisional expected label)
+# NOTE: Charles I and Marino Faliero appear in the version-D examples, so their
+# rows test recall of the example, not generalisation.
 CASES = {
     # expected 1
     14285: ("expected_1", "1"),   # Hitler 1933-34 (Weimar)
@@ -39,101 +50,53 @@ CASES = {
     7791: ("expected_1", "1"),    # Peron 1946-55
     13761: ("expected_1", "1"),   # Napoleon III (1851 coup) - sanity check
     19898: ("expected_1", "1"),   # Cromwell 1653-58
+    19872: ("expected_1", "1"),   # Charles I 1625-49 (Personal Rule) - in D examples
+    19918: ("expected_1", "1"),   # James II 1685-89 (dispensing power)
+    13730: ("expected_1", "1"),   # Charles X of France (July Ordinances 1830)
     # expected 0
     4975: ("expected_0", "0"),    # Eisenhower
     4986: ("expected_0", "0"),    # Obama
     13926: ("expected_0", "0"),   # Mitterrand
     14293: ("expected_0", "0"),   # Adenauer
     8154: ("expected_0", "0"),    # Nehru
-    # borderline (letter vs spirit, emergency powers)
+    4957: ("expected_0", "0"),    # Lincoln (habeas corpus) - professor: 0; in question text
+    4978: ("expected_0", "0"),    # Nixon - professor: 0; in question text
+    66935: ("expected_0", "0"),   # Francesco Foscari, Venice 1423-57 (deposed BY the councils)
+    66925: ("expected_0", "0"),   # Marino Faliero 1354-55 (failed coup) - in D examples
+    # borderline (letter vs spirit, emergency powers, court defiance)
     14271: ("borderline", "?"),   # Ebert (Art. 48, 1923)
     14279: ("borderline", "?"),   # Hindenburg 1925-34
     8167: ("borderline", "?"),    # Indira Gandhi 1966-77 (Emergency)
-    4957: ("borderline", "?"),    # Lincoln (habeas corpus)
-    4978: ("borderline", "?"),    # Nixon
+    4948: ("borderline", "?"),    # Andrew Jackson (Worcester v. Georgia, Bank veto)
+    4973: ("borderline", "?"),    # FDR (court-packing failed; internment)
+    65002: ("borderline", "?"),   # Sigismund III Vasa (rokosz of 1606-08)
     # pre-modern / gate-quality
     140917: ("premodern", "?"),   # Telepinu
     117440: ("premodern", "?"),   # Solon
     117519: ("premodern", "?"),   # Pericles
+    117523: ("premodern", "?"),   # Cleon
     141218: ("premodern", "?"),   # Josiah (Deuteronomic Code)
     145: ("premodern", "?"),      # Marcos de Torres y Rueda, New Spain governor
 }
 
-QUESTION_A = (
-    "If there is a written constitution with laws for governance (Constitutionalism=2), "
-    "are there reasons to suppose that constitutional limits on the executive are ignored "
-    "or bypassed in practice (in violation of the letter and spirit of the law)? "
-    "Code 1 if yes, 0 otherwise."
-)
-QUESTION_B = (
-    "If there is a written constitution with laws for governance (Constitutionalism=2), "
-    "are there reasons to suppose that constitutional limits on the executive are ignored "
-    "or bypassed in practice (in violation of the letter or spirit of the law)? "
-    "Code 1 if yes, 0 otherwise. This includes cases where constitutional limits are "
-    "hollowed out through formally legal procedures (such as delegating legislative power "
-    "to the executive, or prolonged use of emergency powers) in violation of the spirit "
-    "of the constitution."
-)
-
-SYSTEM_TEMPLATE = """You are a political scientist and historian coding executive constraints for historical leaders.
-
-A prior coding step has determined that this polity had a written constitution with laws for governance \
-(Constitutionalism = 2) during the leader's tenure: a written document that includes rules of governance \
-and limits on the authority of the executive.
-
-## Question
-
-{question}
-
-## Notes
-
-- Focus on THIS leader's tenure, not the polity's history as a whole.
-- The document list you receive may also include ordinary codes of law (civil, criminal, etc.). \
-Judge only the constitutional document(s) that set rules of governance and limits on the executive.
-
-## Output Requirements
-
-Provide a JSON object with exactly these fields:
-- "constitution_bypass": Must be exactly "0" or "1" (string)
-- "reasoning": Your step-by-step reasoning (string)
-- "confidence_score": Integer from 1 to 100
-
-Respond with ONLY a JSON object, starting with {{ and ending with }}.
-"""
-
-USER_TEMPLATE = """**Polity:** {polity}
-**Leader:** {name}
-**Tenure Period:** {start_year}-{end_year}
-**Constitutional document(s) identified:** {doc_name}
-**Year(s):** {doc_year}
-
-Respond with a single JSON object:
-{{"constitution_bypass": "0 or 1", "reasoning": "your analysis", "confidence_score": 1-100}}
-"""
-
-PROMPTS = {
-    "A": SYSTEM_TEMPLATE.format(question=QUESTION_A),
-    "B": SYSTEM_TEMPLATE.format(question=QUESTION_B),
-}
-
 
 def fmt_year(y):
-    return "present" if pd.isna(y) else str(int(y))
+    return None if pd.isna(y) else int(y)
 
 
 def run_one(llm, row, version, rep):
-    user = USER_TEMPLATE.format(
-        polity=row.polity_name,
-        name=row.leader_name,
-        start_year=fmt_year(row.leader_first_year),
-        end_year=fmt_year(row.leader_last_year),
-        doc_name=row.constitution_document_name,
-        doc_year=row.constitution_year,
+    doc_name, doc_year = select_type2_docs(
+        row.constitution_document_name, row.constitution_year, row.constitution_document_types
     )
-    out = {"id": row.id, "version": version, "rep": rep,
+    sys_p, usr_p = get_prompt(
+        row.polity_name, row.leader_name,
+        fmt_year(row.leader_first_year), fmt_year(row.leader_last_year),
+        doc_name, doc_year, reasoning=True, with_examples=VERSIONS[version],
+    )
+    out = {"id": row.id, "version": version, "rep": rep, "docs_shown": doc_name,
            "pred": None, "confidence": None, "reasoning": None, "error": None}
     try:
-        resp = llm.call(PROMPTS[version], user, max_tokens=32768)
+        resp = llm.call(sys_p, usr_p, max_tokens=32768)
         parsed = parse_json_response(resp.content)
         out["pred"] = str(parsed.get("constitution_bypass")) if parsed else None
         out["confidence"] = parsed.get("confidence_score") if parsed else None
@@ -151,7 +114,7 @@ def main():
     assert (df.constitution_prediction == 2).all(), "all pilot rows must pass the gate"
 
     llm = create_llm(MODEL, {"gemini": os.getenv("GEMINI_API_KEY")})  # no grounding
-    jobs = [(df.loc[i], v, r) for i in CASES for v in PROMPTS for r in range(1, N_REPS + 1)]
+    jobs = [(df.loc[i], v, r) for i in CASES for v in VERSIONS for r in range(1, N_REPS + 1)]
     results = []
     with ThreadPoolExecutor(max_workers=12) as ex:
         futs = [ex.submit(run_one, llm, *j) for j in jobs]
@@ -162,12 +125,17 @@ def main():
 
     res = pd.DataFrame(results)
     meta = df[["id", "polity_name", "leader_name", "leader_first_year", "leader_last_year",
-               "constitution_document_name", "constitution_year"]].reset_index(drop=True)
+               "constitution_document_name", "constitution_year",
+               "constitution_document_types"]].reset_index(drop=True)
     meta["group"] = meta.id.map(lambda i: CASES[i][0])
     meta["expected"] = meta.id.map(lambda i: CASES[i][1])
     res = res.merge(meta, on="id").sort_values(["group", "id", "version", "rep"])
     res.to_csv(OUT, index=False)
     print(f"wrote {OUT}; nulls={res.pred.isna().sum()} errors={res.error.notna().sum()}")
+    summary = (res.assign(pred=res.pred.astype(str))
+               .groupby(["group", "leader_name", "version"]).pred
+               .agg("".join).unstack("version"))
+    print(summary.to_string())
 
 
 if __name__ == "__main__":

@@ -22,7 +22,7 @@ Self-consistency convention — matches main.py / SelfConsistencyConfig
     n_samples=2 → 3 votes, write _prediction (majority vote)/_agreement/_uncertainty
 
 Custom ID format:
-    constitution/elections:  "{row_idx}|{indicator}|{sc_idx}"
+    constitution/elections/constitution_bypass/constraint:  "{row_idx}|{indicator}|{sc_idx}"
     single-mode indicators:  "{row_idx}|single|{sc_idx}"  (one request covers ALL indicators)
     indicators list is embedded in metadata["indicators"] for _aggregate_and_merge
 
@@ -90,6 +90,7 @@ from config import (
     COL_TERRITORY_NAME, COL_LEADER_NAME, COL_START_YEAR, COL_END_YEAR,
     DEFAULT_MAX_TOKENS, DEFAULT_TOP_P,
 )
+from utils.batch_cost import add_usage, cost_summary, extract_usage, format_cost, new_usage_acc
 from utils.data_loader import load_dataframe
 from utils.json_parser import (
     parse_json_response,
@@ -269,6 +270,7 @@ def _poll_and_download(
     our_cids: list[str],
     poll_interval: int = 30,
     grounding_data: Optional[dict] = None,
+    stats: Optional[dict] = None,
 ) -> dict[str, str]:
     """Poll a batch job (already created or attached-to) until it finishes, then
     download and parse its output file. Returns custom_id ("key") → response_text.
@@ -287,6 +289,10 @@ def _poll_and_download(
 
     print(f"  Final state: {state}")
     results: dict[str, str] = {}
+    if stats is not None:
+        stats.setdefault("job_names", []).append(job.name)
+        if stats.get("usage") is None:
+            stats["usage"] = new_usage_acc()
 
     if "SUCCEEDED" not in state:
         print(f"  WARNING: job ended in {state}; no results collected.")
@@ -306,6 +312,8 @@ def _poll_and_download(
         cid = record.get("key", our_cids[i] if i < len(our_cids) else None)
         if cid is None:
             continue
+        if stats is not None:
+            add_usage(stats["usage"], extract_usage(record))
 
         if "error" in record:
             n_failed += 1
@@ -334,6 +342,7 @@ def _submit_and_wait(
     display_name: str,
     poll_interval: int = 30,
     grounding_data: Optional[dict] = None,
+    stats: Optional[dict] = None,
 ) -> dict[str, str]:
     """Upload requests as a JSONL file, submit one batch job, wait for completion.
 
@@ -368,7 +377,7 @@ def _submit_and_wait(
         )
         print(f"  Job: {job.name}")
 
-        return _poll_and_download(client, job, our_cids, poll_interval, grounding_data)
+        return _poll_and_download(client, job, our_cids, poll_interval, grounding_data, stats=stats)
     finally:
         if tmp_path and os.path.exists(tmp_path):
             os.remove(tmp_path)
@@ -385,6 +394,7 @@ def _attach_and_wait(
     requests: list[dict],
     poll_interval: int = 30,
     grounding_data: Optional[dict] = None,
+    stats: Optional[dict] = None,
 ) -> dict[str, str]:
     """Attach to an ALREADY-SUBMITTED batch job by name and collect its results.
 
@@ -397,7 +407,7 @@ def _attach_and_wait(
     state = str(getattr(job.state, "name", str(job.state))).upper()
     print(f"  Attached to job: {job_name} (state: {state})")
     our_cids = [r["key"] for r in requests]
-    return _poll_and_download(client, job, our_cids, poll_interval, grounding_data)
+    return _poll_and_download(client, job, our_cids, poll_interval, grounding_data, stats=stats)
 
 
 # ---------------------------------------------------------------------------
@@ -430,6 +440,38 @@ def _parse_indicator(response_text: str, indicator: str) -> tuple[str, str, Opti
     raw_pred = v.get(indicator)
     pred_str = _normalize_pred(raw_pred, indicator) if raw_pred is not None else ""
     return pred_str, v.get("reasoning", ""), v.get("confidence_score")
+
+
+def _parse_constitution_bypass(response_text: str) -> tuple[str, str, Optional[int]]:
+    """Returns (prediction_str, reasoning, confidence).
+
+    Unlike elections (invalid → "0" pass-through), an invalid or missing label
+    is returned as "" so the row is flagged as a prediction-level null and
+    written to the failed-requests JSONL for retry.
+    """
+    parsed = parse_json_response(response_text, verbose=False) or {}
+    pred = _normalize_pred(parsed.get("constitution_bypass"), "constitution_bypass")
+    if pred not in ("0", "1"):
+        pred = ""
+    return pred, parsed.get("reasoning", ""), parsed.get("confidence_score")
+
+
+def _parse_constraint(response_text: str, scale: str = "7") -> tuple[str, str, Optional[int]]:
+    """Returns (prediction_str, reasoning, confidence) for the constraint task.
+
+    The integer must lie in the scale's range (1-7 or 0-10, from the request
+    metadata); anything else → "" so the row is flagged for retry.
+    """
+    from prompts.constraint import SCALES
+    sc = SCALES.get(str(scale), SCALES["7"])
+    parsed = parse_json_response(response_text, verbose=False) or {}
+    raw = parsed.get("constraint")
+    try:
+        val = int(float(raw))
+    except (TypeError, ValueError):
+        return "", parsed.get("reasoning", ""), parsed.get("confidence_score")
+    pred = str(val) if sc["lo"] <= val <= sc["hi"] else ""
+    return pred, parsed.get("reasoning", ""), parsed.get("confidence_score")
 
 
 def _parse_elections(response_text: str) -> tuple[str, str, Optional[int]]:
@@ -494,7 +536,9 @@ def _aggregate_and_merge(
     # property, not per-indicator — writing it once as "indicators_*" instead of
     # duplicating identical values across every combined indicator's own columns.
     def _task_label(indicator: str) -> str:
-        return "indicators" if indicator not in ("constitution", "elections") else indicator
+        return ("indicators" if indicator not in ("constitution", "elections", "constitution_bypass",
+                                                  "constraint")
+                else indicator)
 
     # Grounding data keyed by (row_idx, task_label, sc_idx) — built from the
     # ORIGINAL (non-expanded) cid, so a "single" call contributes exactly one
@@ -548,6 +592,13 @@ def _aggregate_and_merge(
                 pred_str, reasoning, confidence, extra = _parse_constitution(resp_text)
             elif indicator == "elections":
                 pred_str, reasoning, confidence = _parse_elections(resp_text)
+                extra = {}
+            elif indicator == "constitution_bypass":
+                pred_str, reasoning, confidence = _parse_constitution_bypass(resp_text)
+                extra = {}
+            elif indicator == "constraint":
+                _meta = (request_metadata or {}).get(f"{row_idx}|constraint|{sc_idx}", {})
+                pred_str, reasoning, confidence = _parse_constraint(resp_text, _meta.get("scale", "7"))
                 extra = {}
             else:
                 pred_str, reasoning, confidence = _parse_indicator(resp_text, indicator)
@@ -862,18 +913,21 @@ def run_from_jsonl(
     display_base = f"const-llm-{Path(output_path).stem}-{int(time.time())}"
     raw_results: dict[str, str] = {}
     all_grounding: dict[str, tuple] = {}
+    run_stats: dict = {"usage": new_usage_acc(), "job_names": []}
     for i, chunk in enumerate(chunks):
         chunk_label = f"chunk {i + 1}/{len(chunks)}" if len(chunks) > 1 else "single job"
         size_mb = sum(len(json.dumps(r, ensure_ascii=False).encode()) + 1 for r in chunk) / 1024 / 1024
         if attach_jobs is not None:
             print(f"\nAttaching to existing job for {chunk_label}: {len(chunk)} requests ({size_mb:.1f} MB) ...")
             chunk_results = _attach_and_wait(client, attach_jobs[i], chunk, poll_interval,
-                                             grounding_data=all_grounding if use_grounding else None)
+                                             grounding_data=all_grounding if use_grounding else None,
+                                             stats=run_stats)
         else:
             display_name = f"{display_base}-c{i + 1:03d}" if len(chunks) > 1 else display_base
             print(f"\nSubmitting {chunk_label}: {len(chunk)} requests ({size_mb:.1f} MB) ...")
             chunk_results = _submit_and_wait(client, model, chunk, display_name, poll_interval,
-                                             grounding_data=all_grounding if use_grounding else None)
+                                             grounding_data=all_grounding if use_grounding else None,
+                                             stats=run_stats)
         raw_results.update(chunk_results)
 
     # Free the request bodies now that responses are collected — only the small
@@ -925,6 +979,9 @@ def run_from_jsonl(
     # a subset build (elections gating, sanity_check re-runs, --test) must not
     # flag rows that were never requested in this batch as failures.
 
+    # constitution_bypass has NO pass-through: rows with constitution != 2 were
+    # never requested and stay NA (a "0" would read as "constitution not
+    # bypassed" for a polity that has no constitution).
     # Elections pass-through: the build filters to assembly_prediction == 2, so
     # non-requested rows with assembly != 2 get elections_prediction = "0" with
     # no LLM call (same convention as pipeline/post_processing.py).
@@ -1007,10 +1064,16 @@ def run_from_jsonl(
 
     # Provenance record: captures what the JSONL cannot (model, job names, run time, failures)
     import datetime as _dt
+    cost = cost_summary(run_stats["usage"], model, batch_discount=0.5)
+    print("\n" + format_cost(cost))
     prov = {
         "model": model,
         "run_timestamp": _dt.datetime.now(_dt.timezone.utc).isoformat(),
         "n_samples": n_samples,
+        "job_names": run_stats["job_names"],
+        "usage": cost["usage"],
+        "cost_usd": cost["cost_usd"],
+        "cost_details": {k: cost[k] for k in ("batch_discount", "thoughts_included_in_candidates", "n_responses")},
         "input_jsonl": jsonl_paths,
         "total_requests": total_requests,
         "success_count": sum(1 for v in raw_results.values() if v),

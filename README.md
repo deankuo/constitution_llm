@@ -6,7 +6,7 @@ A pipeline for predicting political indicators for historical pre-modern politie
 
 - **Multi-LLM Support**: Google Gemini (default: `gemini-3.1-pro-preview`), OpenAI GPT, Anthropic Claude, AWS Bedrock
 - **Political Indicators**: Constitution, Sovereign, Federalism, nine binary Checks sub-indicators, Collegiality, Petition, Assembly, Entry, Exit, Symbolism, Elections (downstream)
-- **Three Tasks**: `constitution`, `indicators`, and `elections` — run separately, merged into one dataset
+- **Three Tasks**: `constitution`, `indicators`, and `elections` — run separately, merged into one dataset; plus two batch-only pilot tasks: `constitution_bypass` (constitution=2 rows only) and `constraint` (direct 1–7 / 0–10 rating of the general executive-constraint concept)
 - **Verification**: Self-Consistency (opt-in via `--verify self_consistency --n-samples N`) and Chain of Verification (CoVe, cross-model)
 - **Prompt Modes**: Single (default, all indicators in one call), Multiple (one call per indicator), Sequential (single prompt with shuffled/user-defined section order)
 - **Prompt Versions**: `v1` (full definitions), `v2` (expert-annotator persona), `v3` (compact) via `--prompt-version`
@@ -89,8 +89,26 @@ python pipeline/jsonl_batch_runner.py \
 ```
 
 Notes on the batch flow:
-- `--task` is one of `constitution`, `indicators`, `elections`. Elections requires
-  an input containing `assembly_prediction` (run it on a prior output).
+- `--task` is one of `constitution`, `indicators`, `elections`, `constitution_bypass`, `constraint`.
+  Elections requires an input containing `assembly_prediction`; constitution_bypass
+  requires `constitution_prediction` + the three `constitution_document_*` columns
+  (both run on a prior output). Bypass is gated on `constitution_prediction == 2`,
+  shows the model only the type-2 documents of the row's document list, takes no
+  search mode, and leaves ungated rows NA (no `0` pass-through — "not bypassed"
+  would be the wrong reading for a polity without a constitution).
+  `--no-examples` drops the early/middle-era examples from the bypass prompt.
+- `constraint` rates Gerring's general constraint definition directly on `--scale 7`
+  (1–7, XCONST-like anchors) or `--scale 10` (0–10); every row, prompt in
+  `prompts/constraint.py`. Pilot flow: `src/select_classic_cases.py` samples ~4 leaders
+  per classic case (Python port of `stats/classic_cases.R`, adds `case` +
+  `original_row_idx`), build with `--original-idx-col original_row_idx`, run with
+  `--dataset` = that sample CSV, then `Rscript stats/constraint_vs_irt.R <output.csv>`
+  compares the ratings with the IRT thetas in `stats/plt_irt.rds`.
+- Every run prints token usage and estimated USD cost (batch discount 0.5) and writes
+  `job_names`, `usage`, `cost_usd` into `{output}_provenance.json`. For older jobs:
+  `python src/batch_cost.py --job batches/... --model gemini-3.1-pro-preview`.
+- Print a task's full prompt: `python prompts/constitution_bypass.py [--no-examples]`,
+  `python prompts/constraint.py [7|10]`.
 - `--search-mode gemini_grounding` embeds Gemini's native Google Search tool; the
   runner writes the queries/URLs into `{task}_search_queries` / `{task}_urls_used`
   columns (always present; NA when no search occurred for a row).
@@ -238,7 +256,7 @@ Notes:
 
 | Argument | Description | Default |
 |----------|-------------|---------|
-| `--task` | `constitution`, `indicators`, `elections` | (required) |
+| `--task` | `constitution`, `indicators`, `elections`, `constitution_bypass`, `constraint` | (required) |
 | `--indicators` | Indicators for the indicators task | all non-constitution |
 | `--n-samples` | Additional SC samples per row | `0` |
 | `--prompt-version` | `v1`, `v2`, `v3` | `v1` |
@@ -246,6 +264,8 @@ Notes:
 | `--search-mode` | `none`, `pre_search`, `gemini_grounding` | `none` |
 | `--original-idx-col` | Column holding original row indices (subset re-runs) | None |
 | `--test` | Build only first N rows | None |
+| `--no-examples` | constitution_bypass only: omit early/middle-era examples | off |
+| `--scale` | constraint only: `7` (1–7) or `10` (0–10) | `7` |
 
 ## Architecture
 
@@ -292,6 +312,12 @@ Notes:
 │                             ▼  (run separately)                  │
 │  Downstream: elections (assembly=2 → LLM; else pass-through 0)   │
 │  via pipeline/post_processing.py or batch --task elections       │
+│  Downstream: constitution_bypass (constitution=2 → LLM; else NA) │
+│  batch only: --task constitution_bypass, prompts/constitution_   │
+│  bypass.py, no search                                            │
+│  Pilot: constraint (direct concept rating, --scale 7|10) on     │
+│  classic-case sample → stats/constraint_vs_irt.R vs IRT theta    │
+│  Every batch run → usage + cost_usd in provenance JSON           │
 │                                                                  │
 └──────────────────────────────────────────────────────────────────┘
 ```
@@ -315,7 +341,9 @@ constitution_llm/
 │   ├── indicators.py              # Per-indicator prompts (multiple mode)
 │   ├── single_builder.py          # Unified prompt, versions v1/v2/v3
 │   ├── multiple_builder.py        # Separate prompt per indicator
-│   └── sequential_builder.py      # Single prompt with shuffled section order
+│   ├── sequential_builder.py      # Single prompt with shuffled section order
+│   ├── constitution_bypass.py    # Bypass question (shared by pilot + batch task)
+│   └── constraint.py             # General constraint concept, 1-7 / 0-10 scales
 │
 ├── models/
 │   ├── base.py                    # BaseLLM abstract class + ModelResponse
@@ -349,6 +377,8 @@ constitution_llm/
 │
 ├── src/
 │   ├── build_batch_jsonl.py       # Build Gemini Batch API request JSONL
+│   ├── batch_cost.py              # Token usage + USD cost of finished batch jobs
+│   ├── select_classic_cases.py    # Sample classic-case leaders for the constraint pilot
 │   ├── diagnose_batch.py          # Batch output debugging helper
 │   └── csv_to_jsonl.py            # CSV to JSONL conversion
 │

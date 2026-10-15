@@ -711,8 +711,12 @@ mod_B <- mirt(dat_B, model = 1, itemtype = type_B,
               technical = list(NCYCLES = 2000))
 
 m1 <- mirt(dat_A, 1, itemtype = type_A, method = "EM", technical = list(NCYCLES = 2000))
-m2 <- mirt(dat_B, 1, itemtype = type_B, method = "EM", technical = list(NCYCLES = 2000))
-m3 <- mirt(dat_C, 1, itemtype = type_C, method = "EM", technical = list(NCYCLES = 2000))
+m2 <- mirt(dat_B, 2, itemtype = type_B, method = "EM", technical = list(NCYCLES = 2000))
+m3 <- mirt(dat_C, 2, itemtype = type_C, method = "EM", technical = list(NCYCLES = 2000))
+
+m4 <- mirt(dat_C, 1, itemtype = type_C, method = "EM", technical = list(NCYCLES = 2000))
+
+summary(m4)
 
 # store theta
 th1 <- fscores(m1, method = "EAP") 

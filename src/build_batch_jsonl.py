@@ -11,17 +11,23 @@ Self-consistency (SC) convention — matches main.py:
   Example: --n-samples 2 → 3 requests per group → 3 votes in majority vote
 
 Custom ID format:
-  constitution/elections:  "{row_idx}|{indicator}|{sc_idx}"
+  constitution/elections/constitution_bypass/constraint:  "{row_idx}|{indicator}|{sc_idx}"
   indicators task:         "{row_idx}|single|{sc_idx}"  (one request covers ALL indicators)
     row_idx:   0-based positional index in the input file
     sc_idx:    0-based index; 0 = initial prediction, 1..n = SC samples
   The selected indicators list is embedded in metadata["indicators"] for the runner.
 
-Three task types:
-  constitution  — uses prompts/constitution.py
-  indicators    — uses SinglePromptBuilder (one request per row covers all indicators)
-  elections     — filters rows where assembly_prediction == "2"; others get
-                  elections_prediction = "0" pass-through in the runner
+Five task types:
+  constitution        — uses prompts/constitution.py
+  indicators          — uses SinglePromptBuilder (one request per row covers all indicators)
+  elections           — filters rows where assembly_prediction == "2"; others get
+                        elections_prediction = "0" pass-through in the runner
+  constitution_bypass — filters rows where constitution_prediction == 2 (input must be
+                        a constitution-run output); other rows stay NA. No search.
+                        Uses prompts/constitution_bypass.py; --no-examples drops the
+                        early/middle-era examples.
+  constraint          — general executive-constraint concept rated directly on a
+                        numeric scale (--scale 7|10); every row. prompts/constraint.py.
 
 Usage
 -----
@@ -43,6 +49,12 @@ Usage
       --input data/results/exp001.csv \\
       --output data/temp/batch_elections.jsonl \\
       --n-samples 2
+
+  python src/build_batch_jsonl.py \\
+      --task constitution_bypass \\
+      --input data/plt_constraints.csv \\
+      --output data/temp/batch_constitution_bypass.jsonl \\
+      --n-samples 0 --reasoning False --search-mode none
 """
 
 import argparse
@@ -503,6 +515,128 @@ def build_elections_requests(
     return requests
 
 
+def build_constitution_bypass_requests(
+    df: pd.DataFrame,
+    n_samples: int,
+    max_tokens: int,
+    sc_temperatures: list[float] = None,
+    reasoning: bool = True,
+    with_examples: bool = True,
+    original_idx_col: Optional[str] = None,
+) -> list[dict]:
+    """Build requests for the constitution-bypass downstream task.
+
+    Only rows with constitution_prediction == 2 get an LLM call; other rows are
+    left NA by the runner (no pass-through value — "not bypassed" would be the
+    wrong reading for a polity without a constitution). The model sees only the
+    type-2 documents of the row's semicolon-separated document list.
+    No search: the question is answered from the model's own knowledge.
+    """
+    from prompts.constitution_bypass import get_prompt as get_bypass_prompt, select_type2_docs
+
+    if "constitution_prediction" not in df.columns:
+        raise ValueError("constitution_bypass task requires 'constitution_prediction' column in input.")
+
+    eligible_mask = pd.to_numeric(df["constitution_prediction"], errors="coerce") == 2
+    print("  Gate: constitution_prediction == 2")
+
+    all_temps = _all_temperatures(n_samples, sc_temperatures)
+    requests = []
+
+    for pos_idx in tqdm(range(len(df)), desc="constitution_bypass"):
+        if not eligible_mask.iloc[pos_idx]:
+            continue
+        row = df.iloc[pos_idx]
+        polity, name, start_year, end_year = _row_fields(row)
+        doc_name, doc_year = select_type2_docs(
+            row.get("constitution_document_name"),
+            row.get("constitution_year"),
+            row.get("constitution_document_types"),
+        )
+        sys_p, usr_p = get_bypass_prompt(polity, name, start_year, end_year, doc_name, doc_year,
+                                         reasoning=reasoning, with_examples=with_examples)
+
+        row_idx = int(row[original_idx_col]) if original_idx_col and original_idx_col in row.index else pos_idx
+
+        for sc_idx, temp in enumerate(all_temps):
+            custom_id = f"{row_idx}|constitution_bypass|{sc_idx}"
+            req = _make_request_line(custom_id, sys_p, usr_p, temp, max_tokens, n_samples,
+                                     use_grounding=False, reasoning=reasoning)
+            if sc_idx == 0:
+                req["metadata"]["row_data"] = json.dumps(
+                    row.to_dict(), ensure_ascii=False, default=str
+                )
+                if original_idx_col:
+                    req["metadata"]["original_row_idx"] = str(row_idx)
+            requests.append(req)
+
+    n_eligible = int(eligible_mask.sum())
+    print(f"  {n_eligible} eligible rows (constitution=2), {len(df) - n_eligible} rows left NA")
+    return requests
+
+
+def build_constraint_requests(
+    df: pd.DataFrame,
+    n_samples: int,
+    max_tokens: int,
+    sc_temperatures: list[float] = None,
+    scale: str = "7",
+    use_grounding: bool = False,
+    reasoning: bool = True,
+    pre_searcher=None,
+    original_idx_col: Optional[str] = None,
+) -> list[dict]:
+    """Build requests for the general-constraint concept task (every row).
+
+    `scale` ("7" or "10") selects the anchored scale in prompts/constraint.py and
+    is embedded in every request's metadata so the runner can validate the
+    returned integer against the right range.
+    """
+    from prompts.constraint import SCALES, get_prompt as get_constraint_prompt
+
+    scale = str(scale)
+    if scale not in SCALES:
+        raise ValueError(f"Unknown scale {scale!r}; choose one of {sorted(SCALES)}")
+
+    all_temps = _all_temperatures(n_samples, sc_temperatures)
+    requests = []
+
+    for pos_idx in tqdm(range(len(df)), desc="constraint"):
+        row = df.iloc[pos_idx]
+        polity, name, start_year, end_year = _row_fields(row)
+        sys_p, usr_p = get_constraint_prompt(polity, name, start_year, end_year,
+                                             scale=scale, reasoning=reasoning)
+
+        search_queries = None
+        search_urls = None
+        if pre_searcher is not None:
+            result = pre_searcher.search(polity, name, start_year, end_year)
+            usr_p = pre_searcher.enrich_prompt(usr_p, result)
+            search_queries = " | ".join(result.search_queries) if result.search_queries else None
+            search_urls = " | ".join(result.urls_used) if result.urls_used else None
+
+        row_idx = int(row[original_idx_col]) if original_idx_col and original_idx_col in row.index else pos_idx
+
+        for sc_idx, temp in enumerate(all_temps):
+            custom_id = f"{row_idx}|constraint|{sc_idx}"
+            req = _make_request_line(custom_id, sys_p, usr_p, temp, max_tokens, n_samples,
+                                     use_grounding=use_grounding, reasoning=reasoning)
+            req["metadata"]["scale"] = scale
+            if sc_idx == 0:
+                req["metadata"]["row_data"] = json.dumps(
+                    row.to_dict(), ensure_ascii=False, default=str
+                )
+                if original_idx_col:
+                    req["metadata"]["original_row_idx"] = str(row_idx)
+                if search_queries is not None:
+                    req["metadata"]["search_queries"] = search_queries
+                if search_urls is not None:
+                    req["metadata"]["search_urls"] = search_urls
+            requests.append(req)
+
+    return requests
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -514,7 +648,7 @@ def main():
         epilog=__doc__,
     )
     parser.add_argument(
-        "--task", choices=["constitution", "indicators", "elections"], required=True,
+        "--task", choices=["constitution", "indicators", "elections", "constitution_bypass", "constraint"], required=True,
     )
     parser.add_argument("--input", "-i", required=True, help="Input CSV or JSONL dataset.")
     parser.add_argument("--output", "-o", required=True, help="Output JSONL file path.")
@@ -539,6 +673,15 @@ def main():
         ),
     )
     parser.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS)
+    parser.add_argument(
+        "--scale", choices=["7", "10"], default="7",
+        help="constraint task only: rating scale, '7' (1-7, XCONST-like anchors) or '10' (0-10).",
+    )
+    parser.add_argument(
+        "--no-examples", action="store_true",
+        help="constitution_bypass task only: drop the early/middle-era examples from the prompt "
+             "(the Nixon/Lincoln examples are part of the question and always stay).",
+    )
     parser.add_argument(
         "--prompt-version", default="v1",
         help=(
@@ -645,6 +788,25 @@ def main():
             pre_searcher=pre_searcher,
             original_idx_col=args.original_idx_col,
         )
+    elif args.task == "constraint":
+        print(f"  scale={args.scale} | reasoning={args.reasoning}")
+        requests = build_constraint_requests(
+            df, args.n_samples, args.max_tokens, scale=args.scale,
+            use_grounding=use_grounding,
+            reasoning=args.reasoning,
+            pre_searcher=pre_searcher,
+            original_idx_col=args.original_idx_col,
+        )
+    elif args.task == "constitution_bypass":
+        if args.search_mode != "none":
+            raise SystemExit("constitution_bypass task does not use search; pass --search-mode none.")
+        print(f"  with_examples={not args.no_examples} | reasoning={args.reasoning}")
+        requests = build_constitution_bypass_requests(
+            df, args.n_samples, args.max_tokens,
+            reasoning=args.reasoning,
+            with_examples=not args.no_examples,
+            original_idx_col=args.original_idx_col,
+        )
 
     max_bytes = args.max_size_mb * 1024 * 1024
     written_files = _write_chunks(requests, args.output, max_bytes)
@@ -680,6 +842,10 @@ def main():
         manifest["prompt_version"] = args.prompt_version
     elif args.task == "elections":
         manifest["prompt_version"] = args.prompt_version
+    elif args.task == "constitution_bypass":
+        manifest["with_examples"] = not args.no_examples
+    elif args.task == "constraint":
+        manifest["scale"] = args.scale
     manifest_path = Path(written_files[0]).parent / "logs" / (Path(args.output).stem + "_manifest.json")
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     with open(manifest_path, "w", encoding="utf-8") as f:
