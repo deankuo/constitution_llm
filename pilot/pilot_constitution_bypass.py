@@ -11,6 +11,7 @@ so what is tested here is exactly what the batch run sends.
 Earlier pilot (versions A/B, "letter and/or spirit" wording): Lincoln was coded 1
 in 6/6 runs against the professor's judgement of 0; Nixon and Ebert were unstable.
 """
+import argparse
 import os
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -30,7 +31,10 @@ from utils.json_parser import parse_json_response  # noqa: E402
 MODEL = "gemini-3.1-pro-preview"
 N_REPS = 3
 OUT = "data/temp/pilot_constitution_bypass_v2.csv"
-VERSIONS = {"C": False, "D": True}  # version -> with_examples
+ALL_VERSIONS = {"C": False, "D": True}  # version -> with_examples
+# Set from CLI in main(); defaults reproduce the original C-vs-D pilot with reasoning.
+VERSIONS = dict(ALL_VERSIONS)
+REASONING = True
 
 # id -> (group, provisional expected label)
 # NOTE: Charles I and Marino Faliero appear in the version-D examples, so their
@@ -91,7 +95,7 @@ def run_one(llm, row, version, rep):
     sys_p, usr_p = get_prompt(
         row.polity_name, row.leader_name,
         fmt_year(row.leader_first_year), fmt_year(row.leader_last_year),
-        doc_name, doc_year, reasoning=True, with_examples=VERSIONS[version],
+        doc_name, doc_year, reasoning=REASONING, with_examples=VERSIONS[version],
     )
     out = {"id": row.id, "version": version, "rep": rep, "docs_shown": doc_name,
            "pred": None, "confidence": None, "reasoning": None, "error": None}
@@ -106,7 +110,25 @@ def run_one(llm, row, version, rep):
     return out
 
 
+def parse_args():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--versions", nargs="+", choices=sorted(ALL_VERSIONS), default=sorted(ALL_VERSIONS),
+                    help="prompt versions to run (C = question only, D = question + examples; default both)")
+    ap.add_argument("--no-reasoning", action="store_true",
+                    help="drop the reasoning field from the prompt/output (prediction + confidence only)")
+    ap.add_argument("--reps", type=int, default=N_REPS, help=f"repetitions per case (default {N_REPS})")
+    ap.add_argument("--out", default=OUT, help=f"output CSV (default {OUT})")
+    return ap.parse_args()
+
+
 def main():
+    global VERSIONS, REASONING, N_REPS, OUT
+    args = parse_args()
+    VERSIONS = {v: ALL_VERSIONS[v] for v in args.versions}
+    REASONING = not args.no_reasoning
+    N_REPS, OUT = args.reps, args.out
+    print(f"model={MODEL} versions={list(VERSIONS)} reasoning={REASONING} reps={N_REPS} out={OUT}", flush=True)
+
     df = pd.read_csv("data/plt_constraints.csv", low_memory=False)
     df = df[df.id.isin(CASES)].drop_duplicates("id").set_index("id", drop=False)
     missing = set(CASES) - set(df.index)

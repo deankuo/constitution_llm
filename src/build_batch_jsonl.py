@@ -27,7 +27,8 @@ Five task types:
                         Uses prompts/constitution_bypass.py; --no-examples drops the
                         early/middle-era examples.
   constraint          — general executive-constraint concept rated directly on a
-                        numeric scale (--scale 7|10); every row. prompts/constraint.py.
+                        numeric scale (--scale 7|10, --prompt-variant bare|detailed);
+                        every row. prompts/constraint.py.
 
 Usage
 -----
@@ -581,6 +582,7 @@ def build_constraint_requests(
     max_tokens: int,
     sc_temperatures: list[float] = None,
     scale: str = "7",
+    variant: str = "bare",
     use_grounding: bool = False,
     reasoning: bool = True,
     pre_searcher=None,
@@ -590,13 +592,16 @@ def build_constraint_requests(
 
     `scale` ("7" or "10") selects the anchored scale in prompts/constraint.py and
     is embedded in every request's metadata so the runner can validate the
-    returned integer against the right range.
+    returned integer against the right range. `variant` ("bare" or "detailed")
+    toggles the per-indicator gloss and is recorded in metadata too.
     """
-    from prompts.constraint import SCALES, get_prompt as get_constraint_prompt
+    from prompts.constraint import SCALES, VARIANTS, get_prompt as get_constraint_prompt
 
     scale = str(scale)
     if scale not in SCALES:
         raise ValueError(f"Unknown scale {scale!r}; choose one of {sorted(SCALES)}")
+    if variant not in VARIANTS:
+        raise ValueError(f"Unknown variant {variant!r}; choose one of {VARIANTS}")
 
     all_temps = _all_temperatures(n_samples, sc_temperatures)
     requests = []
@@ -605,7 +610,7 @@ def build_constraint_requests(
         row = df.iloc[pos_idx]
         polity, name, start_year, end_year = _row_fields(row)
         sys_p, usr_p = get_constraint_prompt(polity, name, start_year, end_year,
-                                             scale=scale, reasoning=reasoning)
+                                             scale=scale, reasoning=reasoning, variant=variant)
 
         search_queries = None
         search_urls = None
@@ -622,6 +627,7 @@ def build_constraint_requests(
             req = _make_request_line(custom_id, sys_p, usr_p, temp, max_tokens, n_samples,
                                      use_grounding=use_grounding, reasoning=reasoning)
             req["metadata"]["scale"] = scale
+            req["metadata"]["variant"] = variant
             if sc_idx == 0:
                 req["metadata"]["row_data"] = json.dumps(
                     row.to_dict(), ensure_ascii=False, default=str
@@ -676,6 +682,11 @@ def main():
     parser.add_argument(
         "--scale", choices=["7", "10"], default="7",
         help="constraint task only: rating scale, '7' (1-7, XCONST-like anchors) or '10' (0-10).",
+    )
+    parser.add_argument(
+        "--prompt-variant", choices=["bare", "detailed"], default="bare",
+        help="constraint task only: 'bare' (definition only) or 'detailed' (+ per-indicator gloss "
+             "and foreign-overlord rule).",
     )
     parser.add_argument(
         "--no-examples", action="store_true",
@@ -789,9 +800,9 @@ def main():
             original_idx_col=args.original_idx_col,
         )
     elif args.task == "constraint":
-        print(f"  scale={args.scale} | reasoning={args.reasoning}")
+        print(f"  scale={args.scale} | variant={args.prompt_variant} | reasoning={args.reasoning}")
         requests = build_constraint_requests(
-            df, args.n_samples, args.max_tokens, scale=args.scale,
+            df, args.n_samples, args.max_tokens, scale=args.scale, variant=args.prompt_variant,
             use_grounding=use_grounding,
             reasoning=args.reasoning,
             pre_searcher=pre_searcher,
@@ -846,6 +857,7 @@ def main():
         manifest["with_examples"] = not args.no_examples
     elif args.task == "constraint":
         manifest["scale"] = args.scale
+        manifest["prompt_variant"] = args.prompt_variant
     manifest_path = Path(written_files[0]).parent / "logs" / (Path(args.output).stem + "_manifest.json")
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     with open(manifest_path, "w", encoding="utf-8") as f:

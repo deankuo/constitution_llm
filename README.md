@@ -98,8 +98,11 @@ Notes on the batch flow:
   would be the wrong reading for a polity without a constitution).
   `--no-examples` drops the early/middle-era examples from the bypass prompt.
 - `constraint` rates Gerring's general constraint definition directly on `--scale 7`
-  (1–7, XCONST-like anchors) or `--scale 10` (0–10); every row, prompt in
-  `prompts/constraint.py`. Pilot flow: `src/select_classic_cases.py` samples ~4 leaders
+  (1–7, XCONST-like anchors) or `--scale 10` (0–10), with `--prompt-variant bare`
+  (definition + low/intermediate examples + coding notes) or `detailed` (+ a gloss of
+  each indicator the definition names and the foreign-overlord rule); every row,
+  prompt in `prompts/constraint.py`. Pilot uses `--n-samples 2`; the R comparison
+  averages the SC slots rather than using the majority vote. Pilot flow: `src/select_classic_cases.py` samples ~4 leaders
   per classic case (Python port of `stats/classic_cases.R`, adds `case` +
   `original_row_idx`), build with `--original-idx-col original_row_idx`, run with
   `--dataset` = that sample CSV, then `Rscript stats/constraint_vs_irt.R <output.csv>`
@@ -108,7 +111,7 @@ Notes on the batch flow:
   `job_names`, `usage`, `cost_usd` into `{output}_provenance.json`. For older jobs:
   `python src/batch_cost.py --job batches/... --model gemini-3.1-pro-preview`.
 - Print a task's full prompt: `python prompts/constitution_bypass.py [--no-examples]`,
-  `python prompts/constraint.py [7|10]`.
+  `python prompts/constraint.py [7|10] [bare|detailed]`.
 - `--search-mode gemini_grounding` embeds Gemini's native Google Search tool; the
   runner writes the queries/URLs into `{task}_search_queries` / `{task}_urls_used`
   columns (always present; NA when no search occurred for a row).
@@ -266,6 +269,7 @@ Notes:
 | `--test` | Build only first N rows | None |
 | `--no-examples` | constitution_bypass only: omit early/middle-era examples | off |
 | `--scale` | constraint only: `7` (1–7) or `10` (0–10) | `7` |
+| `--prompt-variant` | constraint only: `bare` or `detailed` | `bare` |
 
 ## Architecture
 
