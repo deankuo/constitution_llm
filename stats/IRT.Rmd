@@ -35,7 +35,7 @@ suppressPackageStartupMessages({
 mirtCluster(4)
 
 # Load datasets
-plt_gemini <- read_csv("../data/plt_constraints.csv", show_col_types = F)
+plt_gemini <- read_csv("../data/results/plt_constraints_bypass.csv", show_col_types = F)
 # region_broad has the least missingness (n = 16090)
 raw_data <- read_csv("../data/plt_dataset.csv", show_col_types = F) %>%
     select(id, region_broad) %>%
@@ -46,6 +46,13 @@ plt_gemini <- left_join(plt_gemini, raw_data, by = "id")
 # data aggregation
 plt_gemini <- plt_gemini %>%
     mutate(
+        # constitution
+        constitutionalism_prediction = case_when(
+            constitution_prediction == 0 ~ 0,
+            (constitution_prediction == 2) & (constitution_bypass_prediction) == 1 ~ 1,
+            constitution_prediction == 1 ~ 2,
+            constitution_prediction == 2 ~ 3
+        ), 
         entry_4_prediction = case_when(
             entry_prediction %in% c(0, 1) ~ 0,
             entry_prediction == 4 ~ 1,
@@ -75,8 +82,9 @@ plt_gemini <- plt_gemini %>%
             assembly_prediction == 0 ~ 0,
             assembly_prediction == 1 ~ 1,
             assembly_prediction == 2 & elections_prediction == 0 ~ 1,
-            assembly_prediction == 2 & elections_prediction == 1 ~ 2,
-            assembly_prediction == 2 & elections_prediction == 2 ~ 3,
+            # assembly_prediction == 2 & elections_prediction == 1  initially coded as 2
+            assembly_prediction == 2 & elections_prediction == 1 ~ 1,
+            assembly_prediction == 2 & elections_prediction == 2 ~ 2,
             assembly_prediction == 3 ~ 3),
         # symbolism recode
         symbolism_recode = case_when(
@@ -541,7 +549,7 @@ robust_tbl %>%
 ```{r PCA}
 # Version A: all 19 indicators
 items_A <- c(
-    "constitution_prediction",
+    "constitutionalism_prediction",
     "sovereign_prediction",
     "federalism_prediction",
     "collegiality_prediction",
@@ -564,7 +572,7 @@ items_A <- c(
 
 # Version B: Checks_prediction aggregation and elections and assembly aggregation
 items_B <- c(
-    "constitution_prediction",
+    "constitutionalism_prediction",
     "sovereign_prediction",
     "federalism_prediction",
     "collegiality_prediction",
@@ -579,7 +587,7 @@ items_B <- c(
 
 # Version C: exclude sovereign
 items_C <- c(
-    "constitution_prediction",
+    "constitutionalism_prediction",
     "federalism_prediction",
     "collegiality_prediction",
     "petition_prediction",
@@ -702,36 +710,34 @@ type_C <- get_itemtype(dat_C)
 
 set.seed(42)
 
-mod_A <- mirt(dat_A, model = 1, itemtype = type_A,
-              method = "EM", SE = TRUE,
-              technical = list(NCYCLES = 2000))
+# mod_A <- mirt(dat_A, model = 1, itemtype = type_A,
+#               method = "EM", SE = TRUE,
+#               technical = list(NCYCLES = 2000))
+# 
+# mod_B <- mirt(dat_B, model = 1, itemtype = type_B,
+#               method = "EM", SE = TRUE,
+#               technical = list(NCYCLES = 2000))
 
-mod_B <- mirt(dat_B, model = 1, itemtype = type_B,
-              method = "EM", SE = TRUE,
-              technical = list(NCYCLES = 2000))
-
-m1 <- mirt(dat_A, 1, itemtype = type_A, method = "EM", technical = list(NCYCLES = 2000))
-m2 <- mirt(dat_B, 2, itemtype = type_B, method = "EM", technical = list(NCYCLES = 2000))
+m1 <- mirt(dat_C, 1, itemtype = type_C, method = "EM", technical = list(NCYCLES = 2000))
+m2 <- mirt(dat_B, 1, itemtype = type_B, method = "EM", technical = list(NCYCLES = 2000))
 m3 <- mirt(dat_C, 2, itemtype = type_C, method = "EM", technical = list(NCYCLES = 2000))
 
-m4 <- mirt(dat_C, 1, itemtype = type_C, method = "EM", technical = list(NCYCLES = 2000))
-
-summary(m4)
 
 # store theta
-th1 <- fscores(m1, method = "EAP") 
+th1 <- fscores(m1, method = "EAP", full.scores.SE = TRUE)  # SE kept for leader-level CIs (classic_cases_plot.R)
 th2 <- fscores(m2, method = "EAP") 
 th3 <- fscores(m3, method = "EAP") 
 
 plt_scored <- plt_gemini %>%
-    mutate(theta_all = th1[, 1], 
+    mutate(theta_all = th1[, 1],
+           theta_all_se = th1[, 2],
            theta_agg = th2[, 1],
            theta_no_sov = th3[,1])
 
 saveRDS(plt_scored, "./plt_irt.rds")
 
 
-summary(m2, rotate = "oblimin")
+summary(m1, rotate = "oblimin")
 summary(m3, rotate = "oblimin")
 
 saveRDS(mod_A, "./mod_A_unidim.rds")
@@ -758,21 +764,21 @@ coef_A %>%
 
 summary(mod_A)
 summary(mod_B)
-
+summary(m3)
 ```
 
 ## Facial Validity
 
 ```{r Validity test}
 # mirtCluster(remove = TRUE)
-th1 <- fscores(mod_B, method = "EAP", full.scores.SE = TRUE)
-th2 <- fscores(m1, method = "EAP") 
+th1 <- fscores(m1, method = "EAP", full.scores.SE = TRUE)
+th2 <- fscores(m2, method = "EAP") 
 
 plt_scored <- plt_gemini %>%
     mutate(theta = th1[, 1], 
            theta_se = th1[, 2],
            theta_t = th2[,1],
-           n_miss = rowSums(is.na(dat_B)))
+           n_miss = rowSums(is.na(dat_C)))
 # Era
 plt_scored %>%
     group_by(era) %>%
