@@ -1165,7 +1165,16 @@ plt_gemini %>%
 # Bifactor
 
 ```{r}
+df <- read_csv("./output/constraint_rulers_rows.csv", show_col_types = F)
 
+print("Correlation between IRT Theta & Detailed Constraint Prompt")
+cor(df$theta_all, df$`llm | 0-10, detailed`)
+
+print("Correlation between IRT Theta & General Constraint Prompt")
+cor(df$theta_all, df$`llm | 0-10, bare`)
+
+print("Correlation between Detailed Constraint Prompt & General Constraint Prompt")
+cor(df$`llm | 0-10, detailed`, df$`llm | 0-10, bare`)
 ```
 
 ## EFA
