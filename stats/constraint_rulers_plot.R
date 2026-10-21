@@ -116,8 +116,8 @@ p_rk <- ggplot(rk, aes(y = tick)) +
   geom_point(aes(x = llm_rank, colour = period), size = 2) +
   facet_wrap(~ prompt, ncol = 4) +
   scale_colour_manual(values = period_cols, name = NULL) +
-  scale_x_continuous(breaks = c(1, 10, 20, 30, 40, 50)) +
-  labs(x = "Rank among the 50 rulers (1 = most constrained)", y = NULL,
+  scale_x_reverse(breaks = c(1, 10, 20, 30, 40, 50)) +
+  labs(x = "Rank among the 50 rulers (1 = most constrained, on the right; constraint falls to the left)", y = NULL,
        caption = "Hollow: IRT rank (rows ordered by it). Filled: LLM rank. Segment length = disagreement.") +
   theme_minimal(base_size = 9) +
   theme(legend.position = "top", panel.grid.minor = element_blank(), panel.grid.major.y = element_blank(),

@@ -52,7 +52,7 @@ p_rank <- ggplot(case_ctr, aes(mu, case, colour = period)) +
     geom_jitter(data = mutate(case_pts, case = factor(case, levels(case_ctr$case))),
                 aes(theta, case), height = 0.15, alpha = 0.15, size = 0.6,
                 show.legend = FALSE) +
-    geom_errorbarh(aes(xmin = lo, xmax = hi), height = 0.25) +
+    geom_errorbar(aes(xmin = lo, xmax = hi), height = 0.25) +
     geom_point(size = 2.6) +
     geom_text(aes(x = max(case_pts$theta) + 0.15, label = paste0("n=", n)),
               hjust = 0, size = 2.6, colour = "grey40") +
@@ -66,27 +66,84 @@ p_rank <- ggplot(case_ctr, aes(mu, case, colour = period)) +
 
 ggsave(file.path(out_dir, "classic_cases_theta_rank.png"), p_rank, width = 7, height = 6.5, dpi = 300)
 
-# B. Over time: case means at the window midpoint, labelled -------------------
-p_time <- ggplot(plt_irt, aes(leader_first_year, theta)) +
-    geom_point(alpha = 0.02, size = 0.4, colour = "grey60") +
-    geom_smooth(method = "gam", formula = y ~ s(x, bs = "cs"),
-                colour = "grey30", linewidth = 0.6, se = FALSE) +
-    geom_errorbar(data = case_ctr, aes(x = mid, ymin = lo, ymax = hi, colour = period),
-                  inherit.aes = FALSE, width = 0) +
-    geom_point(data = case_ctr, aes(mid, mu, fill = period), shape = 21,
-               size = 2.6, colour = "black", stroke = 0.3, inherit.aes = FALSE) +
-    geom_text_repel(data = case_ctr, aes(mid, mu, label = case, colour = period),
-                    inherit.aes = FALSE, size = 2.7, max.overlaps = Inf,
-                    box.padding = 0.45, min.segment.length = 0,
-                    segment.colour = "grey70", seed = 42, show.legend = FALSE) +
-    scale_colour_manual(values = period_cols, name = NULL, aesthetics = c("colour", "fill")) +
-    coord_cartesian(xlim = c(-800, 2025)) +
-    labs(x = "Year", y = expression(paste("Executive constraints (", theta, ")")),
-         caption = "Grey: all leaders + GAM trend. Coloured: classic-case mean ± 95% CI at the case-window midpoint.") +
-    theme_minimal(base_size = 10) +
-    theme(legend.position = "top", panel.grid.minor = element_blank())
+# B. Over time: famous leaders on the theta scale, tenure as a segment ---------
+#
+# Background = rug of ALL leader rows (x: first year of tenure, y: theta) plus
+# the GAM trend. Foreground = a hand-picked subset of stats/famous_rulers.R
+# (`time_rulers`, edit to taste): point at the tenure midpoint, horizontal
+# segment = tenure, label = name (tenure). Chosen to span the whole period
+# with both high- and low-theta leaders in every era. No era colours.
+source("stats/famous_rulers.R")
+time_rulers <- c(
+    # Ancient
+    "Hammurabi", "Ramses II", "Cyrus the Great", "Pericles", "Alexander the Great",
+    "Qin Shi Huang", "Julius Caesar", "Augustus",
+    # Medieval
+    "Justinian I", "Tang Taizong", "Charlemagne", "Harun al-Rashid",
+    "William the Conqueror", "Genghis Khan", "Frederick II (HRE)",
+    # Early modern
+    "Suleiman I", "Akbar", "Elizabeth I", "Louis XIV", "Peter the Great",
+    "Frederick the Great", "George Washington",
+    # Modern
+    "Abraham Lincoln", "Meiji (Mutsuhito)", "Stalin", "Hitler", "F. D. Roosevelt",
+    "Mao Zedong", "Margaret Thatcher", "Nelson Mandela", "Vladimir Putin")
+tmp_irt <- plt_irt
+if (!"theta_all_se" %in% names(tmp_irt)) tmp_irt$theta_all_se <- NA_real_
+fmt_year <- function(y) ifelse(y < 0, paste0(abs(y), " BC"), as.character(y))
+time_pts <- bind_rows(lapply(which(famous_rulers$label %in% time_rulers),
+                             function(i) match_ruler(famous_rulers[i, ], tmp_irt))) %>%
+    mutate(mid = (leader_first_year + leader_last_year) / 2,
+           lab = paste0(label, " (", fmt_year(leader_first_year), "–", fmt_year(leader_last_year), ")"))
+cat("\n-- Theta-over-time figure: leaders shown --\n")
+time_pts %>% arrange(leader_first_year) %>%
+    select(label, polity_name, leader_first_year, leader_last_year, theta) %>%
+    as.data.frame() %>% print(digits = 3, row.names = FALSE)
 
-ggsave(file.path(out_dir, "classic_cases_theta_time.png"), p_time, width = 9, height = 5.5, dpi = 300)
+# x_lo <- 200 * floor(min(time_pts$leader_first_year) / 200)
+x_lo <- -2700
+x_breaks <- seq(x_lo, 2000, by = 200)
+p_time <- ggplot(plt_irt, aes(leader_first_year, theta)) +
+    geom_smooth(method = "gam", formula = y ~ s(x, bs = "cs"),
+                colour = "grey55", linewidth = 0.6, se = FALSE, na.rm = TRUE) +
+    geom_segment(data = time_pts, aes(x = leader_first_year, xend = leader_last_year, y = theta, yend = theta),
+                 inherit.aes = FALSE, colour = "#1F3A5F", linewidth = 1.6, lineend = "round", alpha = 0.9) +
+    geom_point(data = time_pts, aes(mid, theta), inherit.aes = FALSE,
+               shape = 21, size = 2.4, fill = "white", colour = "#1F3A5F", stroke = 0.8) +
+    geom_text_repel(data = time_pts, aes(mid, theta, label = lab), inherit.aes = FALSE,
+                    size = 2.5, colour = "grey15", max.overlaps = Inf, box.padding = 0.55,
+                    point.padding = 0.3, min.segment.length = 0, segment.colour = "grey65",
+                    segment.size = 0.3, force = 2, seed = 42) +
+    scale_x_continuous(breaks = x_breaks, labels = fmt_year, expand = expansion(mult = 0.01)) +
+    coord_cartesian(xlim = c(x_lo, 2025), ylim = c(-1.7, 2.1), clip = "off") +
+    labs(x = NULL, y = expression(paste("Executive constraints (", theta, ")"))) +
+    theme_minimal(base_size = 10) +
+    theme(legend.position = "none", panel.grid.minor = element_blank(),
+          axis.text.x = element_blank())
+
+# Lower panel: how the leader rows are distributed over time (50-year bins).
+# Counts range from a few dozen per bin before 500 BC to >10,000 per bin after
+# 1500, so the y-axis is log10 — otherwise antiquity is invisible.
+p_dist <- ggplot(plt_irt, aes(leader_first_year)) +
+    geom_histogram(binwidth = 50, boundary = 0, fill = "grey55", colour = "white", linewidth = 0.2, na.rm = TRUE) +
+    scale_x_continuous(breaks = x_breaks, labels = fmt_year, expand = expansion(mult = 0.01)) +
+    # scale_y_log10(breaks = c(10, 100, 1000, 10000), labels = c("10", "100", "1k", "10k"),
+    #               expand = expansion(mult = c(0, 0.05))) +
+    coord_cartesian(xlim = c(x_lo, 2025)) +
+    labs(x = NULL, y = "leader rows\nper 50 yrs (log)") +
+    theme_minimal(base_size = 10) +
+    theme(panel.grid.minor = element_blank(), axis.text.x = element_text(size = 8),
+          axis.title.y = element_text(size = 8))
+
+suppressPackageStartupMessages(library(patchwork))
+p_time_full <- (p_time / p_dist) +
+    plot_layout(heights = c(4, 1.1)) +
+    plot_annotation(
+        caption = paste0("Top: segments = tenure of ", nrow(time_pts), " well-known leaders, point at the tenure midpoint, ",
+                         "height = that leader's theta; label = name (tenure). Grey curve: GAM trend of theta on first year of tenure.\n",
+                         "Bottom: number of leader rows in the IRT data by first year of tenure, 50-year bins, log scale."),
+        theme = theme(plot.caption = element_text(hjust = 0, size = 8)))
+
+ggsave(file.path(out_dir, "classic_cases_theta_time.png"), p_time_full, width = 14, height = 8, dpi = 300)
 
 case_ctr %>% arrange(desc(mu)) %>% print(n = Inf)
 
